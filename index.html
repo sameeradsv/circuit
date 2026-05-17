@@ -4,46 +4,31 @@
   <meta charset="UTF-8" />
   <title>Circuit</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- PWA manifest -->
   <link rel="manifest" href="manifest.webmanifest" />
-  <meta name="theme-color" content="#0f172a" />
-
-  <!-- iOS PWA -->
+  <meta name="theme-color" content="#10201f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Circuit" />
 
-  <!-- iOS touch icon via canvas -->
   <script>
     (function() {
       var c = document.createElement('canvas');
       c.width = 192; c.height = 192;
       var ctx = c.getContext('2d');
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = '#10201f';
       ctx.beginPath();
-      var r = 32;
-      ctx.moveTo(r,0); ctx.lineTo(192-r,0); ctx.quadraticCurveTo(192,0,192,r);
-      ctx.lineTo(192,192-r); ctx.quadraticCurveTo(192,192,192-r,192);
-      ctx.lineTo(r,192); ctx.quadraticCurveTo(0,192,0,192-r);
-      ctx.lineTo(0,r); ctx.quadraticCurveTo(0,0,r,0);
-      ctx.closePath(); ctx.fill();
-      var rows = [{y:72,checked:true},{y:104,checked:false},{y:136,checked:true}];
-      rows.forEach(function(row) {
-        ctx.strokeStyle='#38bdf8'; ctx.lineWidth=5;
-        ctx.beginPath(); ctx.arc(52,row.y,10,0,2*Math.PI); ctx.stroke();
-        if(row.checked){
-          ctx.strokeStyle='#38bdf8'; ctx.lineWidth=4;
-          ctx.lineCap='round'; ctx.lineJoin='round';
-          ctx.beginPath(); ctx.moveTo(47,row.y); ctx.lineTo(51,row.y+5); ctx.lineTo(58,row.y-6); ctx.stroke();
-        }
-        ctx.fillStyle='#bae6fd';
-        ctx.beginPath();
-        ctx.roundRect(72,row.y-5,row.checked?72:60,10,5); ctx.fill();
-      });
-      var link=document.createElement('link');
-      link.rel='apple-touch-icon';
-      link.href=c.toDataURL('image/png');
+      ctx.roundRect(0, 0, 192, 192, 36);
+      ctx.fill();
+      ctx.strokeStyle = '#86efac';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(52, 126);
+      ctx.bezierCurveTo(62, 70, 122, 54, 148, 86);
+      ctx.bezierCurveTo(110, 88, 82, 106, 64, 142);
+      ctx.stroke();
+      var link = document.createElement('link');
+      link.rel = 'apple-touch-icon';
+      link.href = c.toDataURL('image/png');
       document.head.appendChild(link);
     })();
   </script>
@@ -54,20 +39,20 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="theme-aurora">
+  <div class="ambient-field" aria-hidden="true"></div>
 
   <header>
     <h1>Circuit</h1>
     <div class="header-right">
-      <div class="mode-pill" id="mode-display" title="Tap to change energy mode"></div>
+      <button type="button" class="mode-pill" id="mode-display" title="Change energy mode"></button>
     </div>
   </header>
 
   <main>
-
-    <!-- Daily Snapshot Banner -->
-    <div class="snapshot-banner" id="snapshot-banner"></div>
     <section class="dashboard" id="dashboard">
+      <div class="snapshot-banner" id="snapshot-banner"></div>
       <div class="stats-grid" id="stats-grid"></div>
+
       <div class="workload-section">
         <div class="workload-header">
           <span>Workload</span>
@@ -75,45 +60,55 @@
         </div>
         <div class="workload-bar" id="workload-bar"><span class="workload-fill"></span></div>
       </div>
+
       <details class="panel schedule-panel" open>
         <summary>Today's plan</summary>
         <ul class="schedule-list" id="schedule-list"></ul>
         <p class="schedule-explain" id="schedule-explain"></p>
       </details>
+
       <details class="panel forecast-panel">
         <summary>Forecast</summary>
         <div id="forecast-panel" class="forecast-body"></div>
       </details>
+
       <div class="insight-panel" id="insight-panel" aria-live="polite"></div>
     </section>
 
-    <!-- Energy Mode Selector -->
     <section class="mode-selector" id="mode-selector">
       <button class="mode-btn active" data-mode="normal">Normal</button>
-      <button class="mode-btn" data-mode="deep">Deep Work</button>
-      <button class="mode-btn" data-mode="low">Low Energy</button>
-      <button class="mode-btn" data-mode="social">Social Recovery</button>
+      <button class="mode-btn" data-mode="deep">Deep work</button>
+      <button class="mode-btn" data-mode="low">Low energy</button>
+      <button class="mode-btn" data-mode="social">Social recovery</button>
     </section>
 
-    <!-- Add Task Form -->
     <form id="task-form">
-      <input id="task-input" type="text" placeholder="Try: remind me to call mom at 3pm (30 min)" required />
+      <input id="task-input" type="text" placeholder="Capture a task, deadline, or plan" required />
       <button type="submit">Add</button>
-    <input type="file" id="file-input" accept=".txt" hidden />
-        <label for="file-input" class="import-btn">↑ Import</label>
     </form>
 
-    <!-- Tag selector -->
     <div class="tag-row" id="tag-row">
-      <span class="tag-label">Tag:</span>
+      <span class="tag-label">Tag</span>
       <button class="tag-btn active" data-tag="general">General</button>
       <button class="tag-btn" data-tag="work">Work</button>
       <button class="tag-btn" data-tag="social">Social</button>
       <button class="tag-btn" data-tag="later">Later</button>
     </div>
 
-      <div id="import-status" class="import-status"></div>
-    
+    <div id="import-status" class="import-status"></div>
+
+    <details class="sync-menu">
+      <summary>Sync</summary>
+      <div class="sync-actions" aria-label="Import and export">
+        <input type="file" id="file-input" accept=".txt" hidden />
+        <input type="file" id="calendar-file-input" accept=".ics,text/calendar" hidden />
+        <button type="button" class="import-btn">Import tasks</button>
+        <button type="button" id="calendar-import">Import calendar</button>
+        <button type="button" id="calendar-export">Export calendar</button>
+        <span id="calendar-sync-status">Local file sync</span>
+      </div>
+    </details>
+
     <div class="view-row">
       <section class="filters">
         <button data-filter="all" class="active">All</button>
@@ -128,22 +123,8 @@
       </div>
     </div>
 
-    <section class="calendar-sync-panel" aria-label="Calendar sync">
-      <div>
-        <strong>Calendar sync</strong>
-        <span id="calendar-sync-status">Local .ics import/export ready</span>
-      </div>
-      <div class="calendar-sync-actions">
-        <input type="file" id="calendar-file-input" accept=".ics,text/calendar" hidden />
-        <button type="button" id="calendar-import">Import .ics</button>
-        <button type="button" id="calendar-export">Export plan</button>
-      </div>
-    </section>
-
-    <!-- Task list -->
     <ul id="task-list"></ul>
 
-    <!-- Task detail modal -->
     <div class="detail-overlay" id="detail-overlay" hidden>
       <div class="detail-card">
         <h2 class="detail-title" id="detail-title"></h2>
@@ -155,19 +136,17 @@
       </div>
     </div>
 
-    <!-- Next Tiny Step modal -->
     <div class="nts-overlay" id="nts-overlay" hidden>
       <div class="nts-card">
-        <p class="nts-title">What's the tiniest next step?</p>
+        <p class="nts-title">Smallest next step</p>
         <p class="nts-task-name" id="nts-task-name"></p>
-        <input id="nts-input" type="text" placeholder="e.g. Open file and add one function" />
+        <input id="nts-input" type="text" placeholder="Open the file and do one edit" />
         <div class="nts-actions">
           <button id="nts-save">Save step</button>
           <button id="nts-cancel" class="nts-cancel">Cancel</button>
         </div>
       </div>
     </div>
-
   </main>
 
   <script src="app.js"></script>

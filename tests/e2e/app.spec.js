@@ -2,15 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Task Manager PWA', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await page.evaluate(async () => {
-      localStorage.clear();
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((r) => r.unregister()));
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    });
-    await page.reload();
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
   });
 
   test('loads homepage', async ({ page }) => {

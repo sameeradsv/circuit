@@ -1,11 +1,10 @@
-import { analyzeBehavior } from '../behavioral-engine';
-import type { BehavioralInsight } from '../types';
 import { explainSchedule, forecastDay } from '../ai-assistance';
+import { analyzeBehavior } from '../behavioral-engine';
 import { computeAnalytics, type TaskAnalytics } from '../analytics-engine';
 import { getRecommendations, type Recommendation } from '../recommendation-engine';
 import { buildSchedule } from '../scheduling-engine';
 import type { DayForecast } from '../ai-assistance/predictive';
-import type { EnergyMode, ScheduleContext, SchedulePlan, Task } from '../types';
+import type { BehavioralInsight, EnergyMode, ScheduleContext, SchedulePlan, Task } from '../types';
 
 export interface DashboardState {
   tasks: Task[];
@@ -24,12 +23,6 @@ export function buildDashboardState(tasks: Task[], mode: EnergyMode): DashboardS
     ).length,
   };
   return { tasks, mode, plan: buildSchedule(tasks, ctx), ctx };
-}
-
-function startOfDay(ts: number): number {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
 }
 
 export function renderDashboard(state: DashboardState): void {
@@ -52,7 +45,7 @@ function renderBanner(recs: Recommendation[], analytics: TaskAnalytics): void {
   if (!banner) return;
   banner.textContent =
     recs[0]?.headline ??
-    `${analytics.pending} pending · ~${analytics.totalPendingMinutes} min planned`;
+    `${analytics.pending} pending / ~${analytics.totalPendingMinutes} min planned`;
 }
 
 function renderStats(analytics: TaskAnalytics, plan: SchedulePlan): void {
@@ -64,13 +57,9 @@ function renderStats(analytics: TaskAnalytics, plan: SchedulePlan): void {
   el.innerHTML = [
     statCard(String(analytics.pending), 'Pending'),
     statCard(String(analytics.completed), 'Done'),
-    statCard(`${plan.workloadMinutes}m`, 'Scheduled'),
+    statCard(`${plan.workloadMinutes}m`, 'Planned'),
     statCard(`${completionPct}%`, 'Complete'),
   ].join('');
-}
-
-function statCard(value: string, label: string): string {
-  return `<div class="stat-card"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`;
 }
 
 function renderWorkloadBar(plan: SchedulePlan, ctx: ScheduleContext): void {
@@ -79,6 +68,8 @@ function renderWorkloadBar(plan: SchedulePlan, ctx: ScheduleContext): void {
   if (!bar || !label) return;
 
   const pct = Math.min(100, Math.round((plan.workloadMinutes / ctx.availableMinutes) * 100));
+  document.body.setAttribute('data-workload', pct >= 100 ? 'overload' : pct >= 70 ? 'steady' : 'open');
+
   const fill = bar.querySelector('.workload-fill') as HTMLElement | null;
   if (fill) {
     fill.style.width = `${pct}%`;
@@ -104,7 +95,7 @@ function renderSchedulePlan(plan: SchedulePlan): void {
           <span class="schedule-rank">#${i + 1}</span>
           <div class="schedule-item-body">
             <span class="schedule-item-text">${escapeHtml(s.task.text)}</span>
-            <span class="schedule-item-meta">${s.task.duration}m · ${s.task.effort} · ${reasons}</span>
+            <span class="schedule-item-meta">${s.task.duration}m / ${s.task.effort} / ${escapeHtml(reasons)}</span>
             <div class="score-bar" style="--score:${scoreW}%"><span></span></div>
           </div>
         </li>`;
@@ -121,7 +112,7 @@ function renderForecast(forecast: DayForecast): void {
 
   const riskClass = forecast.riskOfOverload ? 'forecast-warn' : 'forecast-ok';
   const riskText = forecast.riskOfOverload ? 'Overload risk' : 'Capacity OK';
-  const focus = forecast.focusTask ? escapeHtml(forecast.focusTask) : '—';
+  const focus = forecast.focusTask ? escapeHtml(forecast.focusTask) : '-';
 
   el.innerHTML = [
     `<div class="forecast-item"><strong>${forecast.likelyCompleted}</strong> tasks likely today</div>`,
@@ -138,7 +129,7 @@ function renderInsights(recs: Recommendation[], behavioral: BehavioralInsight[])
 
   for (const r of recs.slice(0, 2)) {
     items.push(
-      `<p class="insight-line insight-rec"><span class="insight-icon">✦</span>${escapeHtml(r.headline)}</p>`,
+      `<p class="insight-line insight-rec"><span class="insight-icon">*</span>${escapeHtml(r.headline)}</p>`,
     );
   }
   for (const b of behavioral.slice(0, 3)) {
@@ -161,14 +152,24 @@ function renderInsights(recs: Recommendation[], behavioral: BehavioralInsight[])
 function iconFor(type: BehavioralInsight['type']): string {
   switch (type) {
     case 'procrastination':
-      return '⏳';
+      return '!';
     case 'window':
-      return '🕐';
+      return '~';
     case 'completion':
-      return '✓';
+      return '+';
     default:
-      return '→';
+      return '>';
   }
+}
+
+function statCard(value: string, label: string): string {
+  return `<div class="stat-card"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`;
+}
+
+function startOfDay(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
 }
 
 function escapeHtml(s: string): string {
@@ -180,4 +181,3 @@ function escapeHtml(s: string): string {
 function escapeAttr(s: string): string {
   return s.replace(/"/g, '&quot;');
 }
-

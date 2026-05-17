@@ -1,5 +1,5 @@
-import type { ScoredTask, Task } from '../types';
 import { groupTasksByTag } from '../task-engine';
+import type { ScoredTask, Task } from '../types';
 
 export type ViewMode = 'list' | 'grouped';
 
@@ -38,6 +38,48 @@ export function renderTaskList(
   for (const task of tasks) list.appendChild(buildTaskItem(task, ctx));
 }
 
+export function renderTaskDetailRows(task: Task, scored?: ScoredTask): string {
+  const scheduledValue = task.scheduledAt ? toLocalInputValue(task.scheduledAt) : '';
+  const recurrence = task.recurrence ?? '';
+  const knownRecurrence = ['daily', 'weekly', 'monthly', 'weekdays'].includes(recurrence);
+  const rows: [string, string][] = [
+    [
+      'Duration',
+      `<input id="detail-duration" type="number" min="5" max="480" step="5" value="${task.duration}" />`,
+    ],
+    ['Effort', select('detail-effort', ['low', 'medium', 'high'], task.effort)],
+    ['Focus', select('detail-focus', ['deep', 'shallow', 'admin', 'creative'], task.focusType)],
+    ['Deadline', select('detail-deadline', ['none', 'soft', 'hard'], task.deadlineType)],
+    ['Scheduled', `<input id="detail-scheduled" type="datetime-local" value="${scheduledValue}" />`],
+    [
+      'Recurrence',
+      `${select(
+        'detail-recurrence',
+        ['', 'daily', 'weekly', 'monthly', 'weekdays', 'custom'],
+        knownRecurrence ? recurrence : recurrence ? 'custom' : '',
+        ['None', 'Daily', 'Weekly', 'Monthly', 'Weekdays', 'Custom'],
+      )}
+       <input id="detail-recurrence-custom" class="detail-custom-recurrence" type="text" placeholder="FREQ=WEEKLY;BYDAY=MO" value="${knownRecurrence ? '' : escapeAttr(recurrence)}" />`,
+    ],
+    ['Importance', pct(task.importance)],
+    ['Urgency', pct(task.urgency)],
+    ['Cognitive load', pct(task.cognitiveLoad)],
+    ['Emotional resistance', pct(task.emotionalResistance)],
+    ['Momentum', pct(task.momentumValue)],
+    ['Completion rate', pct(task.historicalCompletionRate)],
+    ['Energy / reward', pct(task.energyToRewardRatio)],
+  ];
+
+  if (task.preferredExecutionWindow) rows.push(['Best window', task.preferredExecutionWindow]);
+  if (task.skippedCount > 0) rows.push(['Skipped', String(task.skippedCount)]);
+  if (scored) {
+    rows.push(['Schedule score', String(Math.round(scored.score))]);
+    if (scored.reasons.length) rows.push(['Why now', scored.reasons.join(', ')]);
+  }
+
+  return rows.map(([k, v]) => `<label class="detail-row"><span>${k}</span><span>${v}</span></label>`).join('');
+}
+
 function buildTaskItem(task: Task, ctx: RenderContext): HTMLLIElement {
   const li = document.createElement('li');
   li.className = 'task-item' + (task.completed ? ' completed' : '');
@@ -62,6 +104,7 @@ function buildTaskItem(task: Task, ctx: RenderContext): HTMLLIElement {
     rankBadge.textContent = '#' + (rank + 1);
     topRow.appendChild(rankBadge);
   }
+
   const text = document.createElement('span');
   text.className = 'task-text';
   text.textContent = task.text;
@@ -71,7 +114,7 @@ function buildTaskItem(task: Task, ctx: RenderContext): HTMLLIElement {
   if (task.tinyStep) {
     const step = document.createElement('div');
     step.className = 'tiny-step';
-    step.textContent = '-> ' + task.tinyStep;
+    step.textContent = 'Next: ' + task.tinyStep;
     content.appendChild(step);
   }
 
@@ -79,7 +122,7 @@ function buildTaskItem(task: Task, ctx: RenderContext): HTMLLIElement {
   if (scored && !task.completed) {
     const hint = document.createElement('div');
     hint.className = 'schedule-hint';
-    hint.textContent = scored.reasons.length ? scored.reasons.join(' | ') : 'score ' + Math.round(scored.score);
+    hint.textContent = scored.reasons.length ? scored.reasons.join(' / ') : 'score ' + Math.round(scored.score);
     content.appendChild(hint);
     content.appendChild(makeScoreBar(scored.score));
   }
@@ -101,14 +144,14 @@ function buildTaskItem(task: Task, ctx: RenderContext): HTMLLIElement {
   const actions = document.createElement('div');
   actions.className = 'task-actions';
   if (!task.completed) {
-    actions.appendChild(actionBtn('ℹ', 'View details', () => ctx.onDetails(task.id)));
-    actions.appendChild(actionBtn('⚡', 'Set tiny step', () => ctx.onTinyStep(task.id)));
+    actions.appendChild(actionBtn('i', 'View details', () => ctx.onDetails(task.id)));
+    actions.appendChild(actionBtn('+', 'Set tiny step', () => ctx.onTinyStep(task.id)));
     if (task.effort === 'high' || task.taskDecompositionPotential >= 0.5) {
-      actions.appendChild(actionBtn('⑂', 'Split task', () => ctx.onSplit(task.id)));
+      actions.appendChild(actionBtn('/', 'Split task', () => ctx.onSplit(task.id)));
     }
-    actions.appendChild(actionBtn('↷', 'Skip', () => ctx.onSkip(task.id)));
+    actions.appendChild(actionBtn('~', 'Skip', () => ctx.onSkip(task.id)));
   }
-  actions.appendChild(actionBtn('✕', 'Delete task', () => ctx.onDelete(task.id), true));
+  actions.appendChild(actionBtn('x', 'Delete task', () => ctx.onDelete(task.id), true));
 
   li.appendChild(checkbox);
   li.appendChild(content);
@@ -116,28 +159,12 @@ function buildTaskItem(task: Task, ctx: RenderContext): HTMLLIElement {
   return li;
 }
 
-function fixDivs(root: HTMLElement): void {
-  root.querySelectorAll('motion').forEach((node) => {
-    const el = node as HTMLElement;
-    const d = document.createElement('div');
-    d.className = el.className;
-    d.innerHTML = el.innerHTML;
-    el.getAttributeNames().forEach((n) => d.setAttribute(n, el.getAttribute(n)!));
-    if (el.style.cssText) d.style.cssText = el.style.cssText;
-    el.replaceWith(d);
-  });
-}
-
 function makeScoreBar(score: number): HTMLElement {
   const bar = document.createElement('div');
   bar.className = 'score-bar task-score-bar';
   bar.style.setProperty('--score', Math.min(100, Math.max(5, Math.round(score))) + '%');
   bar.appendChild(document.createElement('span'));
-  const d = document.createElement('div');
-  d.className = bar.className;
-  d.style.cssText = bar.style.cssText;
-  d.appendChild(bar.firstChild!);
-  return d;
+  return bar;
 }
 
 function makeLoadBar(load: number): HTMLElement {
@@ -145,17 +172,14 @@ function makeLoadBar(load: number): HTMLElement {
   row.className = 'load-row';
   const label = document.createElement('span');
   label.className = 'load-label';
-  label.textContent = 'cognitive';
+  label.textContent = 'load';
   const bar = document.createElement('div');
   bar.className = 'load-bar';
   bar.style.setProperty('--load', Math.round(load * 100) + '%');
   bar.appendChild(document.createElement('span'));
   row.appendChild(label);
   row.appendChild(bar);
-  const d = document.createElement('div');
-  d.className = row.className;
-  while (row.firstChild) d.appendChild(row.firstChild);
-  return d;
+  return row;
 }
 
 function appendChip(parent: HTMLElement, text: string, extra = ''): void {
@@ -169,7 +193,8 @@ function actionBtn(label: string, title: string, onClick: () => void, del = fals
   const btn = document.createElement('button');
   btn.textContent = label;
   btn.title = title;
-  if (del) btn.setAttribute('aria-label', title);
+  btn.setAttribute('aria-label', title);
+  if (del) btn.classList.add('danger-action');
   btn.addEventListener('click', onClick);
   return btn;
 }
@@ -182,58 +207,6 @@ function formatScheduled(ts: number): string {
   return 'in ' + Math.round(mins / 60) + 'h';
 }
 
-export function renderTaskDetailRows(task: Task, scored?: ScoredTask): string {
-  const scheduledValue = task.scheduledAt ? toLocalInputValue(task.scheduledAt) : '';
-  const recurrence = task.recurrence ?? '';
-  const knownRecurrence = ['daily', 'weekly', 'monthly', 'weekdays'].includes(recurrence);
-  const rows: [string, string][] = [
-    [
-      'Duration',
-      `<input id="detail-duration" type="number" min="5" max="480" step="5" value="${task.duration}" />`,
-    ],
-    [
-      'Effort',
-      select('detail-effort', ['low', 'medium', 'high'], task.effort),
-    ],
-    [
-      'Focus',
-      select('detail-focus', ['deep', 'shallow', 'admin', 'creative'], task.focusType),
-    ],
-    [
-      'Deadline',
-      select('detail-deadline', ['none', 'soft', 'hard'], task.deadlineType),
-    ],
-    [
-      'Scheduled',
-      `<input id="detail-scheduled" type="datetime-local" value="${scheduledValue}" />`,
-    ],
-    [
-      'Recurrence',
-      `${select('detail-recurrence', ['', 'daily', 'weekly', 'monthly', 'weekdays', 'custom'], knownRecurrence ? recurrence : recurrence ? 'custom' : '', ['None', 'Daily', 'Weekly', 'Monthly', 'Weekdays', 'Custom'])}
-       <input id="detail-recurrence-custom" class="detail-custom-recurrence" type="text" placeholder="FREQ=WEEKLY;BYDAY=MO" value="${knownRecurrence ? '' : escapeAttr(recurrence)}" />`,
-    ],
-    ['Importance', pct(task.importance)],
-    ['Urgency', pct(task.urgency)],
-    ['Cognitive load', pct(task.cognitiveLoad)],
-    ['Emotional resistance', pct(task.emotionalResistance)],
-    ['Momentum', pct(task.momentumValue)],
-    ['Completion rate', pct(task.historicalCompletionRate)],
-    ['Energy / reward', pct(task.energyToRewardRatio)],
-  ];
-  if (task.preferredExecutionWindow) rows.push(['Best window', task.preferredExecutionWindow]);
-  if (task.skippedCount > 0) rows.push(['Skipped', String(task.skippedCount)]);
-  if (scored) {
-    rows.push(['Schedule score', String(Math.round(scored.score))]);
-    if (scored.reasons.length) rows.push(['Why now', scored.reasons.join(', ')]);
-  }
-  return rows
-    .map(([k, v]) => `<label class="detail-row"><span>${k}</span><span>${v}</span></label>`)
-    .join('')
-    .replace(/motion/g, 'div');
-}
-
-function pct(n: number): string { return Math.round(n * 100) + '%'; }
-
 function select(id: string, values: string[], current: string, labels = values): string {
   return `<select id="${id}">${values
     .map((value, index) => `<option value="${escapeAttr(value)}"${value === current ? ' selected' : ''}>${labels[index]}</option>`)
@@ -244,6 +217,10 @@ function toLocalInputValue(ts: number): string {
   const d = new Date(ts);
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 16);
+}
+
+function pct(n: number): string {
+  return Math.round(n * 100) + '%';
 }
 
 function escapeAttr(s: string): string {

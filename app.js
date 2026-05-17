@@ -611,11 +611,6 @@ ${lines.join("\n")}`;
     };
     return { tasks: tasks2, mode, plan: buildSchedule(tasks2, ctx), ctx };
   }
-  function startOfDay3(ts) {
-    const d = new Date(ts);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }
   function renderDashboard(state) {
     const { tasks: tasks2, mode, plan, ctx } = state;
     const analytics = computeAnalytics(tasks2);
@@ -633,7 +628,7 @@ ${lines.join("\n")}`;
     const banner = document.getElementById("snapshot-banner");
     if (!banner)
       return;
-    banner.textContent = recs[0]?.headline ?? `${analytics.pending} pending \xB7 ~${analytics.totalPendingMinutes} min planned`;
+    banner.textContent = recs[0]?.headline ?? `${analytics.pending} pending / ~${analytics.totalPendingMinutes} min planned`;
   }
   function renderStats(analytics, plan) {
     const el = document.getElementById("stats-grid");
@@ -643,12 +638,9 @@ ${lines.join("\n")}`;
     el.innerHTML = [
       statCard(String(analytics.pending), "Pending"),
       statCard(String(analytics.completed), "Done"),
-      statCard(`${plan.workloadMinutes}m`, "Scheduled"),
+      statCard(`${plan.workloadMinutes}m`, "Planned"),
       statCard(`${completionPct}%`, "Complete")
     ].join("");
-  }
-  function statCard(value, label) {
-    return `<div class="stat-card"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`;
   }
   function renderWorkloadBar(plan, ctx) {
     const bar = document.getElementById("workload-bar");
@@ -656,6 +648,7 @@ ${lines.join("\n")}`;
     if (!bar || !label)
       return;
     const pct2 = Math.min(100, Math.round(plan.workloadMinutes / ctx.availableMinutes * 100));
+    document.body.setAttribute("data-workload", pct2 >= 100 ? "overload" : pct2 >= 70 ? "steady" : "open");
     const fill = bar.querySelector(".workload-fill");
     if (fill) {
       fill.style.width = `${pct2}%`;
@@ -678,7 +671,7 @@ ${lines.join("\n")}`;
           <span class="schedule-rank">#${i + 1}</span>
           <div class="schedule-item-body">
             <span class="schedule-item-text">${escapeHtml(s.task.text)}</span>
-            <span class="schedule-item-meta">${s.task.duration}m \xB7 ${s.task.effort} \xB7 ${reasons}</span>
+            <span class="schedule-item-meta">${s.task.duration}m / ${s.task.effort} / ${escapeHtml(reasons)}</span>
             <div class="score-bar" style="--score:${scoreW}%"><span></span></div>
           </div>
         </li>`;
@@ -693,7 +686,7 @@ ${lines.join("\n")}`;
       return;
     const riskClass = forecast.riskOfOverload ? "forecast-warn" : "forecast-ok";
     const riskText = forecast.riskOfOverload ? "Overload risk" : "Capacity OK";
-    const focus = forecast.focusTask ? escapeHtml(forecast.focusTask) : "\u2014";
+    const focus = forecast.focusTask ? escapeHtml(forecast.focusTask) : "-";
     el.innerHTML = [
       `<div class="forecast-item"><strong>${forecast.likelyCompleted}</strong> tasks likely today</div>`,
       `<div class="forecast-item">Focus: <strong>${focus}</strong></div>`,
@@ -707,7 +700,7 @@ ${lines.join("\n")}`;
     const items = [];
     for (const r of recs.slice(0, 2)) {
       items.push(
-        `<p class="insight-line insight-rec"><span class="insight-icon">\u2726</span>${escapeHtml(r.headline)}</p>`
+        `<p class="insight-line insight-rec"><span class="insight-icon">*</span>${escapeHtml(r.headline)}</p>`
       );
     }
     for (const b of behavioral.slice(0, 3)) {
@@ -721,14 +714,22 @@ ${lines.join("\n")}`;
   function iconFor(type) {
     switch (type) {
       case "procrastination":
-        return "\u23F3";
+        return "!";
       case "window":
-        return "\u{1F550}";
+        return "~";
       case "completion":
-        return "\u2713";
+        return "+";
       default:
-        return "\u2192";
+        return ">";
     }
+  }
+  function statCard(value, label) {
+    return `<div class="stat-card"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`;
+  }
+  function startOfDay3(ts) {
+    const d = new Date(ts);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
   }
   function escapeHtml(s) {
     const d = document.createElement("div");
@@ -758,6 +759,7 @@ ${lines.join("\n")}`;
     document.querySelectorAll(".mode-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.mode === mode);
     });
+    document.body.setAttribute("data-mode", mode);
     const pill = document.getElementById("mode-display");
     if (pill)
       pill.textContent = MODE_NAMES[mode] ?? mode;
@@ -826,6 +828,48 @@ ${lines.join("\n")}`;
     for (const task of tasks2)
       list2.appendChild(buildTaskItem(task, ctx));
   }
+  function renderTaskDetailRows(task, scored) {
+    const scheduledValue = task.scheduledAt ? toLocalInputValue(task.scheduledAt) : "";
+    const recurrence = task.recurrence ?? "";
+    const knownRecurrence = ["daily", "weekly", "monthly", "weekdays"].includes(recurrence);
+    const rows = [
+      [
+        "Duration",
+        `<input id="detail-duration" type="number" min="5" max="480" step="5" value="${task.duration}" />`
+      ],
+      ["Effort", select("detail-effort", ["low", "medium", "high"], task.effort)],
+      ["Focus", select("detail-focus", ["deep", "shallow", "admin", "creative"], task.focusType)],
+      ["Deadline", select("detail-deadline", ["none", "soft", "hard"], task.deadlineType)],
+      ["Scheduled", `<input id="detail-scheduled" type="datetime-local" value="${scheduledValue}" />`],
+      [
+        "Recurrence",
+        `${select(
+          "detail-recurrence",
+          ["", "daily", "weekly", "monthly", "weekdays", "custom"],
+          knownRecurrence ? recurrence : recurrence ? "custom" : "",
+          ["None", "Daily", "Weekly", "Monthly", "Weekdays", "Custom"]
+        )}
+       <input id="detail-recurrence-custom" class="detail-custom-recurrence" type="text" placeholder="FREQ=WEEKLY;BYDAY=MO" value="${knownRecurrence ? "" : escapeAttr2(recurrence)}" />`
+      ],
+      ["Importance", pct(task.importance)],
+      ["Urgency", pct(task.urgency)],
+      ["Cognitive load", pct(task.cognitiveLoad)],
+      ["Emotional resistance", pct(task.emotionalResistance)],
+      ["Momentum", pct(task.momentumValue)],
+      ["Completion rate", pct(task.historicalCompletionRate)],
+      ["Energy / reward", pct(task.energyToRewardRatio)]
+    ];
+    if (task.preferredExecutionWindow)
+      rows.push(["Best window", task.preferredExecutionWindow]);
+    if (task.skippedCount > 0)
+      rows.push(["Skipped", String(task.skippedCount)]);
+    if (scored) {
+      rows.push(["Schedule score", String(Math.round(scored.score))]);
+      if (scored.reasons.length)
+        rows.push(["Why now", scored.reasons.join(", ")]);
+    }
+    return rows.map(([k, v]) => `<label class="detail-row"><span>${k}</span><span>${v}</span></label>`).join("");
+  }
   function buildTaskItem(task, ctx) {
     const li = document.createElement("li");
     li.className = "task-item" + (task.completed ? " completed" : "");
@@ -857,14 +901,14 @@ ${lines.join("\n")}`;
     if (task.tinyStep) {
       const step = document.createElement("div");
       step.className = "tiny-step";
-      step.textContent = "-> " + task.tinyStep;
+      step.textContent = "Next: " + task.tinyStep;
       content.appendChild(step);
     }
     const scored = ctx.scoreMap.get(task.id);
     if (scored && !task.completed) {
       const hint = document.createElement("div");
       hint.className = "schedule-hint";
-      hint.textContent = scored.reasons.length ? scored.reasons.join(" | ") : "score " + Math.round(scored.score);
+      hint.textContent = scored.reasons.length ? scored.reasons.join(" / ") : "score " + Math.round(scored.score);
       content.appendChild(hint);
       content.appendChild(makeScoreBar(scored.score));
     }
@@ -888,14 +932,14 @@ ${lines.join("\n")}`;
     const actions = document.createElement("div");
     actions.className = "task-actions";
     if (!task.completed) {
-      actions.appendChild(actionBtn("\u2139", "View details", () => ctx.onDetails(task.id)));
-      actions.appendChild(actionBtn("\u26A1", "Set tiny step", () => ctx.onTinyStep(task.id)));
+      actions.appendChild(actionBtn("i", "View details", () => ctx.onDetails(task.id)));
+      actions.appendChild(actionBtn("+", "Set tiny step", () => ctx.onTinyStep(task.id)));
       if (task.effort === "high" || task.taskDecompositionPotential >= 0.5) {
-        actions.appendChild(actionBtn("\u2442", "Split task", () => ctx.onSplit(task.id)));
+        actions.appendChild(actionBtn("/", "Split task", () => ctx.onSplit(task.id)));
       }
-      actions.appendChild(actionBtn("\u21B7", "Skip", () => ctx.onSkip(task.id)));
+      actions.appendChild(actionBtn("~", "Skip", () => ctx.onSkip(task.id)));
     }
-    actions.appendChild(actionBtn("\u2715", "Delete task", () => ctx.onDelete(task.id), true));
+    actions.appendChild(actionBtn("x", "Delete task", () => ctx.onDelete(task.id), true));
     li.appendChild(checkbox);
     li.appendChild(content);
     li.appendChild(actions);
@@ -906,29 +950,21 @@ ${lines.join("\n")}`;
     bar.className = "score-bar task-score-bar";
     bar.style.setProperty("--score", Math.min(100, Math.max(5, Math.round(score))) + "%");
     bar.appendChild(document.createElement("span"));
-    const d = document.createElement("div");
-    d.className = bar.className;
-    d.style.cssText = bar.style.cssText;
-    d.appendChild(bar.firstChild);
-    return d;
+    return bar;
   }
   function makeLoadBar(load2) {
     const row = document.createElement("div");
     row.className = "load-row";
     const label = document.createElement("span");
     label.className = "load-label";
-    label.textContent = "cognitive";
+    label.textContent = "load";
     const bar = document.createElement("div");
     bar.className = "load-bar";
     bar.style.setProperty("--load", Math.round(load2 * 100) + "%");
     bar.appendChild(document.createElement("span"));
     row.appendChild(label);
     row.appendChild(bar);
-    const d = document.createElement("div");
-    d.className = row.className;
-    while (row.firstChild)
-      d.appendChild(row.firstChild);
-    return d;
+    return row;
   }
   function appendChip(parent, text, extra = "") {
     const el = document.createElement("span");
@@ -940,8 +976,9 @@ ${lines.join("\n")}`;
     const btn = document.createElement("button");
     btn.textContent = label;
     btn.title = title;
+    btn.setAttribute("aria-label", title);
     if (del)
-      btn.setAttribute("aria-label", title);
+      btn.classList.add("danger-action");
     btn.addEventListener("click", onClick);
     return btn;
   }
@@ -954,58 +991,6 @@ ${lines.join("\n")}`;
       return "in " + mins + "m";
     return "in " + Math.round(mins / 60) + "h";
   }
-  function renderTaskDetailRows(task, scored) {
-    const scheduledValue = task.scheduledAt ? toLocalInputValue(task.scheduledAt) : "";
-    const recurrence = task.recurrence ?? "";
-    const knownRecurrence = ["daily", "weekly", "monthly", "weekdays"].includes(recurrence);
-    const rows = [
-      [
-        "Duration",
-        `<input id="detail-duration" type="number" min="5" max="480" step="5" value="${task.duration}" />`
-      ],
-      [
-        "Effort",
-        select("detail-effort", ["low", "medium", "high"], task.effort)
-      ],
-      [
-        "Focus",
-        select("detail-focus", ["deep", "shallow", "admin", "creative"], task.focusType)
-      ],
-      [
-        "Deadline",
-        select("detail-deadline", ["none", "soft", "hard"], task.deadlineType)
-      ],
-      [
-        "Scheduled",
-        `<input id="detail-scheduled" type="datetime-local" value="${scheduledValue}" />`
-      ],
-      [
-        "Recurrence",
-        `${select("detail-recurrence", ["", "daily", "weekly", "monthly", "weekdays", "custom"], knownRecurrence ? recurrence : recurrence ? "custom" : "", ["None", "Daily", "Weekly", "Monthly", "Weekdays", "Custom"])}
-       <input id="detail-recurrence-custom" class="detail-custom-recurrence" type="text" placeholder="FREQ=WEEKLY;BYDAY=MO" value="${knownRecurrence ? "" : escapeAttr2(recurrence)}" />`
-      ],
-      ["Importance", pct(task.importance)],
-      ["Urgency", pct(task.urgency)],
-      ["Cognitive load", pct(task.cognitiveLoad)],
-      ["Emotional resistance", pct(task.emotionalResistance)],
-      ["Momentum", pct(task.momentumValue)],
-      ["Completion rate", pct(task.historicalCompletionRate)],
-      ["Energy / reward", pct(task.energyToRewardRatio)]
-    ];
-    if (task.preferredExecutionWindow)
-      rows.push(["Best window", task.preferredExecutionWindow]);
-    if (task.skippedCount > 0)
-      rows.push(["Skipped", String(task.skippedCount)]);
-    if (scored) {
-      rows.push(["Schedule score", String(Math.round(scored.score))]);
-      if (scored.reasons.length)
-        rows.push(["Why now", scored.reasons.join(", ")]);
-    }
-    return rows.map(([k, v]) => `<label class="detail-row"><span>${k}</span><span>${v}</span></label>`).join("").replace(/motion/g, "div");
-  }
-  function pct(n) {
-    return Math.round(n * 100) + "%";
-  }
   function select(id, values, current, labels = values) {
     return `<select id="${id}">${values.map((value, index) => `<option value="${escapeAttr2(value)}"${value === current ? " selected" : ""}>${labels[index]}</option>`).join("")}</select>`;
   }
@@ -1013,6 +998,9 @@ ${lines.join("\n")}`;
     const d = new Date(ts);
     const local = new Date(d.getTime() - d.getTimezoneOffset() * 6e4);
     return local.toISOString().slice(0, 16);
+  }
+  function pct(n) {
+    return Math.round(n * 100) + "%";
   }
   function escapeAttr2(s) {
     return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");

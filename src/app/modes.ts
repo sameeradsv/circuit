@@ -21,6 +21,7 @@ export function setMode(mode: EnergyMode, notify = true): void {
   document.querySelectorAll('.mode-btn').forEach((btn) => {
     btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === mode);
   });
+  document.body.setAttribute('data-mode', mode);
   const pill = document.getElementById('mode-display');
   if (pill) pill.textContent = MODE_NAMES[mode] ?? mode;
   if (notify) onModeChange?.();
