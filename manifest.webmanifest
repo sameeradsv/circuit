@@ -3,7 +3,7 @@
   "short_name": "Circuit",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0f172a",
+  "background_color": "#0a1614",
   "theme_color": "#0f766e",
   "description": "Adaptive planning assistant — local-first PWA",
   "icons": [
@@ -11,7 +11,13 @@
       "src": "icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }

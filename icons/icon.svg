@@ -1,15 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
-  <rect width="192" height="192" rx="32" fill="#1a2d45"/>
-  <!-- Checklist lines -->
-  <!-- Row 1: checkmark + line -->
-  <circle cx="52" cy="72" r="10" fill="none" stroke="#7ec8c8" stroke-width="5"/>
-  <polyline points="47,72 51,77 58,66" fill="none" stroke="#7ec8c8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="72" y="67" width="72" height="10" rx="5" fill="#c8d8e8"/>
-  <!-- Row 2: empty circle + line -->
-  <circle cx="52" cy="104" r="10" fill="none" stroke="#7ec8c8" stroke-width="5"/>
-  <rect x="72" y="99" width="60" height="10" rx="5" fill="#c8d8e8"/>
-  <!-- Row 3: checkmark + line -->
-  <circle cx="52" cy="136" r="10" fill="none" stroke="#7ec8c8" stroke-width="5"/>
-  <polyline points="47,136 51,141 58,130" fill="none" stroke="#7ec8c8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="72" y="131" width="68" height="10" rx="5" fill="#c8d8e8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a1614"/>
+      <stop offset="100%" stop-color="#102820"/>
+    </linearGradient>
+    <linearGradient id="trace" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#6ee7b7"/>
+      <stop offset="100%" stop-color="#7fb7ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+  <circle cx="128" cy="156" r="18" fill="none" stroke="url(#trace)" stroke-width="10"/>
+  <circle cx="128" cy="256" r="18" fill="none" stroke="url(#trace)" stroke-width="10" opacity="0.85"/>
+  <circle cx="128" cy="356" r="18" fill="url(#trace)" opacity="0.95"/>
+  <path d="M168 156 H300 Q380 156 380 256 T300 356 H168" fill="none" stroke="url(#trace)" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="384" cy="256" r="22" fill="#86efac" opacity="0.95"/>
 </svg>

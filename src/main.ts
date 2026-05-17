@@ -1,9 +1,15 @@
 import { recordCompletion } from './behavioral-engine';
 import { taskFromConversationalInput } from './ai-assistance';
+import { initCalendar, renderCalendarView } from './app/calendar';
 import { buildDashboardState, renderDashboard } from './app/dashboard';
 import { getMode, initModes } from './app/modes';
+import { getCurrentPage, initNavigation, showPage } from './app/navigation';
 import { tasksFromImport } from './app/import';
-import { renderTaskDetailRows, renderTaskList, type ViewMode } from './app/render';
+import { bindTaskDetailForm, renderTaskDetailRows, renderTaskList, type ViewMode } from './app/render';
+import { mergeTaskDimensions, readDimensionOverrides } from './app/dimensions';
+import { buildTaskFromInput, initTaskInput, resetTaskInput } from './app/task-input';
+import { initAuthUI, storageNamespace } from './app/auth';
+import { downloadSyncBundle, parseSyncBundle } from './app/sync-bundle';
 import { initTheme } from './app/themes';
 import { showToast } from './app/toast';
 import { parseIcs, syncFromCalendar, tasksToIcs } from './calendar-sync';
@@ -13,10 +19,10 @@ import {
   filterTasks,
   loadTasks,
   saveTasks,
+  setTaskStorageNamespace,
   type TaskFilter,
 } from './task-engine';
 import type { ScheduleContext, ScoredTask, Task, TaskTag } from './types';
-import type { DeadlineType, Effort, FocusType } from './types';
 
 let tasks: Task[] = [];
 let currentFilter: TaskFilter = 'all';
@@ -58,6 +64,7 @@ function persist(): void {
   refreshSchedule();
   if (lastPlan) renderDashboard(lastPlan);
   renderTasks();
+  renderCalendarView(tasks);
 }
 
 function load(): void {
@@ -76,10 +83,13 @@ function scoreMap(): Map<string, ScoredTask> {
 
 function addTaskFromInput(text: string): void {
   const conversational = taskFromConversationalInput(text);
-  const task = conversational ?? createTask(text, { tag: selectedTag });
-  if (!conversational) task.tag = selectedTag;
+  const task = conversational ?? buildTaskFromInput(text, selectedTag);
+  if (conversational) {
+    task.tag = selectedTag;
+  }
   tasks.push(task);
   showToast(conversational ? 'Parsed task with smart defaults' : 'Task added');
+  resetTaskInput(selectedTag);
   persist();
 }
 
@@ -175,6 +185,7 @@ function openDetailModal(taskId: string): void {
 
   title.textContent = task.text;
   rows.innerHTML = renderTaskDetailRows(task, scoreMap().get(task.id));
+  bindTaskDetailForm(rows);
   overlay.removeAttribute('hidden');
   bindDetailModal(task.id, overlay);
 
@@ -187,57 +198,21 @@ function openDetailModal(taskId: string): void {
 
 function bindDetailModal(taskId: string, overlay: HTMLElement): void {
   const saveBtn = document.getElementById('detail-save');
-  const recurrenceSelect = document.getElementById('detail-recurrence') as HTMLSelectElement | null;
-  const recurrenceCustom = document.getElementById('detail-recurrence-custom') as HTMLInputElement | null;
   const close = () => overlay.setAttribute('hidden', '');
   if (!saveBtn) return;
-
-  const syncCustomVisibility = () => {
-    if (recurrenceCustom && recurrenceSelect) {
-      recurrenceCustom.hidden = recurrenceSelect.value !== 'custom';
-    }
-  };
-  recurrenceSelect?.addEventListener('change', syncCustomVisibility);
-  syncCustomVisibility();
 
   saveBtn.onclick = () => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
 
-    const duration = numberInput('detail-duration', task.duration);
-    const scheduledValue = (document.getElementById('detail-scheduled') as HTMLInputElement | null)?.value ?? '';
-    const recurrenceSelect = (document.getElementById('detail-recurrence') as HTMLSelectElement | null)?.value ?? '';
-    const customRecurrence = (document.getElementById('detail-recurrence-custom') as HTMLInputElement | null)?.value.trim() ?? '';
-    const recurrence = recurrenceSelect === 'custom' ? customRecurrence : recurrenceSelect;
-
-    task.duration = clamp(duration, 5, 480);
-    task.effort = selectValue<Effort>('detail-effort', task.effort);
-    task.focusType = selectValue<FocusType>('detail-focus', task.focusType);
-    task.deadlineType = selectValue<DeadlineType>('detail-deadline', task.deadlineType);
-    task.scheduledAt = scheduledValue ? new Date(scheduledValue).getTime() : null;
-    task.recurrence = recurrence || null;
-    task.cognitiveLoad = task.effort === 'low' ? 0.25 : task.effort === 'high' ? 0.8 : 0.5;
-    task.activationEnergy = task.cognitiveLoad;
-    task.recoveryCost = task.cognitiveLoad * 0.5;
-    task.updatedAt = Date.now();
+    const overrides = readDimensionOverrides('detail', task);
+    const merged = mergeTaskDimensions(task, overrides);
+    Object.assign(task, merged);
 
     showToast('Task details updated');
     persist();
     close();
   };
-}
-
-function numberInput(id: string, fallback: number): number {
-  const value = Number((document.getElementById(id) as HTMLInputElement | null)?.value);
-  return Number.isFinite(value) ? value : fallback;
-}
-
-function selectValue<T extends string>(id: string, fallback: T): T {
-  return ((document.getElementById(id) as HTMLSelectElement | null)?.value as T | undefined) ?? fallback;
-}
-
-function clamp(n: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, n));
 }
 
 function renderTasks(): void {
@@ -284,8 +259,8 @@ form.addEventListener('submit', (e) => {
   const text = input.value.trim();
   if (!text) return;
   addTaskFromInput(text);
-  input.value = '';
   input.focus();
+  showPage('tasks');
 });
 
 filterButtons.forEach((btn) => {
@@ -381,9 +356,55 @@ calendarExport?.addEventListener('click', () => {
   showToast('Calendar file exported');
 });
 
-initTheme();
-load();
-initModes(() => {
-  tasks = rescheduleAll(tasks, getMode()).tasks;
-  persist();
+const bundleInput = document.getElementById('bundle-file-input') as HTMLInputElement | null;
+const bundleExport = document.getElementById('bundle-export');
+const bundleImport = document.getElementById('bundle-import');
+
+bundleExport?.addEventListener('click', () => {
+  downloadSyncBundle(tasks);
+  showToast('Account backup downloaded');
+});
+
+bundleImport?.addEventListener('click', () => bundleInput?.click());
+
+bundleInput?.addEventListener('change', async () => {
+  const file = bundleInput.files?.[0];
+  if (!file) return;
+  try {
+    const bundle = parseSyncBundle(await file.text());
+    tasks = bundle.tasks;
+    persist();
+    showToast(`Restored ${bundle.tasks.length} tasks from backup`);
+  } catch {
+    showToast('Invalid backup file');
+  }
+  bundleInput.value = '';
+});
+
+function bootstrapApp(): void {
+  initTheme();
+  initTaskInput(setTag);
+  load();
+  initNavigation((page) => {
+    if (page === 'add') {
+      input?.focus();
+    }
+  });
+  initCalendar({
+    onTaskClick: openDetailModal,
+    onDateChange: () => renderCalendarView(tasks),
+  });
+  initModes(() => {
+    tasks = rescheduleAll(tasks, getMode()).tasks;
+    persist();
+  });
+
+  if (getCurrentPage() === 'add') {
+    input?.focus();
+  }
+}
+
+initAuthUI((session) => {
+  setTaskStorageNamespace(storageNamespace(session));
+  bootstrapApp();
 });

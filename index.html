@@ -15,11 +15,11 @@
       var c = document.createElement('canvas');
       c.width = 192; c.height = 192;
       var ctx = c.getContext('2d');
-      ctx.fillStyle = '#10201f';
+      ctx.fillStyle = '#0a1614';
       ctx.beginPath();
       ctx.roundRect(0, 0, 192, 192, 36);
       ctx.fill();
-      ctx.strokeStyle = '#86efac';
+      ctx.strokeStyle = '#6ee7b7';
       ctx.lineWidth = 6;
       ctx.beginPath();
       ctx.moveTo(52, 126);
@@ -44,86 +44,126 @@
   <header>
     <h1>Circuit</h1>
     <div class="header-right">
+      <button type="button" class="account-chip" id="account-btn" title="Account">
+        <span id="account-label">Account</span>
+      </button>
       <button type="button" class="mode-pill" id="mode-display" title="Change energy mode"></button>
     </div>
   </header>
 
   <main>
-    <section class="dashboard" id="dashboard">
-      <div class="snapshot-banner" id="snapshot-banner"></div>
-      <div class="stats-grid" id="stats-grid"></div>
+    <section class="page page-home page-active" id="page-home" data-page="home">
+      <section class="dashboard" id="dashboard">
+        <div class="snapshot-banner" id="snapshot-banner"></div>
+        <div class="stats-grid" id="stats-grid"></div>
 
-      <div class="workload-section">
-        <div class="workload-header">
-          <span>Workload</span>
-          <span id="workload-label" class="workload-label"></span>
+        <div class="widget-row">
+          <div class="workload-section">
+            <div class="workload-header">
+              <span>Workload</span>
+              <span id="workload-label" class="workload-label"></span>
+            </div>
+            <div class="workload-bar" id="workload-bar"><span class="workload-fill"></span></div>
+          </div>
+
+          <div class="forecast-widget">
+            <div class="forecast-widget-header">Forecast</div>
+            <div id="forecast-panel" class="forecast-body"></div>
+          </div>
         </div>
-        <div class="workload-bar" id="workload-bar"><span class="workload-fill"></span></div>
+
+        <details class="panel schedule-panel" open>
+          <summary>Today's plan</summary>
+          <ul class="schedule-list" id="schedule-list"></ul>
+          <p class="schedule-explain" id="schedule-explain"></p>
+        </details>
+
+        <div class="insight-panel" id="insight-panel" aria-live="polite"></div>
+      </section>
+    </section>
+
+    <section class="page page-add" id="page-add" data-page="add" hidden>
+      <p class="page-lead">Capture a task with a deadline, tag, or natural-language plan.</p>
+
+      <section class="mode-selector" id="mode-selector">
+        <button class="mode-btn active" data-mode="normal">Normal</button>
+        <button class="mode-btn" data-mode="deep">Deep work</button>
+        <button class="mode-btn" data-mode="low">Low energy</button>
+        <button class="mode-btn" data-mode="social">Social recovery</button>
+      </section>
+
+    <form id="task-form" class="task-form">
+      <div class="preset-row" id="preset-row" aria-label="Task presets"></div>
+      <div class="task-form-primary">
+        <input id="task-input" type="text" placeholder="Capture a task, deadline, or plan" required />
+        <button type="submit">Add</button>
       </div>
-
-      <details class="panel schedule-panel" open>
-        <summary>Today's plan</summary>
-        <ul class="schedule-list" id="schedule-list"></ul>
-        <p class="schedule-explain" id="schedule-explain"></p>
+      <details class="task-dimensions-panel" id="task-dimensions-panel">
+        <summary>Task dimensions</summary>
+        <div id="add-dimensions-root" class="dimension-form"></div>
       </details>
-
-      <details class="panel forecast-panel">
-        <summary>Forecast</summary>
-        <div id="forecast-panel" class="forecast-body"></div>
-      </details>
-
-      <div class="insight-panel" id="insight-panel" aria-live="polite"></div>
-    </section>
-
-    <section class="mode-selector" id="mode-selector">
-      <button class="mode-btn active" data-mode="normal">Normal</button>
-      <button class="mode-btn" data-mode="deep">Deep work</button>
-      <button class="mode-btn" data-mode="low">Low energy</button>
-      <button class="mode-btn" data-mode="social">Social recovery</button>
-    </section>
-
-    <form id="task-form">
-      <input id="task-input" type="text" placeholder="Capture a task, deadline, or plan" required />
-      <button type="submit">Add</button>
     </form>
 
-    <div class="tag-row" id="tag-row">
-      <span class="tag-label">Tag</span>
-      <button class="tag-btn active" data-tag="general">General</button>
-      <button class="tag-btn" data-tag="work">Work</button>
-      <button class="tag-btn" data-tag="social">Social</button>
-      <button class="tag-btn" data-tag="later">Later</button>
-    </div>
-
-    <div id="import-status" class="import-status"></div>
-
-    <details class="sync-menu">
-      <summary>Sync</summary>
-      <div class="sync-actions" aria-label="Import and export">
-        <input type="file" id="file-input" accept=".txt" hidden />
-        <input type="file" id="calendar-file-input" accept=".ics,text/calendar" hidden />
-        <button type="button" class="import-btn">Import tasks</button>
-        <button type="button" id="calendar-import">Import calendar</button>
-        <button type="button" id="calendar-export">Export calendar</button>
-        <span id="calendar-sync-status">Local file sync</span>
+      <div class="tag-row" id="tag-row">
+        <span class="tag-label">Tag</span>
+        <button class="tag-btn active" data-tag="general">General</button>
+        <button class="tag-btn" data-tag="work">Work</button>
+        <button class="tag-btn" data-tag="social">Social</button>
+        <button class="tag-btn" data-tag="later">Later</button>
       </div>
-    </details>
 
-    <div class="view-row">
-      <section class="filters">
-        <button data-filter="all" class="active">All</button>
-        <button data-filter="today">Today</button>
-        <button data-filter="scheduled">Scheduled</button>
-        <button data-filter="pending">Pending</button>
-        <button data-filter="completed">Done</button>
-      </section>
-      <div class="view-toggle">
-        <button type="button" id="view-list" class="active" title="List view">List</button>
-        <button type="button" id="view-grouped" title="Group by tag">Group</button>
+      <div id="import-status" class="import-status"></div>
+
+      <details class="sync-menu">
+        <summary>Sync</summary>
+        <div class="sync-actions" aria-label="Import and export">
+          <input type="file" id="file-input" accept=".txt" hidden />
+          <input type="file" id="calendar-file-input" accept=".ics,text/calendar" hidden />
+          <button type="button" class="import-btn">Import tasks</button>
+          <button type="button" id="calendar-import">Import calendar</button>
+          <button type="button" id="calendar-export">Export calendar</button>
+          <button type="button" id="bundle-export">Export account backup</button>
+          <input type="file" id="bundle-file-input" accept=".json,application/json" hidden />
+          <button type="button" id="bundle-import">Import account backup</button>
+          <button type="button" id="auth-sign-out" class="auth-sign-out">Sign out</button>
+          <span id="calendar-sync-status">Local file sync</span>
+        </div>
+      </details>
+    </section>
+
+    <section class="page page-tasks" id="page-tasks" data-page="tasks" hidden>
+      <p class="page-lead">Browse and filter your full task list.</p>
+
+      <div class="view-row">
+        <section class="filters">
+          <button data-filter="all" class="active">All</button>
+          <button data-filter="today">Today</button>
+          <button data-filter="scheduled">Scheduled</button>
+          <button data-filter="pending">Pending</button>
+          <button data-filter="completed">Done</button>
+        </section>
+        <div class="view-toggle">
+          <button type="button" id="view-list" class="active" title="List view">List</button>
+          <button type="button" id="view-grouped" title="Group by tag">Group</button>
+        </div>
       </div>
-    </div>
 
-    <ul id="task-list"></ul>
+      <ul id="task-list"></ul>
+    </section>
+
+    <section class="page page-calendar" id="page-calendar" data-page="calendar" hidden>
+      <p class="page-lead">Day view for scheduled tasks and today's plan.</p>
+
+      <div class="calendar-toolbar">
+        <button type="button" id="cal-prev" aria-label="Previous day">←</button>
+        <span id="cal-label" class="cal-label"></span>
+        <button type="button" id="cal-next" aria-label="Next day">→</button>
+        <button type="button" id="cal-today" class="cal-today-btn">Today</button>
+      </div>
+
+      <div class="cal-week-strip" id="cal-week-strip" role="tablist" aria-label="Week days"></div>
+      <div class="cal-day-view" id="cal-day-view"></div>
+    </section>
 
     <div class="detail-overlay" id="detail-overlay" hidden>
       <div class="detail-card">
@@ -148,6 +188,46 @@
       </div>
     </div>
   </main>
+
+  <div id="auth-overlay" class="auth-overlay">
+    <div class="auth-card" role="dialog" aria-labelledby="auth-title">
+      <h2 id="auth-title">Sign in to Circuit</h2>
+      <p class="auth-lead">Use the same username and passcode on each device, then import your backup to sync tasks.</p>
+      <label class="auth-field">
+        <span>Username</span>
+        <input id="auth-username" type="text" autocomplete="username" autocapitalize="off" placeholder="yourname" />
+      </label>
+      <label class="auth-field">
+        <span>Passcode</span>
+        <input id="auth-passcode" type="password" autocomplete="current-password" placeholder="••••" />
+      </label>
+      <p id="auth-error" class="auth-error" hidden></p>
+      <div class="auth-actions">
+        <button type="button" id="auth-sign-in" class="auth-primary">Sign in</button>
+        <button type="button" id="auth-register">Create account</button>
+        <button type="button" id="auth-continue-local" class="auth-ghost">Continue on this device only</button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="app-nav" aria-label="Main">
+    <button type="button" data-nav="home" class="active" aria-current="page">
+      <span class="nav-icon">⌂</span>
+      <span class="nav-label">Home</span>
+    </button>
+    <button type="button" data-nav="add">
+      <span class="nav-icon">+</span>
+      <span class="nav-label">Add</span>
+    </button>
+    <button type="button" data-nav="tasks">
+      <span class="nav-icon">☰</span>
+      <span class="nav-label">Tasks</span>
+    </button>
+    <button type="button" data-nav="calendar">
+      <span class="nav-icon">▦</span>
+      <span class="nav-label">Day</span>
+    </button>
+  </nav>
 
   <script src="app.js"></script>
   <script>

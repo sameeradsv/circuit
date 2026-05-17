@@ -1,5 +1,22 @@
 import { test, expect } from '@playwright/test';
 
+async function openAddPage(page) {
+  await page.goto('/#add', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#task-input')).toBeVisible();
+}
+
+async function openTasksPage(page) {
+  await page.goto('/#tasks', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#page-tasks')).toBeVisible();
+}
+
+async function addTask(page, text) {
+  await openAddPage(page);
+  await page.locator('#task-input').fill(text);
+  await page.locator('#task-form').press('Enter');
+  await expect(page.locator('#page-tasks')).toBeVisible();
+}
+
 test.describe('Task Manager PWA', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -10,18 +27,23 @@ test.describe('Task Manager PWA', () => {
   });
 
   test('adds a task', async ({ page }) => {
-    const input = page.locator('#task-input');
-    const form = page.locator('#task-form');
-    
-    await input.fill('Buy groceries');
-    await form.press('Enter');
-    
+    await addTask(page, 'Buy groceries');
     await expect(page.locator('.task-text')).toContainText('Buy groceries');
   });
 
-  test('toggles task completion', async ({ page }) => {
-    await page.locator('#task-input').fill('Test task');
+  test('applies work preset dimensions', async ({ page }) => {
+    await openAddPage(page);
+    await page.locator('.preset-btn[data-preset="work"]').click();
+    await page.locator('#task-input').fill('Draft quarterly review');
     await page.locator('#task-form').press('Enter');
+
+    await page.locator('.task-actions button[aria-label="View details"]').first().click();
+    await expect(page.locator('#detail-effort')).toHaveValue('medium');
+    await expect(page.locator('#detail-focus-type')).toHaveValue('deep');
+  });
+
+  test('toggles task completion', async ({ page }) => {
+    await addTask(page, 'Test task');
     
     const checkbox = page.locator('input[type="checkbox"]');
     await checkbox.click();
@@ -31,8 +53,7 @@ test.describe('Task Manager PWA', () => {
   });
 
   test('deletes a task', async ({ page }) => {
-    await page.locator('#task-input').fill('Task to delete');
-    await page.locator('#task-form').press('Enter');
+    await addTask(page, 'Task to delete');
     
     await page.locator('.task-actions button[aria-label="Delete task"]').click();
     
@@ -40,9 +61,8 @@ test.describe('Task Manager PWA', () => {
   });
 
   test('filters tasks', async ({ page }) => {
-    await page.locator('#task-input').fill('Task 1');
-    await page.locator('#task-form').press('Enter');
-    
+    await addTask(page, 'Task 1');
+    await openAddPage(page);
     await page.locator('#task-input').fill('Task 2');
     await page.locator('#task-form').press('Enter');
     
@@ -56,11 +76,11 @@ test.describe('Task Manager PWA', () => {
   });
 
   test('persists tasks after reload', async ({ page }) => {
-    await page.locator('#task-input').fill('Persistent task');
-    await page.locator('#task-form').press('Enter');
+    await addTask(page, 'Persistent task');
     await expect(page.locator('.task-text')).toContainText('Persistent task');
 
     await page.reload();
+    await openTasksPage(page);
     await expect(page.locator('.task-text')).toContainText('Persistent task');
   });
 
@@ -73,6 +93,7 @@ test.describe('Task Manager PWA', () => {
   });
 
   test('switches energy modes', async ({ page }) => {
+    await openAddPage(page);
     await page.locator('#mode-display').click();
     await page.locator('.mode-btn[data-mode="deep"]').click();
 

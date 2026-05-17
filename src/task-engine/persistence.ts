@@ -5,8 +5,22 @@ import { validateTasks } from './validation';
 const STORAGE_KEY = 'circuit_tasks_v1';
 const LEGACY_KEY = 'my_tasks_v2';
 
+let storageSuffix = '';
+
+/** Namespace task storage per signed-in user (empty = local / legacy). */
+export function setTaskStorageNamespace(namespace: string): void {
+  storageSuffix = namespace;
+}
+
+function activeKey(): string {
+  return STORAGE_KEY + storageSuffix;
+}
+
 export function loadTasks(): Task[] {
-  const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
+  const key = activeKey();
+  const raw =
+    localStorage.getItem(key) ??
+    (storageSuffix === '' ? localStorage.getItem(LEGACY_KEY) : null);
   if (!raw) return [];
 
   try {
@@ -25,10 +39,12 @@ export function loadTasks(): Task[] {
 }
 
 export function saveTasks(tasks: Task[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  localStorage.setItem(activeKey(), JSON.stringify(tasks));
 }
 
 export function clearTasks(): void {
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(LEGACY_KEY);
+  localStorage.removeItem(activeKey());
+  if (storageSuffix === '') {
+    localStorage.removeItem(LEGACY_KEY);
+  }
 }

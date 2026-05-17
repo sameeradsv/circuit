@@ -1,5 +1,6 @@
 import { groupTasksByTag } from '../task-engine';
 import type { ScoredTask, Task } from '../types';
+import { bindRangeLabels, renderDimensionSections } from './dimensions';
 
 export type ViewMode = 'list' | 'grouped';
 
@@ -39,45 +40,30 @@ export function renderTaskList(
 }
 
 export function renderTaskDetailRows(task: Task, scored?: ScoredTask): string {
-  const scheduledValue = task.scheduledAt ? toLocalInputValue(task.scheduledAt) : '';
-  const recurrence = task.recurrence ?? '';
-  const knownRecurrence = ['daily', 'weekly', 'monthly', 'weekdays'].includes(recurrence);
-  const rows: [string, string][] = [
-    [
-      'Duration',
-      `<input id="detail-duration" type="number" min="5" max="480" step="5" value="${task.duration}" />`,
-    ],
-    ['Effort', select('detail-effort', ['low', 'medium', 'high'], task.effort)],
-    ['Focus', select('detail-focus', ['deep', 'shallow', 'admin', 'creative'], task.focusType)],
-    ['Deadline', select('detail-deadline', ['none', 'soft', 'hard'], task.deadlineType)],
-    ['Scheduled', `<input id="detail-scheduled" type="datetime-local" value="${scheduledValue}" />`],
-    [
-      'Recurrence',
-      `${select(
-        'detail-recurrence',
-        ['', 'daily', 'weekly', 'monthly', 'weekdays', 'custom'],
-        knownRecurrence ? recurrence : recurrence ? 'custom' : '',
-        ['None', 'Daily', 'Weekly', 'Monthly', 'Weekdays', 'Custom'],
-      )}
-       <input id="detail-recurrence-custom" class="detail-custom-recurrence" type="text" placeholder="FREQ=WEEKLY;BYDAY=MO" value="${knownRecurrence ? '' : escapeAttr(recurrence)}" />`,
-    ],
-    ['Importance', pct(task.importance)],
-    ['Urgency', pct(task.urgency)],
-    ['Cognitive load', pct(task.cognitiveLoad)],
-    ['Emotional resistance', pct(task.emotionalResistance)],
-    ['Momentum', pct(task.momentumValue)],
-    ['Completion rate', pct(task.historicalCompletionRate)],
-    ['Energy / reward', pct(task.energyToRewardRatio)],
-  ];
+  const rows = renderDimensionSections('detail', task);
 
-  if (task.preferredExecutionWindow) rows.push(['Best window', task.preferredExecutionWindow]);
-  if (task.skippedCount > 0) rows.push(['Skipped', String(task.skippedCount)]);
+  const extras: string[] = [];
+  if (task.skippedCount > 0) {
+    extras.push(
+      `<label class="detail-row"><span>Skipped</span><span>${task.skippedCount}</span></label>`,
+    );
+  }
   if (scored) {
-    rows.push(['Schedule score', String(Math.round(scored.score))]);
-    if (scored.reasons.length) rows.push(['Why now', scored.reasons.join(', ')]);
+    extras.push(
+      `<label class="detail-row"><span>Schedule score</span><span>${Math.round(scored.score)}</span></label>`,
+    );
+    if (scored.reasons.length) {
+      extras.push(
+        `<label class="detail-row"><span>Why now</span><span>${scored.reasons.join(', ')}</span></label>`,
+      );
+    }
   }
 
-  return rows.map(([k, v]) => `<label class="detail-row"><span>${k}</span><span>${v}</span></label>`).join('');
+  return rows + extras.join('');
+}
+
+export function bindTaskDetailForm(root: ParentNode): void {
+  bindRangeLabels(root);
 }
 
 function buildTaskItem(task: Task, ctx: RenderContext): HTMLLIElement {
@@ -205,24 +191,4 @@ function formatScheduled(ts: number): string {
   const mins = Math.round(diff / 60000);
   if (mins < 60) return 'in ' + mins + 'm';
   return 'in ' + Math.round(mins / 60) + 'h';
-}
-
-function select(id: string, values: string[], current: string, labels = values): string {
-  return `<select id="${id}">${values
-    .map((value, index) => `<option value="${escapeAttr(value)}"${value === current ? ' selected' : ''}>${labels[index]}</option>`)
-    .join('')}</select>`;
-}
-
-function toLocalInputValue(ts: number): string {
-  const d = new Date(ts);
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
-}
-
-function pct(n: number): string {
-  return Math.round(n * 100) + '%';
-}
-
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }

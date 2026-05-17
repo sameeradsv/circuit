@@ -269,8 +269,16 @@
   // src/task-engine/persistence.ts
   var STORAGE_KEY = "circuit_tasks_v1";
   var LEGACY_KEY = "my_tasks_v2";
+  var storageSuffix = "";
+  function setTaskStorageNamespace(namespace) {
+    storageSuffix = namespace;
+  }
+  function activeKey() {
+    return STORAGE_KEY + storageSuffix;
+  }
   function loadTasks() {
-    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
+    const key = activeKey();
+    const raw = localStorage.getItem(key) ?? (storageSuffix === "" ? localStorage.getItem(LEGACY_KEY) : null);
     if (!raw)
       return [];
     try {
@@ -290,7 +298,7 @@
     }
   }
   function saveTasks(tasks2) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks2));
+    localStorage.setItem(activeKey(), JSON.stringify(tasks2));
   }
 
   // src/task-engine/filter.ts
@@ -584,6 +592,141 @@ ${lines.join("\n")}`;
     return d.getTime();
   }
 
+  // src/app/calendar.ts
+  var selectedDate = startOfDay3(/* @__PURE__ */ new Date());
+  var cachedTasks = [];
+  var handlers = {
+    onTaskClick: () => {
+    },
+    onDateChange: () => {
+    }
+  };
+  function initCalendar(h) {
+    handlers = h;
+    document.getElementById("cal-prev")?.addEventListener("click", () => shiftDay(-1));
+    document.getElementById("cal-next")?.addEventListener("click", () => shiftDay(1));
+    document.getElementById("cal-today")?.addEventListener("click", () => {
+      selectedDate = startOfDay3(/* @__PURE__ */ new Date());
+      handlers.onDateChange(selectedDate);
+      renderCalendarView(cachedTasks);
+    });
+  }
+  function renderCalendarView(tasks2) {
+    cachedTasks = tasks2;
+    const label = document.getElementById("cal-label");
+    const strip = document.getElementById("cal-week-strip");
+    const dayView = document.getElementById("cal-day-view");
+    if (!label || !strip || !dayView)
+      return;
+    const weekStart = startOfWeek(selectedDate);
+    label.textContent = formatDayHeading(selectedDate);
+    strip.innerHTML = Array.from({ length: 7 }, (_, i) => {
+      const day = addDays(weekStart, i);
+      const active = isSameDay(day, selectedDate);
+      const count = tasksForDay(tasks2, day).length;
+      return `<button type="button" class="cal-day-pill${active ? " active" : ""}" data-cal-day="${day.getTime()}">
+      <span class="cal-pill-dow">${day.toLocaleDateString(void 0, { weekday: "short" })}</span>
+      <span class="cal-pill-num">${day.getDate()}</span>
+      ${count ? `<span class="cal-pill-count">${count}</span>` : ""}
+    </button>`;
+    }).join("");
+    strip.querySelectorAll("[data-cal-day]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        selectedDate = startOfDay3(Number(btn.dataset.calDay));
+        handlers.onDateChange(selectedDate);
+        renderCalendarView(tasks2);
+      });
+    });
+    const dayTasks = tasksForDay(tasks2, selectedDate);
+    const isToday = isSameDay(selectedDate, /* @__PURE__ */ new Date());
+    if (dayTasks.length === 0) {
+      dayView.innerHTML = `<p class="cal-empty">${isToday ? "Nothing scheduled for today." : "No tasks on this day."}</p>`;
+      return;
+    }
+    const timed = dayTasks.filter((t) => t.scheduledAt != null).sort((a, b) => (a.scheduledAt ?? 0) - (b.scheduledAt ?? 0));
+    const untimed = dayTasks.filter((t) => t.scheduledAt == null);
+    const blocks = [];
+    if (timed.length) {
+      blocks.push(
+        `<div class="cal-block"><h3 class="cal-block-title">Scheduled</h3><ul class="cal-task-list">${timed.map((t) => taskRow(t)).join("")}</ul></div>`
+      );
+    }
+    if (untimed.length) {
+      blocks.push(
+        `<div class="cal-block"><h3 class="cal-block-title">${isToday ? "Plan (no time set)" : "Unscheduled"}</h3><ul class="cal-task-list">${untimed.map((t) => taskRow(t)).join("")}</ul></div>`
+      );
+    }
+    dayView.innerHTML = blocks.join("");
+    dayView.querySelectorAll(".cal-task-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const id = row.dataset.taskId;
+        if (id)
+          handlers.onTaskClick(id);
+      });
+    });
+  }
+  function taskRow(task) {
+    const time = task.scheduledAt != null ? new Date(task.scheduledAt).toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" }) : "";
+    return `<li class="cal-task-row${task.completed ? " completed" : ""}" data-task-id="${escapeAttr(task.id)}">
+    ${time ? `<span class="cal-task-time">${escapeHtml(time)}</span>` : ""}
+    <span class="cal-task-text">${escapeHtml(task.text)}</span>
+    <span class="cal-task-meta">${task.duration}m \xB7 ${task.tag}</span>
+  </li>`;
+  }
+  function tasksForDay(tasks2, day) {
+    const start = startOfDay3(day.getTime()).getTime();
+    const end = start + 864e5;
+    const todayStart = startOfDay3(Date.now()).getTime();
+    const isToday = start === todayStart;
+    return tasks2.filter((t) => {
+      if (t.scheduledAt != null) {
+        const at = t.scheduledAt;
+        return at >= start && at < end;
+      }
+      if (isToday && !t.completed)
+        return true;
+      if (t.completed && t.updatedAt >= start && t.updatedAt < end)
+        return true;
+      return false;
+    });
+  }
+  function shiftDay(delta) {
+    selectedDate = addDays(selectedDate, delta);
+    handlers.onDateChange(selectedDate);
+    renderCalendarView(cachedTasks);
+  }
+  function startOfDay3(input2) {
+    const d = new Date(typeof input2 === "number" ? input2 : input2.getTime());
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  function startOfWeek(d) {
+    const day = new Date(d);
+    const dow = day.getDay();
+    const diff = dow === 0 ? -6 : 1 - dow;
+    day.setDate(day.getDate() + diff);
+    return startOfDay3(day);
+  }
+  function addDays(d, n) {
+    const next = new Date(d);
+    next.setDate(next.getDate() + n);
+    return startOfDay3(next);
+  }
+  function isSameDay(a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+  function formatDayHeading(d) {
+    return d.toLocaleDateString(void 0, { weekday: "long", month: "long", day: "numeric" });
+  }
+  function escapeHtml(s) {
+    const el = document.createElement("div");
+    el.textContent = s;
+    return el.innerHTML;
+  }
+  function escapeAttr(s) {
+    return s.replace(/"/g, "&quot;");
+  }
+
   // src/analytics-engine/index.ts
   function computeAnalytics(tasks2) {
     const pending = tasks2.filter((t) => !t.completed);
@@ -606,7 +749,7 @@ ${lines.join("\n")}`;
       now: Date.now(),
       availableMinutes: 240,
       completedToday: tasks2.filter(
-        (t) => t.completed && t.updatedAt > startOfDay3(Date.now())
+        (t) => t.completed && t.updatedAt > startOfDay4(Date.now())
       ).length
     };
     return { tasks: tasks2, mode, plan: buildSchedule(tasks2, ctx), ctx };
@@ -647,12 +790,12 @@ ${lines.join("\n")}`;
     const label = document.getElementById("workload-label");
     if (!bar || !label)
       return;
-    const pct2 = Math.min(100, Math.round(plan.workloadMinutes / ctx.availableMinutes * 100));
-    document.body.setAttribute("data-workload", pct2 >= 100 ? "overload" : pct2 >= 70 ? "steady" : "open");
+    const pct = Math.min(100, Math.round(plan.workloadMinutes / ctx.availableMinutes * 100));
+    document.body.setAttribute("data-workload", pct >= 100 ? "overload" : pct >= 70 ? "steady" : "open");
     const fill = bar.querySelector(".workload-fill");
     if (fill) {
-      fill.style.width = `${pct2}%`;
-      fill.classList.toggle("overload", pct2 >= 100);
+      fill.style.width = `${pct}%`;
+      fill.classList.toggle("overload", pct >= 100);
     }
     label.textContent = `${plan.workloadMinutes} / ${ctx.availableMinutes} min capacity`;
   }
@@ -667,11 +810,11 @@ ${lines.join("\n")}`;
       list2.innerHTML = plan.ordered.slice(0, 6).map((s, i) => {
         const scoreW = Math.min(100, Math.max(8, Math.round(s.score)));
         const reasons = s.reasons.length ? s.reasons.join(", ") : "scheduled";
-        return `<li class="schedule-item" data-task-id="${escapeAttr(s.task.id)}">
+        return `<li class="schedule-item" data-task-id="${escapeAttr2(s.task.id)}">
           <span class="schedule-rank">#${i + 1}</span>
           <div class="schedule-item-body">
-            <span class="schedule-item-text">${escapeHtml(s.task.text)}</span>
-            <span class="schedule-item-meta">${s.task.duration}m / ${s.task.effort} / ${escapeHtml(reasons)}</span>
+            <span class="schedule-item-text">${escapeHtml2(s.task.text)}</span>
+            <span class="schedule-item-meta">${s.task.duration}m / ${s.task.effort} / ${escapeHtml2(reasons)}</span>
             <div class="score-bar" style="--score:${scoreW}%"><span></span></div>
           </div>
         </li>`;
@@ -686,7 +829,7 @@ ${lines.join("\n")}`;
       return;
     const riskClass = forecast.riskOfOverload ? "forecast-warn" : "forecast-ok";
     const riskText = forecast.riskOfOverload ? "Overload risk" : "Capacity OK";
-    const focus = forecast.focusTask ? escapeHtml(forecast.focusTask) : "-";
+    const focus = forecast.focusTask ? escapeHtml2(forecast.focusTask) : "-";
     el.innerHTML = [
       `<div class="forecast-item"><strong>${forecast.likelyCompleted}</strong> tasks likely today</div>`,
       `<div class="forecast-item">Focus: <strong>${focus}</strong></div>`,
@@ -700,13 +843,13 @@ ${lines.join("\n")}`;
     const items = [];
     for (const r of recs.slice(0, 2)) {
       items.push(
-        `<p class="insight-line insight-rec"><span class="insight-icon">*</span>${escapeHtml(r.headline)}</p>`
+        `<p class="insight-line insight-rec"><span class="insight-icon">*</span>${escapeHtml2(r.headline)}</p>`
       );
     }
     for (const b of behavioral.slice(0, 3)) {
       const cls = b.type === "procrastination" ? "insight-warn" : b.type === "recommendation" ? "insight-rec" : "insight-info";
       items.push(
-        `<p class="insight-line ${cls}"><span class="insight-icon">${iconFor(b.type)}</span>${escapeHtml(b.message)}</p>`
+        `<p class="insight-line ${cls}"><span class="insight-icon">${iconFor(b.type)}</span>${escapeHtml2(b.message)}</p>`
       );
     }
     el.innerHTML = items.join("") || '<p class="insight-line insight-info">Add tasks to get adaptive scheduling guidance.</p>';
@@ -726,17 +869,17 @@ ${lines.join("\n")}`;
   function statCard(value, label) {
     return `<div class="stat-card"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`;
   }
-  function startOfDay3(ts) {
+  function startOfDay4(ts) {
     const d = new Date(ts);
     d.setHours(0, 0, 0, 0);
     return d.getTime();
   }
-  function escapeHtml(s) {
+  function escapeHtml2(s) {
     const d = document.createElement("div");
     d.textContent = s;
     return d.innerHTML;
   }
-  function escapeAttr(s) {
+  function escapeAttr2(s) {
     return s.replace(/"/g, "&quot;");
   }
 
@@ -781,6 +924,64 @@ ${lines.join("\n")}`;
     setMode(saved, false);
   }
 
+  // src/app/navigation.ts
+  var PAGE_HASH = {
+    home: "",
+    add: "add",
+    tasks: "tasks",
+    calendar: "calendar"
+  };
+  var HASH_PAGE = {
+    "": "home",
+    home: "home",
+    add: "add",
+    tasks: "tasks",
+    calendar: "calendar"
+  };
+  var currentPage = "home";
+  var onPageChange = null;
+  function getCurrentPage() {
+    return currentPage;
+  }
+  function showPage(page, updateHash = true) {
+    currentPage = page;
+    document.querySelectorAll(".page").forEach((el) => {
+      const active = el.dataset.page === page;
+      el.hidden = !active;
+      el.classList.toggle("page-active", active);
+    });
+    document.querySelectorAll("[data-nav]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.nav === page);
+      btn.setAttribute("aria-current", btn.dataset.nav === page ? "page" : "false");
+    });
+    if (updateHash) {
+      const hash2 = PAGE_HASH[page];
+      const next = hash2 ? `#${hash2}` : window.location.pathname + window.location.search;
+      if (hash2)
+        history.replaceState(null, "", `#${hash2}`);
+      else
+        history.replaceState(null, "", next);
+    }
+    onPageChange?.(page);
+  }
+  function initNavigation(onChange) {
+    onPageChange = onChange ?? null;
+    document.querySelectorAll("[data-nav]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const page = btn.dataset.nav;
+        if (page)
+          showPage(page);
+      });
+    });
+    window.addEventListener("hashchange", syncFromHash);
+    syncFromHash();
+  }
+  function syncFromHash() {
+    const key = window.location.hash.replace(/^#/, "").toLowerCase();
+    const page = HASH_PAGE[key] ?? "home";
+    showPage(page, false);
+  }
+
   // src/app/import.ts
   function parseAndClassifyTasks(text) {
     const lines = text.split(/\r?\n/);
@@ -808,6 +1009,275 @@ ${lines.join("\n")}`;
     );
   }
 
+  // src/app/dimensions.ts
+  var DIMENSION_SECTIONS = [
+    {
+      title: "Basics",
+      fields: [
+        {
+          key: "tinyStep",
+          label: "Tiny step",
+          kind: "text",
+          placeholder: "Open the file and do one edit"
+        }
+      ]
+    },
+    {
+      title: "Time",
+      fields: [
+        { key: "duration", label: "Duration (min)", kind: "number", min: 5, max: 480, step: 5 },
+        {
+          key: "deadlineType",
+          label: "Deadline",
+          kind: "select",
+          options: [
+            { value: "none", label: "None" },
+            { value: "soft", label: "Soft" },
+            { value: "hard", label: "Hard" }
+          ]
+        },
+        { key: "timeSensitivity", label: "Time sensitivity", kind: "range01" },
+        { key: "scheduledAt", label: "Scheduled", kind: "datetime" },
+        {
+          key: "recurrence",
+          label: "Recurrence",
+          kind: "select",
+          options: [
+            { value: "", label: "None" },
+            { value: "daily", label: "Daily" },
+            { value: "weekly", label: "Weekly" },
+            { value: "monthly", label: "Monthly" },
+            { value: "weekdays", label: "Weekdays" }
+          ]
+        }
+      ]
+    },
+    {
+      title: "Cognitive / energy",
+      fields: [
+        {
+          key: "effort",
+          label: "Effort",
+          kind: "select",
+          options: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High" }
+          ]
+        },
+        {
+          key: "focusType",
+          label: "Focus",
+          kind: "select",
+          options: [
+            { value: "deep", label: "Deep" },
+            { value: "shallow", label: "Shallow" },
+            { value: "admin", label: "Admin" },
+            { value: "creative", label: "Creative" }
+          ]
+        },
+        { key: "cognitiveLoad", label: "Cognitive load", kind: "range01" },
+        { key: "emotionalResistance", label: "Emotional resistance", kind: "range01" },
+        { key: "activationEnergy", label: "Activation energy", kind: "range01" },
+        { key: "recoveryCost", label: "Recovery cost", kind: "range01" }
+      ]
+    },
+    {
+      title: "Context",
+      fields: [
+        {
+          key: "locationDependency",
+          label: "Location",
+          kind: "text",
+          placeholder: "home, office, out"
+        },
+        {
+          key: "requiredResources",
+          label: "Resources",
+          kind: "list",
+          placeholder: "laptop, keys (comma-separated)"
+        },
+        {
+          key: "dependencies",
+          label: "Dependencies",
+          kind: "list",
+          placeholder: "other task ids (comma-separated)"
+        }
+      ]
+    },
+    {
+      title: "Priority / value",
+      fields: [
+        { key: "importance", label: "Importance", kind: "range01" },
+        { key: "urgency", label: "Urgency", kind: "range01" },
+        { key: "consequenceOfDelay", label: "Consequence of delay", kind: "range01" },
+        { key: "momentumValue", label: "Momentum", kind: "range01" },
+        { key: "compoundBenefit", label: "Compound benefit", kind: "range01" },
+        { key: "identityAlignment", label: "Identity alignment", kind: "range01" }
+      ]
+    },
+    {
+      title: "Behavioral",
+      fields: [
+        { key: "historicalCompletionRate", label: "Completion rate", kind: "range01" },
+        {
+          key: "preferredExecutionWindow",
+          label: "Best window",
+          kind: "text",
+          placeholder: "morning, afternoon, evening"
+        },
+        {
+          key: "delayPattern",
+          label: "Delay pattern",
+          kind: "text",
+          placeholder: "weekends, after 8pm"
+        },
+        { key: "taskDecompositionPotential", label: "Split potential", kind: "range01" },
+        { key: "energyToRewardRatio", label: "Energy / reward", kind: "range01" }
+      ]
+    }
+  ];
+  function fieldId(prefix, key) {
+    return `${prefix}-${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`;
+  }
+  function renderDimensionSections(prefix, task) {
+    return DIMENSION_SECTIONS.map((section) => {
+      const fields = section.fields.map((field) => {
+        const id = fieldId(prefix, field.key);
+        const value = task[field.key];
+        let control = "";
+        if (field.kind === "number") {
+          control = `<input id="${id}" type="number" min="${field.min}" max="${field.max}" step="${field.step ?? 1}" value="${value ?? ""}" />`;
+        } else if (field.kind === "range01") {
+          const pct = Math.round((Number(value) || 0) * 100);
+          control = `<input id="${id}" type="range" min="0" max="100" step="5" value="${pct}" data-scale="0.01" /><span class="range-value" data-for="${id}">${pct}%</span>`;
+        } else if (field.kind === "select") {
+          control = `<select id="${id}">${field.options.map(
+            (opt) => `<option value="${escapeAttr3(opt.value)}"${String(value ?? "") === opt.value ? " selected" : ""}>${opt.label}</option>`
+          ).join("")}</select>`;
+        } else if (field.kind === "text") {
+          control = `<input id="${id}" type="text" placeholder="${escapeAttr3(field.placeholder ?? "")}" value="${escapeAttr3(String(value ?? ""))}" />`;
+        } else if (field.kind === "list") {
+          const list2 = Array.isArray(value) ? value.join(", ") : "";
+          control = `<input id="${id}" type="text" placeholder="${escapeAttr3(field.placeholder ?? "")}" value="${escapeAttr3(list2)}" />`;
+        } else if (field.kind === "datetime") {
+          const ts = typeof value === "number" ? value : null;
+          control = `<input id="${id}" type="datetime-local" value="${ts ? toLocalInputValue(ts) : ""}" />`;
+        }
+        return `<label class="detail-row dimension-row"><span>${field.label}</span><span class="dimension-control">${control}</span></label>`;
+      }).join("");
+      return `<div class="dimension-section"><h3 class="dimension-section-title">${section.title}</h3>${fields}</div>`;
+    }).join("");
+  }
+  function bindRangeLabels(root) {
+    root.querySelectorAll('input[type="range"][data-scale]').forEach((input2) => {
+      const label = root.querySelector(`[data-for="${input2.id}"]`);
+      const sync = () => {
+        if (label)
+          label.textContent = `${input2.value}%`;
+      };
+      input2.addEventListener("input", sync);
+      sync();
+    });
+  }
+  function applyOverridesToForm(prefix, overrides) {
+    for (const section of DIMENSION_SECTIONS) {
+      for (const field of section.fields) {
+        if (!(field.key in overrides))
+          continue;
+        const el = document.getElementById(fieldId(prefix, field.key));
+        if (!el)
+          continue;
+        const value = overrides[field.key];
+        if (field.kind === "range01") {
+          el.value = String(Math.round((Number(value) || 0) * 100));
+        } else if (field.kind === "list") {
+          el.value = Array.isArray(value) ? value.join(", ") : "";
+        } else if (field.kind === "datetime") {
+          el.value = typeof value === "number" ? toLocalInputValue(value) : "";
+        } else {
+          el.value = String(value ?? "");
+        }
+      }
+    }
+    bindRangeLabels(document.getElementById("add-dimensions-root") ?? document);
+  }
+  function readDimensionOverrides(prefix, base) {
+    const overrides = {};
+    for (const section of DIMENSION_SECTIONS) {
+      for (const field of section.fields) {
+        const el = document.getElementById(fieldId(prefix, field.key));
+        if (!el)
+          continue;
+        if (field.kind === "number") {
+          const n = Number(el.value);
+          overrides[field.key] = Number.isFinite(n) ? n : base[field.key];
+        } else if (field.kind === "range01") {
+          overrides[field.key] = clamp012(Number(el.value) / 100);
+        } else if (field.kind === "select") {
+          const raw = el.value;
+          if (field.key === "recurrence") {
+            overrides[field.key] = raw || null;
+          } else {
+            overrides[field.key] = raw;
+          }
+        } else if (field.kind === "text") {
+          const raw = el.value.trim();
+          overrides[field.key] = raw || null;
+        } else if (field.kind === "list") {
+          overrides[field.key] = parseList(el.value);
+        } else if (field.kind === "datetime") {
+          overrides[field.key] = el.value ? new Date(el.value).getTime() : null;
+        }
+      }
+    }
+    const effort = overrides.effort ?? base.effort;
+    if (overrides.effort && !("duration" in overrides)) {
+      overrides.duration = effort === "low" ? 15 : effort === "high" ? 60 : 30;
+    }
+    return overrides;
+  }
+  function mergeTaskDimensions(base, overrides) {
+    const merged = { ...base, ...overrides, updatedAt: Date.now() };
+    merged.duration = clamp(merged.duration, 5, 480);
+    for (const key of [
+      "cognitiveLoad",
+      "emotionalResistance",
+      "activationEnergy",
+      "recoveryCost",
+      "importance",
+      "urgency",
+      "consequenceOfDelay",
+      "momentumValue",
+      "compoundBenefit",
+      "identityAlignment",
+      "historicalCompletionRate",
+      "taskDecompositionPotential",
+      "energyToRewardRatio",
+      "timeSensitivity"
+    ]) {
+      merged[key] = clamp012(merged[key]);
+    }
+    return merged;
+  }
+  function parseList(raw) {
+    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  function clamp012(n) {
+    return Math.min(1, Math.max(0, n));
+  }
+  function clamp(n, min, max) {
+    return Math.min(max, Math.max(min, n));
+  }
+  function toLocalInputValue(ts) {
+    const d = new Date(ts);
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 6e4);
+    return local.toISOString().slice(0, 16);
+  }
+  function escapeAttr3(s) {
+    return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  }
+
   // src/app/render.ts
   function renderTaskList(list2, tasks2, ctx, viewMode2) {
     list2.innerHTML = "";
@@ -829,46 +1299,27 @@ ${lines.join("\n")}`;
       list2.appendChild(buildTaskItem(task, ctx));
   }
   function renderTaskDetailRows(task, scored) {
-    const scheduledValue = task.scheduledAt ? toLocalInputValue(task.scheduledAt) : "";
-    const recurrence = task.recurrence ?? "";
-    const knownRecurrence = ["daily", "weekly", "monthly", "weekdays"].includes(recurrence);
-    const rows = [
-      [
-        "Duration",
-        `<input id="detail-duration" type="number" min="5" max="480" step="5" value="${task.duration}" />`
-      ],
-      ["Effort", select("detail-effort", ["low", "medium", "high"], task.effort)],
-      ["Focus", select("detail-focus", ["deep", "shallow", "admin", "creative"], task.focusType)],
-      ["Deadline", select("detail-deadline", ["none", "soft", "hard"], task.deadlineType)],
-      ["Scheduled", `<input id="detail-scheduled" type="datetime-local" value="${scheduledValue}" />`],
-      [
-        "Recurrence",
-        `${select(
-          "detail-recurrence",
-          ["", "daily", "weekly", "monthly", "weekdays", "custom"],
-          knownRecurrence ? recurrence : recurrence ? "custom" : "",
-          ["None", "Daily", "Weekly", "Monthly", "Weekdays", "Custom"]
-        )}
-       <input id="detail-recurrence-custom" class="detail-custom-recurrence" type="text" placeholder="FREQ=WEEKLY;BYDAY=MO" value="${knownRecurrence ? "" : escapeAttr2(recurrence)}" />`
-      ],
-      ["Importance", pct(task.importance)],
-      ["Urgency", pct(task.urgency)],
-      ["Cognitive load", pct(task.cognitiveLoad)],
-      ["Emotional resistance", pct(task.emotionalResistance)],
-      ["Momentum", pct(task.momentumValue)],
-      ["Completion rate", pct(task.historicalCompletionRate)],
-      ["Energy / reward", pct(task.energyToRewardRatio)]
-    ];
-    if (task.preferredExecutionWindow)
-      rows.push(["Best window", task.preferredExecutionWindow]);
-    if (task.skippedCount > 0)
-      rows.push(["Skipped", String(task.skippedCount)]);
-    if (scored) {
-      rows.push(["Schedule score", String(Math.round(scored.score))]);
-      if (scored.reasons.length)
-        rows.push(["Why now", scored.reasons.join(", ")]);
+    const rows = renderDimensionSections("detail", task);
+    const extras = [];
+    if (task.skippedCount > 0) {
+      extras.push(
+        `<label class="detail-row"><span>Skipped</span><span>${task.skippedCount}</span></label>`
+      );
     }
-    return rows.map(([k, v]) => `<label class="detail-row"><span>${k}</span><span>${v}</span></label>`).join("");
+    if (scored) {
+      extras.push(
+        `<label class="detail-row"><span>Schedule score</span><span>${Math.round(scored.score)}</span></label>`
+      );
+      if (scored.reasons.length) {
+        extras.push(
+          `<label class="detail-row"><span>Why now</span><span>${scored.reasons.join(", ")}</span></label>`
+        );
+      }
+    }
+    return rows + extras.join("");
+  }
+  function bindTaskDetailForm(root) {
+    bindRangeLabels(root);
   }
   function buildTaskItem(task, ctx) {
     const li = document.createElement("li");
@@ -991,19 +1442,452 @@ ${lines.join("\n")}`;
       return "in " + mins + "m";
     return "in " + Math.round(mins / 60) + "h";
   }
-  function select(id, values, current, labels = values) {
-    return `<select id="${id}">${values.map((value, index) => `<option value="${escapeAttr2(value)}"${value === current ? " selected" : ""}>${labels[index]}</option>`).join("")}</select>`;
+
+  // src/app/task-presets.ts
+  var TASK_PRESETS = {
+    chores: {
+      id: "chores",
+      label: "Chores",
+      hint: "Low-friction home upkeep",
+      placeholder: "Take out recycling",
+      defaults: {
+        tag: "general",
+        effort: "low",
+        duration: 20,
+        deadlineType: "soft",
+        timeSensitivity: 0.35,
+        recurrence: "weekly",
+        focusType: "shallow",
+        cognitiveLoad: 0.22,
+        emotionalResistance: 0.2,
+        activationEnergy: 0.25,
+        recoveryCost: 0.12,
+        importance: 0.35,
+        urgency: 0.3,
+        consequenceOfDelay: 0.2,
+        momentumValue: 0.45,
+        compoundBenefit: 0.35,
+        identityAlignment: 0.55,
+        historicalCompletionRate: 0.65,
+        preferredExecutionWindow: "afternoon",
+        taskDecompositionPotential: 0.25,
+        energyToRewardRatio: 0.75,
+        locationDependency: "home"
+      }
+    },
+    work: {
+      id: "work",
+      label: "Work",
+      hint: "Focused professional work",
+      placeholder: "Draft project update",
+      defaults: {
+        tag: "work",
+        effort: "medium",
+        duration: 45,
+        deadlineType: "soft",
+        timeSensitivity: 0.7,
+        focusType: "deep",
+        cognitiveLoad: 0.65,
+        emotionalResistance: 0.4,
+        activationEnergy: 0.6,
+        recoveryCost: 0.35,
+        importance: 0.8,
+        urgency: 0.55,
+        consequenceOfDelay: 0.65,
+        momentumValue: 0.5,
+        compoundBenefit: 0.6,
+        identityAlignment: 0.7,
+        historicalCompletionRate: 0.55,
+        preferredExecutionWindow: "morning",
+        taskDecompositionPotential: 0.55,
+        energyToRewardRatio: 0.45
+      }
+    },
+    social: {
+      id: "social",
+      label: "Social",
+      hint: "Connection and outreach",
+      placeholder: "Text Alex to plan dinner",
+      defaults: {
+        tag: "social",
+        effort: "low",
+        duration: 30,
+        deadlineType: "soft",
+        timeSensitivity: 0.45,
+        focusType: "shallow",
+        cognitiveLoad: 0.3,
+        emotionalResistance: 0.45,
+        activationEnergy: 0.35,
+        recoveryCost: 0.2,
+        importance: 0.55,
+        urgency: 0.4,
+        consequenceOfDelay: 0.25,
+        momentumValue: 0.6,
+        compoundBenefit: 0.4,
+        identityAlignment: 0.75,
+        historicalCompletionRate: 0.5,
+        preferredExecutionWindow: "evening",
+        taskDecompositionPotential: 0.2,
+        energyToRewardRatio: 0.8
+      }
+    },
+    adhoc: {
+      id: "adhoc",
+      label: "Ad hoc",
+      hint: "Quick one-off errand",
+      placeholder: "Pick up prescription",
+      defaults: {
+        tag: "general",
+        effort: "low",
+        duration: 15,
+        deadlineType: "none",
+        timeSensitivity: 0.5,
+        focusType: "shallow",
+        cognitiveLoad: 0.28,
+        emotionalResistance: 0.25,
+        activationEnergy: 0.3,
+        recoveryCost: 0.15,
+        importance: 0.4,
+        urgency: 0.55,
+        consequenceOfDelay: 0.35,
+        momentumValue: 0.25,
+        compoundBenefit: 0.2,
+        identityAlignment: 0.35,
+        historicalCompletionRate: 0.6,
+        taskDecompositionPotential: 0.1,
+        energyToRewardRatio: 0.7
+      }
+    },
+    meetup: {
+      id: "meetup",
+      label: "Meetup",
+      hint: "Time-bound social event",
+      placeholder: "Coffee with Sam at 3pm",
+      defaults: {
+        tag: "social",
+        effort: "low",
+        duration: 60,
+        deadlineType: "hard",
+        timeSensitivity: 0.9,
+        focusType: "shallow",
+        cognitiveLoad: 0.25,
+        emotionalResistance: 0.35,
+        activationEnergy: 0.3,
+        recoveryCost: 0.25,
+        importance: 0.5,
+        urgency: 0.75,
+        consequenceOfDelay: 0.55,
+        momentumValue: 0.4,
+        compoundBenefit: 0.3,
+        identityAlignment: 0.65,
+        historicalCompletionRate: 0.7,
+        preferredExecutionWindow: "afternoon",
+        taskDecompositionPotential: 0.15,
+        energyToRewardRatio: 0.65,
+        locationDependency: "out"
+      }
+    }
+  };
+  var TASK_PRESET_IDS = Object.keys(TASK_PRESETS);
+
+  // src/app/task-input.ts
+  var activePreset = null;
+  var onPresetTagChange = null;
+  function initTaskInput(onTagChange) {
+    onPresetTagChange = onTagChange ?? null;
+    const presetRow = document.getElementById("preset-row");
+    const dimensionsRoot = document.getElementById("add-dimensions-root");
+    if (!presetRow || !dimensionsRoot)
+      return;
+    presetRow.innerHTML = TASK_PRESET_IDS.map((id) => {
+      const preset = TASK_PRESETS[id];
+      return `<button type="button" class="preset-btn" data-preset="${id}" title="${preset.hint}">${preset.label}</button>`;
+    }).join("");
+    const defaults = createTask("");
+    dimensionsRoot.innerHTML = renderDimensionSections("add", defaults);
+    bindRangeLabels(dimensionsRoot);
+    presetRow.querySelectorAll(".preset-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.preset;
+        applyPreset(id);
+        presetRow.querySelectorAll(".preset-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+      });
+    });
   }
-  function toLocalInputValue(ts) {
-    const d = new Date(ts);
-    const local = new Date(d.getTime() - d.getTimezoneOffset() * 6e4);
-    return local.toISOString().slice(0, 16);
+  function applyPreset(id) {
+    const preset = TASK_PRESETS[id];
+    activePreset = id;
+    const input2 = document.getElementById("task-input");
+    if (input2 && !input2.value.trim()) {
+      input2.placeholder = preset.placeholder;
+    }
+    const defaults = createTask("", preset.defaults);
+    applyOverridesToForm("add", defaults);
+    if (preset.defaults.tag)
+      onPresetTagChange?.(preset.defaults.tag);
   }
-  function pct(n) {
-    return Math.round(n * 100) + "%";
+  function buildTaskFromInput(text, tag) {
+    const base = createTask(text, { tag });
+    const overrides = readDimensionOverrides("add", base);
+    return mergeTaskDimensions(base, { ...overrides, tag: overrides.tag ?? tag });
   }
-  function escapeAttr2(s) {
-    return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  function resetTaskInput(tag) {
+    const input2 = document.getElementById("task-input");
+    if (input2) {
+      input2.value = "";
+      input2.placeholder = "Capture a task, deadline, or plan";
+    }
+    activePreset = null;
+    document.querySelectorAll(".preset-btn").forEach((b) => b.classList.remove("active"));
+    applyOverridesToForm("add", createTask("", { tag }));
+    const tiny = document.getElementById(fieldId("add", "tinyStep"));
+    if (tiny)
+      tiny.value = "";
+  }
+
+  // src/app/auth.ts
+  var USERS_KEY = "circuit_auth_users_v1";
+  var SESSION_KEY = "circuit_session_v1";
+  var LOCAL_USER = "__local__";
+  function readUsers() {
+    try {
+      const raw = localStorage.getItem(USERS_KEY);
+      if (!raw)
+        return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  function writeUsers(users) {
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  }
+  function sanitizeUsername(username) {
+    return username.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  }
+  function validateUsername(username) {
+    const u = sanitizeUsername(username);
+    if (u.length < 3)
+      return "Username must be at least 3 characters.";
+    if (u.length > 32)
+      return "Username is too long.";
+    return null;
+  }
+  function validatePasscode(passcode) {
+    if (passcode.length < 4)
+      return "Passcode must be at least 4 characters.";
+    if (passcode.length > 64)
+      return "Passcode is too long.";
+    return null;
+  }
+  async function hashPasscode(passcode, salt) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(passcode),
+      "PBKDF2",
+      false,
+      ["deriveBits"]
+    );
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: salt.buffer.slice(salt.byteOffset, salt.byteOffset + salt.byteLength),
+        iterations: 12e4,
+        hash: "SHA-256"
+      },
+      keyMaterial,
+      256
+    );
+    return btoa(String.fromCharCode(...new Uint8Array(bits)));
+  }
+  function randomSalt() {
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
+    return salt;
+  }
+  function saltToB64(salt) {
+    return btoa(String.fromCharCode(...salt));
+  }
+  function saltFromB64(salt) {
+    const bin = atob(salt);
+    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  }
+  function getSession() {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw)
+      return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed?.username)
+        return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+  function storageNamespace(session) {
+    if (!session || session.isLocal)
+      return "";
+    return `_${sanitizeUsername(session.username)}`;
+  }
+  function setSession(session) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }
+  function clearSession() {
+    sessionStorage.removeItem(SESSION_KEY);
+  }
+  async function registerAccount(username, passcode) {
+    const userErr = validateUsername(username);
+    if (userErr)
+      throw new Error(userErr);
+    const passErr = validatePasscode(passcode);
+    if (passErr)
+      throw new Error(passErr);
+    const normalized = sanitizeUsername(username);
+    const users = readUsers();
+    if (users.some((u) => u.username === normalized)) {
+      throw new Error("Username already exists.");
+    }
+    const salt = randomSalt();
+    const passHash = await hashPasscode(passcode, salt);
+    users.push({ username: normalized, salt: saltToB64(salt), passHash });
+    writeUsers(users);
+    setSession({ username: normalized, isLocal: false });
+  }
+  async function loginAccount(username, passcode) {
+    const userErr = validateUsername(username);
+    if (userErr)
+      throw new Error(userErr);
+    const passErr = validatePasscode(passcode);
+    if (passErr)
+      throw new Error(passErr);
+    const normalized = sanitizeUsername(username);
+    const user = readUsers().find((u) => u.username === normalized);
+    if (!user)
+      throw new Error("Account not found.");
+    const hash2 = await hashPasscode(passcode, saltFromB64(user.salt));
+    if (hash2 !== user.passHash)
+      throw new Error("Incorrect passcode.");
+    setSession({ username: normalized, isLocal: false });
+  }
+  function continueLocally() {
+    setSession({ username: LOCAL_USER, isLocal: true });
+  }
+  function logout() {
+    clearSession();
+  }
+  function initAuthUI(onReady) {
+    const overlay = document.getElementById("auth-overlay");
+    const usernameInput = document.getElementById("auth-username");
+    const passcodeInput = document.getElementById("auth-passcode");
+    const errorEl = document.getElementById("auth-error");
+    const signInBtn = document.getElementById("auth-sign-in");
+    const registerBtn = document.getElementById("auth-register");
+    const localBtn = document.getElementById("auth-continue-local");
+    const accountBtn = document.getElementById("account-btn");
+    const accountLabel = document.getElementById("account-label");
+    const signOutBtn = document.getElementById("auth-sign-out");
+    const showError = (msg) => {
+      if (errorEl) {
+        errorEl.textContent = msg;
+        errorEl.hidden = !msg;
+      }
+    };
+    const hideOverlay = () => {
+      overlay?.setAttribute("hidden", "");
+    };
+    const showOverlay = () => {
+      overlay?.removeAttribute("hidden");
+      usernameInput?.focus();
+    };
+    const updateAccountChip = (session) => {
+      if (accountLabel) {
+        accountLabel.textContent = session.isLocal ? "Local" : session.username;
+      }
+      if (accountBtn) {
+        accountBtn.title = session.isLocal ? "Using this device only \u2014 sign in to sync" : `Signed in as ${session.username}`;
+      }
+    };
+    const finish = (session) => {
+      hideOverlay();
+      updateAccountChip(session);
+      onReady(session);
+    };
+    const existing = getSession();
+    if (existing) {
+      hideOverlay();
+      updateAccountChip(existing);
+      onReady(existing);
+      return;
+    }
+    showOverlay();
+    signInBtn?.addEventListener("click", async () => {
+      showError("");
+      try {
+        await loginAccount(usernameInput?.value ?? "", passcodeInput?.value ?? "");
+        finish(getSession());
+      } catch (e) {
+        showError(e instanceof Error ? e.message : "Sign in failed.");
+      }
+    });
+    registerBtn?.addEventListener("click", async () => {
+      showError("");
+      try {
+        await registerAccount(usernameInput?.value ?? "", passcodeInput?.value ?? "");
+        finish(getSession());
+      } catch (e) {
+        showError(e instanceof Error ? e.message : "Could not create account.");
+      }
+    });
+    localBtn?.addEventListener("click", () => {
+      showError("");
+      continueLocally();
+      finish(getSession());
+    });
+    signOutBtn?.addEventListener("click", () => {
+      logout();
+      window.location.reload();
+    });
+    accountBtn?.addEventListener("click", () => {
+      const session = getSession();
+      if (session?.isLocal)
+        showOverlay();
+    });
+  }
+
+  // src/app/sync-bundle.ts
+  var BUNDLE_VERSION = 1;
+  function buildSyncBundle(tasks2) {
+    const session = getSession();
+    return {
+      version: BUNDLE_VERSION,
+      username: session?.isLocal ? "local" : session?.username ?? "unknown",
+      exportedAt: Date.now(),
+      tasks: tasks2
+    };
+  }
+  function parseSyncBundle(raw) {
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.version !== BUNDLE_VERSION || !Array.isArray(parsed.tasks)) {
+      throw new Error("Invalid Circuit backup file.");
+    }
+    return parsed;
+  }
+  function downloadSyncBundle(tasks2) {
+    const bundle = buildSyncBundle(tasks2);
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+      type: "application/json;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `circuit-backup-${stamp}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   // src/app/themes.ts
@@ -1331,6 +2215,7 @@ ${lines.join("\n")}`;
     if (lastPlan)
       renderDashboard(lastPlan);
     renderTasks();
+    renderCalendarView(tasks);
   }
   function load() {
     tasks = loadTasks();
@@ -1348,11 +2233,13 @@ ${lines.join("\n")}`;
   }
   function addTaskFromInput(text) {
     const conversational = taskFromConversationalInput(text);
-    const task = conversational ?? createTask(text, { tag: selectedTag });
-    if (!conversational)
+    const task = conversational ?? buildTaskFromInput(text, selectedTag);
+    if (conversational) {
       task.tag = selectedTag;
+    }
     tasks.push(task);
     showToast(conversational ? "Parsed task with smart defaults" : "Task added");
+    resetTaskInput(selectedTag);
     persist();
   }
   function toggleTask(id) {
@@ -1446,6 +2333,7 @@ ${lines.join("\n")}`;
       return;
     title.textContent = task.text;
     rows.innerHTML = renderTaskDetailRows(task, scoreMap().get(task.id));
+    bindTaskDetailForm(rows);
     overlay.removeAttribute("hidden");
     bindDetailModal(task.id, overlay);
     const close = () => overlay.setAttribute("hidden", "");
@@ -1457,51 +2345,20 @@ ${lines.join("\n")}`;
   }
   function bindDetailModal(taskId, overlay) {
     const saveBtn = document.getElementById("detail-save");
-    const recurrenceSelect = document.getElementById("detail-recurrence");
-    const recurrenceCustom = document.getElementById("detail-recurrence-custom");
     const close = () => overlay.setAttribute("hidden", "");
     if (!saveBtn)
       return;
-    const syncCustomVisibility = () => {
-      if (recurrenceCustom && recurrenceSelect) {
-        recurrenceCustom.hidden = recurrenceSelect.value !== "custom";
-      }
-    };
-    recurrenceSelect?.addEventListener("change", syncCustomVisibility);
-    syncCustomVisibility();
     saveBtn.onclick = () => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task)
         return;
-      const duration = numberInput("detail-duration", task.duration);
-      const scheduledValue = document.getElementById("detail-scheduled")?.value ?? "";
-      const recurrenceSelect2 = document.getElementById("detail-recurrence")?.value ?? "";
-      const customRecurrence = document.getElementById("detail-recurrence-custom")?.value.trim() ?? "";
-      const recurrence = recurrenceSelect2 === "custom" ? customRecurrence : recurrenceSelect2;
-      task.duration = clamp(duration, 5, 480);
-      task.effort = selectValue("detail-effort", task.effort);
-      task.focusType = selectValue("detail-focus", task.focusType);
-      task.deadlineType = selectValue("detail-deadline", task.deadlineType);
-      task.scheduledAt = scheduledValue ? new Date(scheduledValue).getTime() : null;
-      task.recurrence = recurrence || null;
-      task.cognitiveLoad = task.effort === "low" ? 0.25 : task.effort === "high" ? 0.8 : 0.5;
-      task.activationEnergy = task.cognitiveLoad;
-      task.recoveryCost = task.cognitiveLoad * 0.5;
-      task.updatedAt = Date.now();
+      const overrides = readDimensionOverrides("detail", task);
+      const merged = mergeTaskDimensions(task, overrides);
+      Object.assign(task, merged);
       showToast("Task details updated");
       persist();
       close();
     };
-  }
-  function numberInput(id, fallback) {
-    const value = Number(document.getElementById(id)?.value);
-    return Number.isFinite(value) ? value : fallback;
-  }
-  function selectValue(id, fallback) {
-    return document.getElementById(id)?.value ?? fallback;
-  }
-  function clamp(n, min, max) {
-    return Math.min(max, Math.max(min, n));
   }
   function renderTasks() {
     const visible = visibleTasks();
@@ -1545,8 +2402,8 @@ ${lines.join("\n")}`;
     if (!text)
       return;
     addTaskFromInput(text);
-    input.value = "";
     input.focus();
+    showPage("tasks");
   });
   filterButtons.forEach((btn) => {
     btn.addEventListener("click", () => setFilter(btn.dataset.filter));
@@ -1636,10 +2493,51 @@ ${lines.join("\n")}`;
       calendarStatus.textContent = "Exported scheduled tasks";
     showToast("Calendar file exported");
   });
-  initTheme();
-  load();
-  initModes(() => {
-    tasks = rescheduleAll(tasks, getMode()).tasks;
-    persist();
+  var bundleInput = document.getElementById("bundle-file-input");
+  var bundleExport = document.getElementById("bundle-export");
+  var bundleImport = document.getElementById("bundle-import");
+  bundleExport?.addEventListener("click", () => {
+    downloadSyncBundle(tasks);
+    showToast("Account backup downloaded");
+  });
+  bundleImport?.addEventListener("click", () => bundleInput?.click());
+  bundleInput?.addEventListener("change", async () => {
+    const file = bundleInput.files?.[0];
+    if (!file)
+      return;
+    try {
+      const bundle = parseSyncBundle(await file.text());
+      tasks = bundle.tasks;
+      persist();
+      showToast(`Restored ${bundle.tasks.length} tasks from backup`);
+    } catch {
+      showToast("Invalid backup file");
+    }
+    bundleInput.value = "";
+  });
+  function bootstrapApp() {
+    initTheme();
+    initTaskInput(setTag);
+    load();
+    initNavigation((page) => {
+      if (page === "add") {
+        input?.focus();
+      }
+    });
+    initCalendar({
+      onTaskClick: openDetailModal,
+      onDateChange: () => renderCalendarView(tasks)
+    });
+    initModes(() => {
+      tasks = rescheduleAll(tasks, getMode()).tasks;
+      persist();
+    });
+    if (getCurrentPage() === "add") {
+      input?.focus();
+    }
+  }
+  initAuthUI((session) => {
+    setTaskStorageNamespace(storageNamespace(session));
+    bootstrapApp();
   });
 })();
