@@ -2,6 +2,20 @@ const USERS_KEY = 'circuit_auth_users_v1';
 const SESSION_KEY = 'circuit_session_v1';
 const LOCAL_USER = '__local__';
 
+let sessionPasscode: string | null = null;
+
+export function getPasscodeForSession(): string | null {
+  return sessionPasscode;
+}
+
+function setSessionPasscode(p: string): void {
+  sessionPasscode = p;
+}
+
+export function clearSessionPasscode(): void {
+  sessionPasscode = null;
+}
+
 export interface AuthSession {
   username: string;
   isLocal: boolean;
@@ -83,7 +97,7 @@ function saltFromB64(salt: string): Uint8Array {
 }
 
 export function getSession(): AuthSession | null {
-  const raw = sessionStorage.getItem(SESSION_KEY);
+  const raw = localStorage.getItem(SESSION_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as AuthSession;
@@ -100,11 +114,11 @@ export function storageNamespace(session: AuthSession | null): string {
 }
 
 function setSession(session: AuthSession): void {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 export function clearSession(): void {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 export async function registerAccount(username: string, passcode: string): Promise<void> {
@@ -123,6 +137,7 @@ export async function registerAccount(username: string, passcode: string): Promi
   const passHash = await hashPasscode(passcode, salt);
   users.push({ username: normalized, salt: saltToB64(salt), passHash });
   writeUsers(users);
+  setSessionPasscode(passcode);
   setSession({ username: normalized, isLocal: false });
 }
 
@@ -139,6 +154,7 @@ export async function loginAccount(username: string, passcode: string): Promise<
   const hash = await hashPasscode(passcode, saltFromB64(user.salt));
   if (hash !== user.passHash) throw new Error('Incorrect passcode.');
 
+  setSessionPasscode(passcode);
   setSession({ username: normalized, isLocal: false });
 }
 
@@ -148,6 +164,7 @@ export function continueLocally(): void {
 
 export function logout(): void {
   clearSession();
+  clearSessionPasscode();
 }
 
 export type AuthReadyHandler = (session: AuthSession) => void;

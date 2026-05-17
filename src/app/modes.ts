@@ -24,6 +24,7 @@ export function setMode(mode: EnergyMode, notify = true): void {
   document.body.setAttribute('data-mode', mode);
   const pill = document.getElementById('mode-display');
   if (pill) pill.textContent = MODE_NAMES[mode] ?? mode;
+  document.getElementById('mode-popup')?.setAttribute('hidden', '');
   if (notify) onModeChange?.();
 }
 
@@ -34,9 +35,20 @@ export function initModes(onChange: () => void): void {
     btn.addEventListener('click', () => setMode((btn as HTMLElement).dataset.mode as EnergyMode));
   });
   const pill = document.getElementById('mode-display');
-  if (pill) {
-    pill.addEventListener('click', () => {
-      document.getElementById('mode-selector')?.classList.toggle('visible');
+  const popup = document.getElementById('mode-popup');
+  if (pill && popup) {
+    pill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (popup.hasAttribute('hidden')) {
+        popup.removeAttribute('hidden');
+      } else {
+        popup.setAttribute('hidden', '');
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!popup.hasAttribute('hidden') && !popup.contains(e.target as Node)) {
+        popup.setAttribute('hidden', '');
+      }
     });
   }
   setMode(saved, false);

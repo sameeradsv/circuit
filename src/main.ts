@@ -1,15 +1,19 @@
 import { recordCompletion } from './behavioral-engine';
 import { taskFromConversationalInput } from './ai-assistance';
+import { parseTaskWithAI } from './ai-assistance/conversational';
+import { getAISuggestions } from './ai-assistance/suggestions';
 import { initCalendar, renderCalendarView } from './app/calendar';
-import { buildDashboardState, renderDashboard } from './app/dashboard';
+import { buildDashboardState, fetchAIBriefing, renderDashboard } from './app/dashboard';
 import { getMode, initModes } from './app/modes';
 import { getCurrentPage, initNavigation, showPage } from './app/navigation';
 import { tasksFromImport } from './app/import';
 import { bindTaskDetailForm, renderTaskDetailRows, renderTaskList, type ViewMode } from './app/render';
 import { mergeTaskDimensions, readDimensionOverrides } from './app/dimensions';
 import { buildTaskFromInput, initTaskInput, resetTaskInput } from './app/task-input';
-import { initAuthUI, storageNamespace } from './app/auth';
-import { downloadSyncBundle, parseSyncBundle } from './app/sync-bundle';
+import { getPasscodeForSession, initAuthUI, storageNamespace } from './app/auth';
+import { copySyncBundleToClipboard, downloadSyncBundle, parseSyncBundle, readSyncBundleFromClipboard } from './app/sync-bundle';
+import { getCloudEndpoint, pullFromCloud, pushToCloud, setCloudEndpoint } from './app/cloud-sync';
+import { getAIKey, setAIKey, getAIProvider, setAIProvider, isAIConfigured, type AIProvider } from './app/ai-config';
 import { initTheme } from './app/themes';
 import { showToast } from './app/toast';
 import { parseIcs, syncFromCalendar, tasksToIcs } from './calendar-sync';
@@ -81,14 +85,33 @@ function scoreMap(): Map<string, ScoredTask> {
   return new Map(lastPlan.plan.ordered.map((s) => [s.task.id, s]));
 }
 
-function addTaskFromInput(text: string): void {
-  const conversational = taskFromConversationalInput(text);
-  const task = conversational ?? buildTaskFromInput(text, selectedTag);
-  if (conversational) {
-    task.tag = selectedTag;
+async function addTaskFromInput(text: string): Promise<void> {
+  let task: Task;
+  if (isAIConfigured()) {
+    try {
+      const ai = await parseTaskWithAI(text);
+      task = createTask(ai.text, {
+        tag: ai.tag ?? selectedTag,
+        duration: ai.duration,
+        deadlineType: ai.deadlineType ?? 'none',
+        urgency: ai.urgency,
+        cognitiveLoad: ai.cognitiveLoad,
+      });
+      task.tag = selectedTag;
+      showToast('Task parsed with AI');
+    } catch {
+      const conversational = taskFromConversationalInput(text);
+      task = conversational ?? buildTaskFromInput(text, selectedTag);
+      if (conversational) task.tag = selectedTag;
+      showToast(conversational ? 'Parsed task with smart defaults' : 'Task added');
+    }
+  } else {
+    const conversational = taskFromConversationalInput(text);
+    task = conversational ?? buildTaskFromInput(text, selectedTag);
+    if (conversational) task.tag = selectedTag;
+    showToast(conversational ? 'Parsed task with smart defaults' : 'Task added');
   }
   tasks.push(task);
-  showToast(conversational ? 'Parsed task with smart defaults' : 'Task added');
   resetTaskInput(selectedTag);
   persist();
 }
@@ -258,9 +281,10 @@ form.addEventListener('submit', (e) => {
   e.preventDefault();
   const text = input.value.trim();
   if (!text) return;
-  addTaskFromInput(text);
-  input.focus();
-  showPage('tasks');
+  void addTaskFromInput(text).then(() => {
+    input.focus();
+    showPage('tasks');
+  });
 });
 
 filterButtons.forEach((btn) => {
@@ -381,6 +405,150 @@ bundleInput?.addEventListener('change', async () => {
   bundleInput.value = '';
 });
 
+document.getElementById('bundle-copy')?.addEventListener('click', async () => {
+  try {
+    await copySyncBundleToClipboard(tasks);
+    showToast('Backup copied to clipboard');
+  } catch {
+    showToast('Could not copy to clipboard');
+  }
+});
+
+document.getElementById('bundle-paste')?.addEventListener('click', async () => {
+  try {
+    const bundle = await readSyncBundleFromClipboard();
+    const date = new Date(bundle.exportedAt).toLocaleDateString();
+    tasks = bundle.tasks;
+    persist();
+    showToast(`Imported ${bundle.tasks.length} tasks from clipboard backup (${date})`);
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : 'Could not paste backup');
+  }
+});
+
+const syncEndpointInput = document.getElementById('sync-endpoint-input') as HTMLInputElement | null;
+const cloudStatus = document.getElementById('cloud-sync-status');
+
+function setCloudStatus(msg: string): void {
+  if (cloudStatus) cloudStatus.textContent = msg;
+}
+
+if (syncEndpointInput) {
+  const saved = getCloudEndpoint();
+  if (saved) syncEndpointInput.value = saved;
+}
+
+document.getElementById('sync-endpoint-save')?.addEventListener('click', () => {
+  const url = syncEndpointInput?.value.trim() ?? '';
+  setCloudEndpoint(url);
+  setCloudStatus(url ? 'Sync URL saved' : 'Sync URL cleared');
+});
+
+async function requirePasscode(): Promise<string | null> {
+  const inMemory = getPasscodeForSession();
+  if (inMemory) return inMemory;
+  return new Promise((resolve) => {
+    const pc = prompt('Enter your passcode to sync:');
+    resolve(pc && pc.length >= 4 ? pc : null);
+  });
+}
+
+async function cloudSync(direction: 'push' | 'pull'): Promise<void> {
+  const endpoint = getCloudEndpoint();
+  if (!endpoint) {
+    showToast('Set a sync URL first');
+    return;
+  }
+  const session = (() => {
+    try {
+      const raw = localStorage.getItem('circuit_session_v1');
+      return raw ? (JSON.parse(raw) as { username?: string; isLocal?: boolean }) : null;
+    } catch {
+      return null;
+    }
+  })();
+  if (!session || session.isLocal) {
+    showToast('Sign in with an account to use cloud sync');
+    return;
+  }
+  const username = session.username!;
+  const passcode = await requirePasscode();
+  if (!passcode) {
+    showToast('Passcode required for cloud sync');
+    return;
+  }
+
+  try {
+    if (direction === 'push') {
+      await pushToCloud(tasks, username, passcode, endpoint);
+      setCloudStatus(`Pushed ${tasks.length} tasks`);
+      showToast(`Pushed ${tasks.length} tasks to cloud`);
+    } else {
+      const bundle = await pullFromCloud(username, passcode, endpoint);
+      if (!bundle) {
+        showToast('No remote backup found');
+        setCloudStatus('No remote backup');
+        return;
+      }
+      if (bundle.exportedAt > (tasks[0]?.updatedAt ?? 0)) {
+        tasks = bundle.tasks;
+        persist();
+        setCloudStatus(`Pulled ${bundle.tasks.length} tasks`);
+        showToast(`Pulled ${bundle.tasks.length} tasks from cloud`);
+      } else {
+        await pushToCloud(tasks, username, passcode, endpoint);
+        setCloudStatus('Local is newer — pushed');
+        showToast('Local tasks are newer — pushed to cloud');
+      }
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Sync failed';
+    setCloudStatus(msg);
+    showToast(msg);
+  }
+}
+
+document.getElementById('cloud-push')?.addEventListener('click', () => void cloudSync('push'));
+document.getElementById('cloud-pull')?.addEventListener('click', () => void cloudSync('pull'));
+
+const aiKeyInput = document.getElementById('ai-key-input') as HTMLInputElement | null;
+const aiKeyStatus = document.getElementById('ai-key-status');
+
+if (aiKeyInput) {
+  const saved = getAIKey();
+  if (saved) aiKeyInput.value = saved;
+}
+
+document.getElementById('ai-key-save')?.addEventListener('click', () => {
+  const key = aiKeyInput?.value.trim() ?? '';
+  setAIKey(key);
+  if (aiKeyStatus) aiKeyStatus.textContent = key ? 'AI key saved' : 'AI key cleared';
+});
+
+const aiSuggestionsShown = new Set<string>();
+
+async function maybeShowAISuggestions(): Promise<void> {
+  if (!isAIConfigured() || tasks.length === 0) return;
+  try {
+    const suggestions = await getAISuggestions(tasks, getMode());
+    if (suggestions.length === 0) return;
+    const panel = document.getElementById('insight-panel');
+    if (!panel) return;
+    const newSuggestions = suggestions.filter((s) => !aiSuggestionsShown.has(s));
+    if (newSuggestions.length === 0) return;
+    newSuggestions.forEach((s) => aiSuggestionsShown.add(s));
+    const frag = newSuggestions
+      .map(
+        (s) =>
+          `<p class="insight-line insight-rec"><span class="insight-icon">✦</span>${s}</p>`,
+      )
+      .join('');
+    panel.insertAdjacentHTML('beforeend', frag);
+  } catch {
+    // Silent fail — AI suggestions are optional
+  }
+}
+
 function bootstrapApp(): void {
   initTheme();
   initTaskInput(setTag);
@@ -402,9 +570,23 @@ function bootstrapApp(): void {
   if (getCurrentPage() === 'add') {
     input?.focus();
   }
+
+  if (isAIConfigured()) {
+    void fetchAIBriefing(tasks, getMode());
+    void maybeShowAISuggestions();
+  }
 }
 
 initAuthUI((session) => {
   setTaskStorageNamespace(storageNamespace(session));
   bootstrapApp();
+
+  // Auto-sync on login when passcode is available (just signed in, not page-reload)
+  if (!session.isLocal) {
+    const endpoint = getCloudEndpoint();
+    const passcode = getPasscodeForSession();
+    if (endpoint && passcode) {
+      void cloudSync('pull');
+    }
+  }
 });

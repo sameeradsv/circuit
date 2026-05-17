@@ -1,4 +1,5 @@
 import { explainSchedule, forecastDay } from '../ai-assistance';
+import { callAI } from '../ai-assistance/call-ai';
 import { analyzeBehavior } from '../behavioral-engine';
 import { computeAnalytics, type TaskAnalytics } from '../analytics-engine';
 import { getRecommendations, type Recommendation } from '../recommendation-engine';
@@ -164,6 +165,47 @@ function iconFor(type: BehavioralInsight['type']): string {
 
 function statCard(value: string, label: string): string {
   return `<div class="stat-card"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`;
+}
+
+const AI_BRIEFING_KEY = 'circuit_ai_briefing';
+const AI_BRIEFING_DATE_KEY = 'circuit_ai_briefing_date';
+
+export async function fetchAIBriefing(tasks: Task[], mode: EnergyMode): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  const cached = localStorage.getItem(AI_BRIEFING_DATE_KEY) === today
+    ? localStorage.getItem(AI_BRIEFING_KEY)
+    : null;
+  if (cached) {
+    const banner = document.getElementById('snapshot-banner');
+    if (banner) banner.textContent = cached;
+    return;
+  }
+
+  const top5 = tasks
+    .filter((t) => !t.completed)
+    .slice(0, 5)
+    .map((t) => `- ${t.text}`)
+    .join('\n');
+  const overdue = tasks.filter(
+    (t) => !t.completed && t.scheduledAt !== null && t.scheduledAt < Date.now(),
+  ).length;
+
+  const prompt = `You are a calm, supportive productivity assistant. Write a 1-2 sentence daily briefing. Be specific and encouraging. Plain sentences only — no bullet points, no markdown.
+
+Energy mode: ${mode}
+Top tasks:
+${top5 || '- No tasks yet'}
+Overdue: ${overdue}`;
+
+  try {
+    const text = await callAI(prompt);
+    localStorage.setItem(AI_BRIEFING_KEY, text);
+    localStorage.setItem(AI_BRIEFING_DATE_KEY, today);
+    const banner = document.getElementById('snapshot-banner');
+    if (banner) banner.textContent = text;
+  } catch {
+    // Silently fail; existing banner content stays
+  }
 }
 
 function startOfDay(ts: number): number {

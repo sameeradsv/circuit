@@ -33,7 +33,7 @@ Static PWA: `index.html`, bundled `app.js` (esbuild from `src/main.ts`), `style.
 
 - Tasks: `localStorage` key `circuit_tasks_v1` or `circuit_tasks_v1_<username>`
 - Accounts: `circuit_auth_users_v1` (salt + pass hash only)
-- Session: `sessionStorage` `circuit_session_v1`
+- Session: `localStorage` `circuit_session_v1`
 
 ## Docs
 

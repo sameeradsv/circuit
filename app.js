@@ -353,6 +353,30 @@
     return d.getTime();
   }
 
+  // src/ai-assistance/gemini.ts
+  var GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+  async function callGemini(apiKey, prompt2, jsonMode = false) {
+    const body = {
+      contents: [{ parts: [{ text: prompt2 }] }]
+    };
+    if (jsonMode) {
+      body["generationConfig"] = { response_mime_type: "application/json" };
+    }
+    const res = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      throw new Error(`Gemini API error: ${res.status}`);
+    }
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text)
+      throw new Error("Empty response from Gemini");
+    return text;
+  }
+
   // src/ai-assistance/conversational.ts
   function parseConversationalInput(input2) {
     const trimmed = input2.trim();
@@ -396,6 +420,33 @@
       deadlineType: parsed.deadlineType ?? "none",
       urgency: parsed.deadlineType === "hard" ? 0.9 : parsed.deadlineType === "soft" ? 0.5 : 0.4
     });
+  }
+  async function parseTaskWithAI(input2, apiKey) {
+    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const prompt2 = `Parse this task into structured data. Return valid JSON only, no markdown or explanation.
+Task: "${input2}"
+Today's date: ${today}
+
+Return exactly this JSON shape (use null for unknown fields):
+{"text":"clean task text without duration/date info","duration":null,"deadlineType":"none","tag":"general","urgency":0.5,"cognitiveLoad":2}
+
+Rules:
+- text: clean task description, remove parsed time/date fragments
+- duration: integer minutes or null
+- deadlineType: "none", "soft" (later/flexible), or "hard" (today/urgent/deadline)
+- tag: "work", "social", "later", or "general"
+- urgency: 0.0 to 1.0 (0=low, 1=critical)
+- cognitiveLoad: 1 (easy) to 5 (very hard)`;
+    const raw = await callGemini(apiKey, prompt2, true);
+    const parsed = JSON.parse(raw);
+    return {
+      text: typeof parsed["text"] === "string" && parsed["text"].length > 0 ? parsed["text"] : input2,
+      duration: typeof parsed["duration"] === "number" && parsed["duration"] > 0 ? Math.round(parsed["duration"]) : void 0,
+      deadlineType: ["none", "soft", "hard"].includes(parsed["deadlineType"]) ? parsed["deadlineType"] : void 0,
+      tag: ["general", "work", "social", "later"].includes(parsed["tag"]) ? parsed["tag"] : void 0,
+      urgency: typeof parsed["urgency"] === "number" ? Math.max(0, Math.min(1, parsed["urgency"])) : void 0,
+      cognitiveLoad: typeof parsed["cognitiveLoad"] === "number" ? Math.round(Math.max(1, Math.min(5, parsed["cognitiveLoad"]))) : void 0
+    };
   }
 
   // src/ai-assistance/explanations.ts
@@ -590,6 +641,25 @@ ${lines.join("\n")}`;
     const d = new Date(ts);
     d.setHours(0, 0, 0, 0);
     return d.getTime();
+  }
+
+  // src/ai-assistance/suggestions.ts
+  async function getAISuggestions(tasks2, mode, apiKey) {
+    const pending = tasks2.filter((t) => !t.completed).slice(0, 20).map((t) => t.text).join(", ");
+    const done = tasks2.filter((t) => t.completed).slice(-10).map((t) => t.text).join(", ");
+    const prompt2 = `You are a calm productivity assistant. Suggest 2-3 short tasks the user might have overlooked or should do next.
+Return a JSON array of strings only, no markdown, no explanation.
+
+Energy mode: ${mode}
+Pending tasks: ${pending || "none"}
+Recently completed: ${done || "none"}
+
+Return exactly: ["suggestion 1", "suggestion 2"]`;
+    const raw = await callGemini(apiKey, prompt2, true);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed))
+      return [];
+    return parsed.filter((s) => typeof s === "string").slice(0, 3);
   }
 
   // src/app/calendar.ts
@@ -869,6 +939,37 @@ ${lines.join("\n")}`;
   function statCard(value, label) {
     return `<div class="stat-card"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`;
   }
+  var AI_BRIEFING_KEY = "circuit_ai_briefing";
+  var AI_BRIEFING_DATE_KEY = "circuit_ai_briefing_date";
+  async function fetchAIBriefing(tasks2, mode, apiKey) {
+    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const cached = localStorage.getItem(AI_BRIEFING_DATE_KEY) === today ? localStorage.getItem(AI_BRIEFING_KEY) : null;
+    if (cached) {
+      const banner = document.getElementById("snapshot-banner");
+      if (banner)
+        banner.textContent = cached;
+      return;
+    }
+    const top5 = tasks2.filter((t) => !t.completed).slice(0, 5).map((t) => `- ${t.text}`).join("\n");
+    const overdue = tasks2.filter(
+      (t) => !t.completed && t.scheduledAt !== null && t.scheduledAt < Date.now()
+    ).length;
+    const prompt2 = `You are a calm, supportive productivity assistant. Write a 1-2 sentence daily briefing. Be specific and encouraging. Plain sentences only \u2014 no bullet points, no markdown.
+
+Energy mode: ${mode}
+Top tasks:
+${top5 || "- No tasks yet"}
+Overdue: ${overdue}`;
+    try {
+      const text = await callGemini(apiKey, prompt2);
+      localStorage.setItem(AI_BRIEFING_KEY, text);
+      localStorage.setItem(AI_BRIEFING_DATE_KEY, today);
+      const banner = document.getElementById("snapshot-banner");
+      if (banner)
+        banner.textContent = text;
+    } catch {
+    }
+  }
   function startOfDay4(ts) {
     const d = new Date(ts);
     d.setHours(0, 0, 0, 0);
@@ -906,6 +1007,7 @@ ${lines.join("\n")}`;
     const pill = document.getElementById("mode-display");
     if (pill)
       pill.textContent = MODE_NAMES[mode] ?? mode;
+    document.getElementById("mode-popup")?.setAttribute("hidden", "");
     if (notify)
       onModeChange?.();
   }
@@ -916,9 +1018,20 @@ ${lines.join("\n")}`;
       btn.addEventListener("click", () => setMode(btn.dataset.mode));
     });
     const pill = document.getElementById("mode-display");
-    if (pill) {
-      pill.addEventListener("click", () => {
-        document.getElementById("mode-selector")?.classList.toggle("visible");
+    const popup = document.getElementById("mode-popup");
+    if (pill && popup) {
+      pill.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (popup.hasAttribute("hidden")) {
+          popup.removeAttribute("hidden");
+        } else {
+          popup.setAttribute("hidden", "");
+        }
+      });
+      document.addEventListener("click", (e) => {
+        if (!popup.hasAttribute("hidden") && !popup.contains(e.target)) {
+          popup.setAttribute("hidden", "");
+        }
       });
     }
     setMode(saved, false);
@@ -1650,6 +1763,16 @@ ${lines.join("\n")}`;
   var USERS_KEY = "circuit_auth_users_v1";
   var SESSION_KEY = "circuit_session_v1";
   var LOCAL_USER = "__local__";
+  var sessionPasscode = null;
+  function getPasscodeForSession() {
+    return sessionPasscode;
+  }
+  function setSessionPasscode(p) {
+    sessionPasscode = p;
+  }
+  function clearSessionPasscode() {
+    sessionPasscode = null;
+  }
   function readUsers() {
     try {
       const raw = localStorage.getItem(USERS_KEY);
@@ -1716,7 +1839,7 @@ ${lines.join("\n")}`;
     return Uint8Array.from(bin, (c) => c.charCodeAt(0));
   }
   function getSession() {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
     if (!raw)
       return null;
     try {
@@ -1734,10 +1857,10 @@ ${lines.join("\n")}`;
     return `_${sanitizeUsername(session.username)}`;
   }
   function setSession(session) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   }
   function clearSession() {
-    sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_KEY);
   }
   async function registerAccount(username, passcode) {
     const userErr = validateUsername(username);
@@ -1755,6 +1878,7 @@ ${lines.join("\n")}`;
     const passHash = await hashPasscode(passcode, salt);
     users.push({ username: normalized, salt: saltToB64(salt), passHash });
     writeUsers(users);
+    setSessionPasscode(passcode);
     setSession({ username: normalized, isLocal: false });
   }
   async function loginAccount(username, passcode) {
@@ -1771,6 +1895,7 @@ ${lines.join("\n")}`;
     const hash2 = await hashPasscode(passcode, saltFromB64(user.salt));
     if (hash2 !== user.passHash)
       throw new Error("Incorrect passcode.");
+    setSessionPasscode(passcode);
     setSession({ username: normalized, isLocal: false });
   }
   function continueLocally() {
@@ -1778,6 +1903,7 @@ ${lines.join("\n")}`;
   }
   function logout() {
     clearSession();
+    clearSessionPasscode();
   }
   function initAuthUI(onReady) {
     const overlay = document.getElementById("auth-overlay");
@@ -1888,6 +2014,100 @@ ${lines.join("\n")}`;
     link.download = `circuit-backup-${stamp}.json`;
     link.click();
     URL.revokeObjectURL(url);
+  }
+  async function copySyncBundleToClipboard(tasks2) {
+    const bundle = buildSyncBundle(tasks2);
+    await navigator.clipboard.writeText(JSON.stringify(bundle));
+  }
+  async function readSyncBundleFromClipboard() {
+    const text = await navigator.clipboard.readText();
+    return parseSyncBundle(text);
+  }
+
+  // src/app/cloud-sync.ts
+  var ENDPOINT_KEY = "circuit_sync_endpoint";
+  function getCloudEndpoint() {
+    return localStorage.getItem(ENDPOINT_KEY) || null;
+  }
+  function setCloudEndpoint(url) {
+    if (url.trim()) {
+      localStorage.setItem(ENDPOINT_KEY, url.trim().replace(/\/$/, ""));
+    } else {
+      localStorage.removeItem(ENDPOINT_KEY);
+    }
+  }
+  async function deriveEncKey(passcode, username) {
+    const enc = new TextEncoder();
+    const saltBytes = await crypto.subtle.digest("SHA-256", enc.encode(username + ":circuit-enc"));
+    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(passcode), "PBKDF2", false, [
+      "deriveKey"
+    ]);
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: saltBytes, iterations: 12e4, hash: "SHA-256" },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  }
+  function toB64(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  }
+  function fromB64(s) {
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  }
+  async function encryptBundle(key, bundle) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plaintext = new TextEncoder().encode(JSON.stringify(bundle));
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+    return {
+      ct: toB64(ciphertext),
+      iv: btoa(String.fromCharCode(...iv)),
+      ts: bundle.exportedAt
+    };
+  }
+  async function decryptBundle(key, payload) {
+    const iv = fromB64(payload.iv);
+    const ct = fromB64(payload.ct);
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+    return parseSyncBundle(new TextDecoder().decode(plaintext));
+  }
+  async function pushToCloud(tasks2, username, passcode, endpoint) {
+    const key = await deriveEncKey(passcode, username);
+    const bundle = buildSyncBundle(tasks2);
+    const payload = await encryptBundle(key, bundle);
+    const res = await fetch(`${endpoint}/sync/${encodeURIComponent(username)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok)
+      throw new Error(`Sync failed: ${res.status}`);
+  }
+  async function pullFromCloud(username, passcode, endpoint) {
+    const res = await fetch(`${endpoint}/sync/${encodeURIComponent(username)}`);
+    if (res.status === 404)
+      return null;
+    if (!res.ok)
+      throw new Error(`Sync failed: ${res.status}`);
+    const payload = await res.json();
+    if (!payload.ct || !payload.iv)
+      return null;
+    const key = await deriveEncKey(passcode, username);
+    return decryptBundle(key, payload);
+  }
+
+  // src/app/ai-config.ts
+  var AI_KEY_KEY = "circuit_ai_key";
+  function getAIKey() {
+    return localStorage.getItem(AI_KEY_KEY) || null;
+  }
+  function setAIKey(key) {
+    if (key.trim()) {
+      localStorage.setItem(AI_KEY_KEY, key.trim());
+    } else {
+      localStorage.removeItem(AI_KEY_KEY);
+    }
   }
 
   // src/app/themes.ts
@@ -2231,14 +2451,36 @@ ${lines.join("\n")}`;
       return /* @__PURE__ */ new Map();
     return new Map(lastPlan.plan.ordered.map((s) => [s.task.id, s]));
   }
-  function addTaskFromInput(text) {
-    const conversational = taskFromConversationalInput(text);
-    const task = conversational ?? buildTaskFromInput(text, selectedTag);
-    if (conversational) {
-      task.tag = selectedTag;
+  async function addTaskFromInput(text) {
+    const aiKey = getAIKey();
+    let task;
+    if (aiKey) {
+      try {
+        const ai = await parseTaskWithAI(text, aiKey);
+        task = createTask(ai.text, {
+          tag: ai.tag ?? selectedTag,
+          duration: ai.duration,
+          deadlineType: ai.deadlineType ?? "none",
+          urgency: ai.urgency,
+          cognitiveLoad: ai.cognitiveLoad
+        });
+        task.tag = selectedTag;
+        showToast("Task parsed with AI");
+      } catch {
+        const conversational = taskFromConversationalInput(text);
+        task = conversational ?? buildTaskFromInput(text, selectedTag);
+        if (conversational)
+          task.tag = selectedTag;
+        showToast(conversational ? "Parsed task with smart defaults" : "Task added");
+      }
+    } else {
+      const conversational = taskFromConversationalInput(text);
+      task = conversational ?? buildTaskFromInput(text, selectedTag);
+      if (conversational)
+        task.tag = selectedTag;
+      showToast(conversational ? "Parsed task with smart defaults" : "Task added");
     }
     tasks.push(task);
-    showToast(conversational ? "Parsed task with smart defaults" : "Task added");
     resetTaskInput(selectedTag);
     persist();
   }
@@ -2401,9 +2643,10 @@ ${lines.join("\n")}`;
     const text = input.value.trim();
     if (!text)
       return;
-    addTaskFromInput(text);
-    input.focus();
-    showPage("tasks");
+    void addTaskFromInput(text).then(() => {
+      input.focus();
+      showPage("tasks");
+    });
   });
   filterButtons.forEach((btn) => {
     btn.addEventListener("click", () => setFilter(btn.dataset.filter));
@@ -2515,6 +2758,141 @@ ${lines.join("\n")}`;
     }
     bundleInput.value = "";
   });
+  document.getElementById("bundle-copy")?.addEventListener("click", async () => {
+    try {
+      await copySyncBundleToClipboard(tasks);
+      showToast("Backup copied to clipboard");
+    } catch {
+      showToast("Could not copy to clipboard");
+    }
+  });
+  document.getElementById("bundle-paste")?.addEventListener("click", async () => {
+    try {
+      const bundle = await readSyncBundleFromClipboard();
+      const date = new Date(bundle.exportedAt).toLocaleDateString();
+      tasks = bundle.tasks;
+      persist();
+      showToast(`Imported ${bundle.tasks.length} tasks from clipboard backup (${date})`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not paste backup");
+    }
+  });
+  var syncEndpointInput = document.getElementById("sync-endpoint-input");
+  var cloudStatus = document.getElementById("cloud-sync-status");
+  function setCloudStatus(msg) {
+    if (cloudStatus)
+      cloudStatus.textContent = msg;
+  }
+  if (syncEndpointInput) {
+    const saved = getCloudEndpoint();
+    if (saved)
+      syncEndpointInput.value = saved;
+  }
+  document.getElementById("sync-endpoint-save")?.addEventListener("click", () => {
+    const url = syncEndpointInput?.value.trim() ?? "";
+    setCloudEndpoint(url);
+    setCloudStatus(url ? "Sync URL saved" : "Sync URL cleared");
+  });
+  async function requirePasscode() {
+    const inMemory = getPasscodeForSession();
+    if (inMemory)
+      return inMemory;
+    return new Promise((resolve) => {
+      const pc = prompt("Enter your passcode to sync:");
+      resolve(pc && pc.length >= 4 ? pc : null);
+    });
+  }
+  async function cloudSync(direction) {
+    const endpoint = getCloudEndpoint();
+    if (!endpoint) {
+      showToast("Set a sync URL first");
+      return;
+    }
+    const session = (() => {
+      try {
+        const raw = localStorage.getItem("circuit_session_v1");
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    })();
+    if (!session || session.isLocal) {
+      showToast("Sign in with an account to use cloud sync");
+      return;
+    }
+    const username = session.username;
+    const passcode = await requirePasscode();
+    if (!passcode) {
+      showToast("Passcode required for cloud sync");
+      return;
+    }
+    try {
+      if (direction === "push") {
+        await pushToCloud(tasks, username, passcode, endpoint);
+        setCloudStatus(`Pushed ${tasks.length} tasks`);
+        showToast(`Pushed ${tasks.length} tasks to cloud`);
+      } else {
+        const bundle = await pullFromCloud(username, passcode, endpoint);
+        if (!bundle) {
+          showToast("No remote backup found");
+          setCloudStatus("No remote backup");
+          return;
+        }
+        if (bundle.exportedAt > (tasks[0]?.updatedAt ?? 0)) {
+          tasks = bundle.tasks;
+          persist();
+          setCloudStatus(`Pulled ${bundle.tasks.length} tasks`);
+          showToast(`Pulled ${bundle.tasks.length} tasks from cloud`);
+        } else {
+          await pushToCloud(tasks, username, passcode, endpoint);
+          setCloudStatus("Local is newer \u2014 pushed");
+          showToast("Local tasks are newer \u2014 pushed to cloud");
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Sync failed";
+      setCloudStatus(msg);
+      showToast(msg);
+    }
+  }
+  document.getElementById("cloud-push")?.addEventListener("click", () => void cloudSync("push"));
+  document.getElementById("cloud-pull")?.addEventListener("click", () => void cloudSync("pull"));
+  var aiKeyInput = document.getElementById("ai-key-input");
+  var aiKeyStatus = document.getElementById("ai-key-status");
+  if (aiKeyInput) {
+    const saved = getAIKey();
+    if (saved)
+      aiKeyInput.value = saved;
+  }
+  document.getElementById("ai-key-save")?.addEventListener("click", () => {
+    const key = aiKeyInput?.value.trim() ?? "";
+    setAIKey(key);
+    if (aiKeyStatus)
+      aiKeyStatus.textContent = key ? "AI key saved" : "AI key cleared";
+  });
+  var aiSuggestionsShown = /* @__PURE__ */ new Set();
+  async function maybeShowAISuggestions() {
+    const key = getAIKey();
+    if (!key || tasks.length === 0)
+      return;
+    try {
+      const suggestions = await getAISuggestions(tasks, getMode(), key);
+      if (suggestions.length === 0)
+        return;
+      const panel = document.getElementById("insight-panel");
+      if (!panel)
+        return;
+      const newSuggestions = suggestions.filter((s) => !aiSuggestionsShown.has(s));
+      if (newSuggestions.length === 0)
+        return;
+      newSuggestions.forEach((s) => aiSuggestionsShown.add(s));
+      const frag = newSuggestions.map(
+        (s) => `<p class="insight-line insight-rec"><span class="insight-icon">\u2726</span>${s}</p>`
+      ).join("");
+      panel.insertAdjacentHTML("beforeend", frag);
+    } catch {
+    }
+  }
   function bootstrapApp() {
     initTheme();
     initTaskInput(setTag);
@@ -2535,9 +2913,21 @@ ${lines.join("\n")}`;
     if (getCurrentPage() === "add") {
       input?.focus();
     }
+    const aiKey = getAIKey();
+    if (aiKey) {
+      void fetchAIBriefing(tasks, getMode(), aiKey);
+      void maybeShowAISuggestions();
+    }
   }
   initAuthUI((session) => {
     setTaskStorageNamespace(storageNamespace(session));
     bootstrapApp();
+    if (!session.isLocal) {
+      const endpoint = getCloudEndpoint();
+      const passcode = getPasscodeForSession();
+      if (endpoint && passcode) {
+        void cloudSync("pull");
+      }
+    }
   });
 })();

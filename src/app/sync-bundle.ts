@@ -41,3 +41,13 @@ export function downloadSyncBundle(tasks: Task[]): void {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+export async function copySyncBundleToClipboard(tasks: Task[]): Promise<void> {
+  const bundle = buildSyncBundle(tasks);
+  await navigator.clipboard.writeText(JSON.stringify(bundle));
+}
+
+export async function readSyncBundleFromClipboard(): Promise<CircuitSyncBundle> {
+  const text = await navigator.clipboard.readText();
+  return parseSyncBundle(text);
+}
