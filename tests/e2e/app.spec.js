@@ -3,12 +3,18 @@ import { test, expect } from '@playwright/test';
 test.describe('Task Manager PWA', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.evaluate(() => localStorage.clear());
+    await page.evaluate(async () => {
+      localStorage.clear();
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    });
     await page.reload();
   });
 
   test('loads homepage', async ({ page }) => {
-    await expect(page.locator('h1')).toContainText('My Tasks');
+    await expect(page.locator('h1')).toContainText('Circuit');
   });
 
   test('adds a task', async ({ page }) => {
@@ -60,9 +66,9 @@ test.describe('Task Manager PWA', () => {
   test('persists tasks after reload', async ({ page }) => {
     await page.locator('#task-input').fill('Persistent task');
     await page.locator('#task-form').press('Enter');
-    
+    await expect(page.locator('.task-text')).toContainText('Persistent task');
+
     await page.reload();
-    
     await expect(page.locator('.task-text')).toContainText('Persistent task');
   });
 
@@ -75,8 +81,9 @@ test.describe('Task Manager PWA', () => {
   });
 
   test('switches energy modes', async ({ page }) => {
+    await page.locator('#mode-display').click();
     await page.locator('.mode-btn[data-mode="deep"]').click();
-    
+
     await expect(page.locator('#mode-display')).toContainText('Deep Work');
   });
 });
@@ -96,6 +103,6 @@ test.describe('PWA Features', () => {
     await page.goto('/');
     
     const manifest = page.locator('link[rel="manifest"]');
-    await expect(manifest).toHaveAttribute('href', '/manifest.webmanifest');
+    await expect(manifest).toHaveAttribute('href', 'manifest.webmanifest');
   });
 });

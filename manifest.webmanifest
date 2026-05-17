@@ -1,11 +1,11 @@
 {
-  "name": "My Tasks",
-  "short_name": "Tasks",
+  "name": "Circuit",
+  "short_name": "Circuit",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f766e",
-  "description": "A simple PWA task manager",
+  "description": "Adaptive planning assistant — local-first PWA",
   "icons": [
     {
       "src": "icons/icon.svg",

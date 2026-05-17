@@ -629,3 +629,31 @@ input[type="checkbox"]:checked::after {
     border-color: transparent;
     color: #fff;
 }
+
+/* ── Circuit scheduling UI ── */
+.insight-panel {
+  margin: -0.5rem 0 1rem;
+  padding: 0.65rem 0.85rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.insight-panel:empty { display: none; }
+
+.insight-line { margin: 0.25rem 0; }
+
+.schedule-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  opacity: 0.85;
+  margin-top: 0.2rem;
+}
+
+.task-item.task-priority {
+  border-color: rgba(125, 211, 252, 0.35);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.12);
+}

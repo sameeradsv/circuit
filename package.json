@@ -1,20 +1,31 @@
 {
-  "name": "my-tasks-pwa",
-  "version": "1.0.0",
-  "description": "A PWA task manager app",
+  "name": "circuit",
+  "version": "2.0.0",
+  "description": "Circuit — adaptive planning PWA",
   "scripts": {
-    "test": "jest",
+    "build": "esbuild src/main.ts --bundle --outfile=app.js --format=iife --target=es2020",
+    "dev": "esbuild src/main.ts --bundle --outfile=app.js --format=iife --target=es2020 --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && jest",
     "test:unit": "jest tests/unit",
     "test:e2e": "playwright test",
-    "test:all": "jest tests/unit && playwright test"
+    "test:all": "npm run build && jest tests/unit && playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.42.0",
+    "@types/jest": "^29.5.12",
+    "esbuild": "^0.20.2",
     "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0"
+    "jest-environment-jsdom": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.4.5"
   },
   "jest": {
+    "preset": "ts-jest",
     "testEnvironment": "jsdom",
-    "testMatch": ["**/tests/unit/**/*.test.js"]
+    "testMatch": ["**/tests/unit/**/*.test.ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   }
 }
