@@ -1,12 +1,13 @@
 import { recordCompletion } from './behavioral-engine';
 import { taskFromConversationalInput } from './ai-assistance';
+import { buildDashboardState, renderDashboard } from './app/dashboard';
 import { getMode, initModes } from './app/modes';
 import { tasksFromImport } from './app/import';
+import { renderTaskDetailRows, renderTaskList, type ViewMode } from './app/render';
 import { initTheme } from './app/themes';
-import { computeAnalytics } from './analytics-engine';
-import { getRecommendations } from './recommendation-engine';
+import { showToast } from './app/toast';
+import { parseIcs, syncFromCalendar, tasksToIcs } from './calendar-sync';
 import { handleSkip, handleSplit, rescheduleAll } from './rescheduling-engine';
-import { buildSchedule } from './scheduling-engine';
 import {
   createTask,
   filterTasks,
@@ -14,12 +15,15 @@ import {
   saveTasks,
   type TaskFilter,
 } from './task-engine';
-import type { ScheduleContext, Task, TaskTag } from './types';
+import type { ScheduleContext, ScoredTask, Task, TaskTag } from './types';
+import type { DeadlineType, Effort, FocusType } from './types';
 
 let tasks: Task[] = [];
 let currentFilter: TaskFilter = 'all';
 let selectedTag: TaskTag = 'general';
-let scheduleOrder: Map<string, number> = new Map();
+let viewMode: ViewMode = 'list';
+let scheduleOrder = new Map<string, number>();
+let lastPlan: ReturnType<typeof buildDashboardState> | null = null;
 
 const form = document.getElementById('task-form') as HTMLFormElement;
 const input = document.getElementById('task-input') as HTMLInputElement;
@@ -27,8 +31,8 @@ const list = document.getElementById('task-list') as HTMLUListElement;
 const filterButtons = document.querySelectorAll('.filters button');
 const tagButtons = document.querySelectorAll('.tag-btn');
 
-function refreshSchedule(): void {
-  const ctx: ScheduleContext = {
+function scheduleContext(): ScheduleContext {
+  return {
     mode: getMode(),
     now: Date.now(),
     availableMinutes: 240,
@@ -36,8 +40,6 @@ function refreshSchedule(): void {
       (t) => t.completed && t.updatedAt > startOfDay(Date.now()),
     ).length,
   };
-  const plan = buildSchedule(tasks, ctx);
-  scheduleOrder = new Map(plan.ordered.map((s, i) => [s.task.id, i]));
 }
 
 function startOfDay(ts: number): number {
@@ -46,30 +48,38 @@ function startOfDay(ts: number): number {
   return d.getTime();
 }
 
+function refreshSchedule(): void {
+  lastPlan = buildDashboardState(tasks, getMode());
+  scheduleOrder = new Map(lastPlan.plan.ordered.map((s, i) => [s.task.id, i]));
+}
+
 function persist(): void {
   saveTasks(tasks);
   refreshSchedule();
+  if (lastPlan) renderDashboard(lastPlan);
   renderTasks();
-  updateSnapshot();
 }
 
 function load(): void {
   tasks = loadTasks();
-  const { tasks: rescheduled } = rescheduleAll(tasks, getMode());
-  tasks = rescheduled;
+  tasks = rescheduleAll(tasks, getMode()).tasks;
   saveTasks(tasks);
   refreshSchedule();
+  if (lastPlan) renderDashboard(lastPlan);
   renderTasks();
-  updateSnapshot();
+}
+
+function scoreMap(): Map<string, ScoredTask> {
+  if (!lastPlan) return new Map();
+  return new Map(lastPlan.plan.ordered.map((s) => [s.task.id, s]));
 }
 
 function addTaskFromInput(text: string): void {
   const conversational = taskFromConversationalInput(text);
   const task = conversational ?? createTask(text, { tag: selectedTag });
-  if (!conversational) {
-    task.tag = selectedTag;
-  }
+  if (!conversational) task.tag = selectedTag;
   tasks.push(task);
+  showToast(conversational ? 'Parsed task with smart defaults' : 'Task added');
   persist();
 }
 
@@ -85,12 +95,21 @@ function toggleTask(id: string): void {
 
 function deleteTask(id: string): void {
   tasks = tasks.filter((t) => t.id !== id);
+  showToast('Task removed');
   persist();
 }
 
 function skipTaskById(id: string): void {
-  const { tasks: next } = handleSkip(tasks, id);
+  const { tasks: next, changes } = handleSkip(tasks, id);
   tasks = next;
+  showToast(changes[0] ?? 'Task rescheduled');
+  persist();
+}
+
+function splitTaskById(id: string): void {
+  const { tasks: next, changes } = handleSplit(tasks, id);
+  tasks = next;
+  showToast(changes[0] ?? 'Task split');
   persist();
 }
 
@@ -116,36 +135,6 @@ function visibleTasks(): Task[] {
     const bo = scheduleOrder.get(b.id) ?? 999;
     return ao - bo;
   });
-}
-
-function updateSnapshot(): void {
-  const banner = document.getElementById('snapshot-banner');
-  if (!banner) return;
-
-  const recs = getRecommendations(tasks, getMode());
-  const analytics = computeAnalytics(tasks);
-  const headline = recs[0]?.headline;
-
-  if (headline) {
-    banner.textContent = headline;
-  } else {
-    banner.textContent = `${analytics.pending} pending · ~${analytics.totalPendingMinutes} min`;
-  }
-  banner.style.display = 'block';
-
-  const insightEl = document.getElementById('insight-panel');
-  if (insightEl) {
-    insightEl.innerHTML = recs
-      .slice(0, 3)
-      .map((r) => `<p class="insight-line">${escapeHtml(r.headline)}</p>`)
-      .join('');
-  }
-}
-
-function escapeHtml(s: string): string {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }
 
 function openTinyStepModal(taskId: string): void {
@@ -176,115 +165,119 @@ function openTinyStepModal(taskId: string): void {
   };
 }
 
+function openDetailModal(taskId: string): void {
+  const task = tasks.find((t) => t.id === taskId);
+  if (!task) return;
+  const overlay = document.getElementById('detail-overlay');
+  const title = document.getElementById('detail-title');
+  const rows = document.getElementById('detail-rows');
+  if (!overlay || !title || !rows) return;
+
+  title.textContent = task.text;
+  rows.innerHTML = renderTaskDetailRows(task, scoreMap().get(task.id));
+  overlay.removeAttribute('hidden');
+  bindDetailModal(task.id, overlay);
+
+  const close = () => overlay.setAttribute('hidden', '');
+  document.getElementById('detail-close')?.addEventListener('click', close, { once: true });
+  overlay.onclick = (e) => {
+    if (e.target === overlay) close();
+  };
+}
+
+function bindDetailModal(taskId: string, overlay: HTMLElement): void {
+  const saveBtn = document.getElementById('detail-save');
+  const recurrenceSelect = document.getElementById('detail-recurrence') as HTMLSelectElement | null;
+  const recurrenceCustom = document.getElementById('detail-recurrence-custom') as HTMLInputElement | null;
+  const close = () => overlay.setAttribute('hidden', '');
+  if (!saveBtn) return;
+
+  const syncCustomVisibility = () => {
+    if (recurrenceCustom && recurrenceSelect) {
+      recurrenceCustom.hidden = recurrenceSelect.value !== 'custom';
+    }
+  };
+  recurrenceSelect?.addEventListener('change', syncCustomVisibility);
+  syncCustomVisibility();
+
+  saveBtn.onclick = () => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    const duration = numberInput('detail-duration', task.duration);
+    const scheduledValue = (document.getElementById('detail-scheduled') as HTMLInputElement | null)?.value ?? '';
+    const recurrenceSelect = (document.getElementById('detail-recurrence') as HTMLSelectElement | null)?.value ?? '';
+    const customRecurrence = (document.getElementById('detail-recurrence-custom') as HTMLInputElement | null)?.value.trim() ?? '';
+    const recurrence = recurrenceSelect === 'custom' ? customRecurrence : recurrenceSelect;
+
+    task.duration = clamp(duration, 5, 480);
+    task.effort = selectValue<Effort>('detail-effort', task.effort);
+    task.focusType = selectValue<FocusType>('detail-focus', task.focusType);
+    task.deadlineType = selectValue<DeadlineType>('detail-deadline', task.deadlineType);
+    task.scheduledAt = scheduledValue ? new Date(scheduledValue).getTime() : null;
+    task.recurrence = recurrence || null;
+    task.cognitiveLoad = task.effort === 'low' ? 0.25 : task.effort === 'high' ? 0.8 : 0.5;
+    task.activationEnergy = task.cognitiveLoad;
+    task.recoveryCost = task.cognitiveLoad * 0.5;
+    task.updatedAt = Date.now();
+
+    showToast('Task details updated');
+    persist();
+    close();
+  };
+}
+
+function numberInput(id: string, fallback: number): number {
+  const value = Number((document.getElementById(id) as HTMLInputElement | null)?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function selectValue<T extends string>(id: string, fallback: T): T {
+  return ((document.getElementById(id) as HTMLSelectElement | null)?.value as T | undefined) ?? fallback;
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
 function renderTasks(): void {
-  list.innerHTML = '';
   const visible = visibleTasks();
+  const emptyMsgs: Record<TaskFilter, string> = {
+    all: 'No tasks yet. Add one above!',
+    pending: 'All caught up! No pending tasks.',
+    completed: 'Nothing completed yet.',
+    today: 'Nothing urgent for today.',
+    scheduled: 'No scheduled tasks.',
+  };
 
   if (visible.length === 0) {
+    list.innerHTML = '';
     const empty = document.createElement('li');
     empty.className = 'empty-state';
-    const msgs: Record<TaskFilter, string> = {
-      all: 'No tasks yet. Add one above!',
-      pending: 'All caught up! No pending tasks.',
-      completed: 'Nothing completed yet.',
-      today: 'Nothing urgent for today.',
-      scheduled: 'No scheduled tasks.',
-    };
-    empty.textContent = msgs[currentFilter] ?? 'No tasks here.';
+    empty.textContent = emptyMsgs[currentFilter] ?? 'No tasks here.';
     list.appendChild(empty);
     return;
   }
 
-  const ctx: ScheduleContext = {
-    mode: getMode(),
-    now: Date.now(),
-    availableMinutes: 240,
-    completedToday: 0,
-  };
-  const plan = buildSchedule(tasks, ctx);
-  const scoreMap = new Map(plan.ordered.map((s) => [s.task.id, s]));
+  renderTaskList(list, visible, {
+    scoreMap: scoreMap(),
+    scheduleOrder,
+    onToggle: toggleTask,
+    onDelete: deleteTask,
+    onSkip: skipTaskById,
+    onSplit: splitTaskById,
+    onTinyStep: openTinyStepModal,
+    onDetails: openDetailModal,
+  }, viewMode);
 
-  for (const task of visible) {
-    const li = document.createElement('li');
-    li.className = 'task-item' + (task.completed ? ' completed' : '');
-    const rank = scheduleOrder.get(task.id);
-    if (rank === 0 && !task.completed) li.classList.add('task-priority');
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = task.completed;
-    checkbox.setAttribute('aria-label', 'Mark task complete');
-    checkbox.addEventListener('change', () => toggleTask(task.id));
-
-    const content = document.createElement('div');
-    content.className = 'task-content';
-
-    const span = document.createElement('span');
-    span.className = 'task-text';
-    span.textContent = task.text;
-    content.appendChild(span);
-
-    if (task.tinyStep) {
-      const step = document.createElement('div');
-      step.className = 'tiny-step';
-      step.textContent = '→ ' + task.tinyStep;
-      content.appendChild(step);
-    }
-
-    const scored = scoreMap.get(task.id);
-    if (scored && scored.reasons.length && !task.completed) {
-      const hint = document.createElement('div');
-      hint.className = 'schedule-hint';
-      hint.textContent = scored.reasons.join(' · ');
-      content.appendChild(hint);
-    }
-
-    const tagBadge = document.createElement('span');
-    tagBadge.className = 'task-tag-badge';
-    tagBadge.textContent = task.tag;
-    content.appendChild(tagBadge);
-
-    const actions = document.createElement('div');
-    actions.className = 'task-actions';
-
-    if (!task.completed) {
-      const stepBtn = document.createElement('button');
-      stepBtn.textContent = '⚡';
-      stepBtn.title = 'Set next tiny step';
-      stepBtn.addEventListener('click', () => openTinyStepModal(task.id));
-      actions.appendChild(stepBtn);
-
-      if (task.effort === 'high') {
-        const splitBtn = document.createElement('button');
-        splitBtn.textContent = '⑂';
-        splitBtn.title = 'Split task';
-        splitBtn.addEventListener('click', () => {
-          const { tasks: next } = handleSplit(tasks, task.id);
-          tasks = next;
-          persist();
-        });
-        actions.appendChild(splitBtn);
-      }
-
-      const skipBtn = document.createElement('button');
-      skipBtn.textContent = '↷';
-      skipBtn.title = 'Skip / reschedule';
-      skipBtn.addEventListener('click', () => skipTaskById(task.id));
-      actions.appendChild(skipBtn);
-    }
-
-    const delBtn = document.createElement('button');
-    delBtn.textContent = '✕';
-    delBtn.setAttribute('aria-label', 'Delete task');
-    delBtn.addEventListener('click', () => deleteTask(task.id));
-    actions.appendChild(delBtn);
-
-    li.appendChild(checkbox);
-    li.appendChild(content);
-    li.appendChild(actions);
-    list.appendChild(li);
-  }
 }
+
+document.getElementById('schedule-list')?.addEventListener('click', (e) => {
+  const item = (e.target as HTMLElement).closest('.schedule-item');
+  if (!item) return;
+  const id = (item as HTMLElement).dataset.taskId;
+  if (id) openDetailModal(id);
+});
 
 form.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -301,6 +294,20 @@ filterButtons.forEach((btn) => {
 
 tagButtons.forEach((btn) => {
   btn.addEventListener('click', () => setTag((btn as HTMLElement).dataset.tag as TaskTag));
+});
+
+document.getElementById('view-list')?.addEventListener('click', () => {
+  viewMode = 'list';
+  document.getElementById('view-list')?.classList.add('active');
+  document.getElementById('view-grouped')?.classList.remove('active');
+  renderTasks();
+});
+
+document.getElementById('view-grouped')?.addEventListener('click', () => {
+  viewMode = 'grouped';
+  document.getElementById('view-grouped')?.classList.add('active');
+  document.getElementById('view-list')?.classList.remove('active');
+  renderTasks();
 });
 
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
@@ -320,6 +327,7 @@ if (fileInput && importBtn) {
       const text = await file.text();
       const imported = tasksFromImport(text);
       tasks.push(...imported);
+      showToast(`Imported ${imported.length} tasks`);
       persist();
       if (importStatus) {
         importStatus.textContent = `✅ Imported ${imported.length} tasks`;
@@ -334,10 +342,48 @@ if (fileInput && importBtn) {
   });
 }
 
+const calendarInput = document.getElementById('calendar-file-input') as HTMLInputElement | null;
+const calendarImport = document.getElementById('calendar-import');
+const calendarExport = document.getElementById('calendar-export');
+const calendarStatus = document.getElementById('calendar-sync-status');
+
+calendarImport?.addEventListener('click', () => calendarInput?.click());
+
+calendarInput?.addEventListener('change', async () => {
+  const file = calendarInput.files?.[0];
+  if (!file) return;
+  try {
+    const events = parseIcs(await file.text());
+    const result = syncFromCalendar(tasks, events);
+    tasks = result.tasks;
+    showToast(`Imported ${result.imported} calendar tasks`);
+    if (calendarStatus) {
+      calendarStatus.textContent = `${result.imported} imported, ${result.skipped} skipped`;
+    }
+    persist();
+  } catch {
+    if (calendarStatus) calendarStatus.textContent = 'Calendar import failed';
+    showToast('Calendar import failed');
+  }
+  calendarInput.value = '';
+});
+
+calendarExport?.addEventListener('click', () => {
+  const ics = tasksToIcs(tasks);
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'circuit-plan.ics';
+  link.click();
+  URL.revokeObjectURL(url);
+  if (calendarStatus) calendarStatus.textContent = 'Exported scheduled tasks';
+  showToast('Calendar file exported');
+});
+
 initTheme();
 load();
 initModes(() => {
   tasks = rescheduleAll(tasks, getMode()).tasks;
   persist();
 });
-

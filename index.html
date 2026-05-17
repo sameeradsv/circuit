@@ -66,7 +66,26 @@
 
     <!-- Daily Snapshot Banner -->
     <div class="snapshot-banner" id="snapshot-banner"></div>
-    <div class="insight-panel" id="insight-panel" aria-live="polite"></div>
+    <section class="dashboard" id="dashboard">
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="workload-section">
+        <div class="workload-header">
+          <span>Workload</span>
+          <span id="workload-label" class="workload-label"></span>
+        </div>
+        <div class="workload-bar" id="workload-bar"><span class="workload-fill"></span></div>
+      </div>
+      <details class="panel schedule-panel" open>
+        <summary>Today's plan</summary>
+        <ul class="schedule-list" id="schedule-list"></ul>
+        <p class="schedule-explain" id="schedule-explain"></p>
+      </details>
+      <details class="panel forecast-panel">
+        <summary>Forecast</summary>
+        <div id="forecast-panel" class="forecast-body"></div>
+      </details>
+      <div class="insight-panel" id="insight-panel" aria-live="polite"></div>
+    </section>
 
     <!-- Energy Mode Selector -->
     <section class="mode-selector" id="mode-selector">
@@ -78,7 +97,7 @@
 
     <!-- Add Task Form -->
     <form id="task-form">
-      <input id="task-input" type="text" placeholder="Capture anything..." required />
+      <input id="task-input" type="text" placeholder="Try: remind me to call mom at 3pm (30 min)" required />
       <button type="submit">Add</button>
     <input type="file" id="file-input" accept=".txt" hidden />
         <label for="file-input" class="import-btn">↑ Import</label>
@@ -95,16 +114,46 @@
 
       <div id="import-status" class="import-status"></div>
     
-    <!-- Filters -->
-    <section class="filters">
-      <button data-filter="all" class="active">All</button>
-      <button data-filter="today">Today</button>
-      <button data-filter="pending">Pending</button>
-      <button data-filter="completed">Done</button>
+    <div class="view-row">
+      <section class="filters">
+        <button data-filter="all" class="active">All</button>
+        <button data-filter="today">Today</button>
+        <button data-filter="scheduled">Scheduled</button>
+        <button data-filter="pending">Pending</button>
+        <button data-filter="completed">Done</button>
+      </section>
+      <div class="view-toggle">
+        <button type="button" id="view-list" class="active" title="List view">List</button>
+        <button type="button" id="view-grouped" title="Group by tag">Group</button>
+      </div>
+    </div>
+
+    <section class="calendar-sync-panel" aria-label="Calendar sync">
+      <div>
+        <strong>Calendar sync</strong>
+        <span id="calendar-sync-status">Local .ics import/export ready</span>
+      </div>
+      <div class="calendar-sync-actions">
+        <input type="file" id="calendar-file-input" accept=".ics,text/calendar" hidden />
+        <button type="button" id="calendar-import">Import .ics</button>
+        <button type="button" id="calendar-export">Export plan</button>
+      </div>
     </section>
 
     <!-- Task list -->
     <ul id="task-list"></ul>
+
+    <!-- Task detail modal -->
+    <div class="detail-overlay" id="detail-overlay" hidden>
+      <div class="detail-card">
+        <h2 class="detail-title" id="detail-title"></h2>
+        <div class="detail-rows" id="detail-rows"></div>
+        <div class="detail-actions">
+          <button type="button" id="detail-save">Save changes</button>
+          <button type="button" id="detail-close" class="nts-cancel">Close</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Next Tiny Step modal -->
     <div class="nts-overlay" id="nts-overlay" hidden>
