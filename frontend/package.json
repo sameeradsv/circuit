@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@shared/cortex": "file:../../cortex/shared-cortex-1.0.0.tgz",
+    "@shared/cortex": "github:sameeradsv/cortex",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
