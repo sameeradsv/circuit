@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --circuit-bg: #0d1117;
+  --circuit-surface: #161b22;
+  --circuit-border: #30363d;
+  --circuit-text: #e6edf3;
+  --circuit-muted: #7d8590;
+  --circuit-accent: #58a6ff;
+  --circuit-accent2: #3fb950;
+}
+
+body {
+  background-color: var(--circuit-bg);
+  color: var(--circuit-text);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-circuit-border bg-circuit-surface;
+  }
+
+  .btn-primary {
+    @apply rounded-lg bg-circuit-accent px-4 py-2 text-sm font-medium text-circuit-bg disabled:opacity-50;
+  }
+
+  .input-field {
+    @apply w-full rounded-lg border border-circuit-border bg-circuit-bg px-3 py-2 text-sm text-circuit-text placeholder:text-circuit-muted focus:border-circuit-accent focus:outline-none;
+  }
+}
