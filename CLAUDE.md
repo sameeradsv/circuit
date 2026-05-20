@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+### Vanilla PWA (root)
+
 ```bash
 npm install           # Install dependencies
 npm run dev           # Watch mode (rebuilds on save)
@@ -19,6 +21,18 @@ Running a single test file:
 ```bash
 npx jest tests/unit/engines.test.ts
 ```
+
+### Next.js frontend (`frontend/`)
+
+```bash
+cd frontend
+npm install
+npm run dev      # dev server at localhost:3000
+npm run build
+npm run start
+```
+
+The frontend uses `@shared/cortex` (installed from `github:sameeradsv/cortex`) for auth context and encrypted export. It requires `transpilePackages: ["@shared/cortex"]` in `frontend/next.config.ts`.
 
 ## Architecture
 
