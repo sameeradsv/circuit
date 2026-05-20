@@ -1,10 +1,6 @@
 # Connect at https://dashboard.render.com → New → Blueprint
-# Free PostgreSQL expires after 90 days on free plan; recreate via Blueprint to reset.
-databases:
-  - name: circuit-db
-    plan: free
-    region: oregon
-
+# DATABASE_URL must be set manually in the Render dashboard after deploy
+# (use a free Neon PostgreSQL: https://neon.tech)
 services:
   - type: web
     name: circuit-api
@@ -16,9 +12,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: circuit-db
-          property: connectionString
+        sync: false
       - key: AUTH_REQUIRED
         value: "true"
       - key: CORS_ORIGINS
