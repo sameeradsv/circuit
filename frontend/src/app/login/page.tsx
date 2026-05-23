@@ -2,15 +2,16 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth, CortexSignIn } from "@shared/cortex";
+import { CortexSignIn } from "@shared/cortex";
 import { api } from "@/lib/api";
 import { setAuthToken } from "@/lib/auth";
+import { useCircuitAuth } from "@/lib/use-circuit-auth";
 
 const CORTEX_URL = (process.env.NEXT_PUBLIC_CORTEX_URL ?? "").replace(/\/$/, "");
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, loading, refetch } = useAuth();
+  const { user, loading, setUser } = useCircuitAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [hasUsers, setHasUsers] = useState<boolean | null>(null);
@@ -43,7 +44,7 @@ export default function LoginPage() {
           ? await api.register(username.trim(), password)
           : await api.login(username.trim(), password);
       setAuthToken(result.token);
-      await refetch();
+      setUser(result.user);
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
@@ -75,7 +76,7 @@ export default function LoginPage() {
             appName="Circuit"
             showHeader={false}
             onSuccess={async () => {
-              await refetch();
+              try { setUser(await api.me()); } catch { /* cortex user, ignore */ }
               router.push("/");
             }}
             onLocalMode={() => setShowLocal(true)}

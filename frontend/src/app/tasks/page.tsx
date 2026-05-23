@@ -2,8 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@shared/cortex";
 import { api, ApiTask } from "@/lib/api";
+import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { suggestSlot, updateDelayPattern, formatSlot, SlotSuggestion } from "@/lib/suggest-slot";
 
 type Filter = "open" | "done" | "all";
@@ -13,7 +13,7 @@ const TAG_OPTIONS = ["general", "work", "social", "later"] as const;
 const EFFORT_OPTIONS = ["low", "medium", "high"] as const;
 
 export default function TasksPage() {
-  const { user, loading } = useAuth();
+  const { user, loading } = useCircuitAuth();
   const router = useRouter();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);

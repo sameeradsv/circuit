@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useAuth } from "@shared/cortex";
 import { api, ApiTask } from "@/lib/api";
+import { useCircuitAuth } from "@/lib/use-circuit-auth";
 
 export default function DashboardPage() {
-  const { user, loading } = useAuth();
+  const { user, loading } = useCircuitAuth();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
 
@@ -41,7 +41,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-medium text-circuit-text">
-        Hey, {user.username}
+        Hey, {user?.username}
       </h1>
 
       <div className="grid grid-cols-3 gap-4">

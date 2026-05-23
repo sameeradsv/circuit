@@ -72,6 +72,7 @@ export type TaskPatch = Partial<Pick<ApiTask, "text" | "completed" | "tag" | "ti
 export const api = {
   // auth
   authStatus: () => req<{ has_users: boolean; sync_ready: boolean }>("GET", "/api/auth/status"),
+  me: () => req<{ id: number; username: string }>("GET", "/api/auth/me"),
   register: (username: string, password: string) =>
     req<{ token: string; user: { id: number; username: string } }>("POST", "/api/auth/register", { username, password }),
   login: (username: string, password: string) =>
