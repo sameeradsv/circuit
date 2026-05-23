@@ -70,6 +70,18 @@ class TaskPatch(BaseModel):
     last_skipped_at: Optional[int] = None
     preferred_execution_window: Optional[str] = None
     delay_pattern: Optional[str] = None
+    cognitive_load: Optional[float] = None
+    emotional_resistance: Optional[float] = None
+    activation_energy: Optional[float] = None
+    recovery_cost: Optional[float] = None
+    focus_type: Optional[str] = None
+    consequence_of_delay: Optional[float] = None
+    momentum_value: Optional[float] = None
+    compound_benefit: Optional[float] = None
+    identity_alignment: Optional[float] = None
+    energy_to_reward_ratio: Optional[float] = None
+    task_decomposition_potential: Optional[float] = None
+    recurrence: Optional[str] = None
     client_updated_at: Optional[int] = None
 
 

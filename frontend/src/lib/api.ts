@@ -67,7 +67,17 @@ export interface ApiTask {
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
-export type TaskPatch = Partial<Pick<ApiTask, "text" | "completed" | "tag" | "tiny_step" | "effort" | "duration" | "deadline_type" | "time_sensitivity" | "scheduled_at" | "urgency" | "importance" | "skipped_count" | "last_skipped_at" | "preferred_execution_window" | "delay_pattern">>;
+export type TaskPatch = Partial<Pick<ApiTask,
+  | "text" | "completed" | "tag" | "tiny_step" | "effort" | "duration"
+  | "deadline_type" | "time_sensitivity" | "scheduled_at" | "recurrence"
+  | "urgency" | "importance" | "consequence_of_delay" | "momentum_value"
+  | "compound_benefit" | "identity_alignment" | "energy_to_reward_ratio"
+  | "task_decomposition_potential"
+  | "cognitive_load" | "emotional_resistance" | "activation_energy"
+  | "recovery_cost" | "focus_type"
+  | "skipped_count" | "last_skipped_at"
+  | "preferred_execution_window" | "delay_pattern"
+>>;
 
 export const api = {
   // auth

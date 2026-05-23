@@ -1,0 +1,42 @@
+import type { ApiTask } from './api';
+import type { Task } from '../engines/src/types/task';
+
+export function apiTaskToTask(t: ApiTask): Task {
+  return {
+    id: String(t.id),
+    text: t.text,
+    completed: t.completed,
+    tag: (t.tag as Task['tag']) ?? 'general',
+    tinyStep: t.tiny_step ?? '',
+    effort: (t.effort as Task['effort']) ?? 'medium',
+    createdAt: t.client_created_at ?? new Date(t.created_at).getTime(),
+    updatedAt: t.client_updated_at ?? new Date(t.updated_at).getTime(),
+    duration: t.duration ?? 30,
+    deadlineType: (t.deadline_type as Task['deadlineType']) ?? 'none',
+    timeSensitivity: t.time_sensitivity ?? 0.5,
+    recurrence: t.recurrence ?? null,
+    scheduledAt: t.scheduled_at ?? null,
+    cognitiveLoad: t.cognitive_load ?? 0.5,
+    emotionalResistance: t.emotional_resistance ?? 0.5,
+    activationEnergy: t.activation_energy ?? 0.5,
+    recoveryCost: t.recovery_cost ?? 0.3,
+    focusType: (t.focus_type as Task['focusType']) ?? 'shallow',
+    locationDependency: t.location_dependency ?? null,
+    requiredResources: t.required_resources ?? [],
+    dependencies: t.dependencies ?? [],
+    importance: t.importance ?? 0.5,
+    urgency: t.urgency ?? 0.5,
+    consequenceOfDelay: t.consequence_of_delay ?? 0.3,
+    momentumValue: t.momentum_value ?? 0.5,
+    compoundBenefit: t.compound_benefit ?? 0.3,
+    identityAlignment: t.identity_alignment ?? 0.3,
+    historicalCompletionRate: t.historical_completion_rate ?? 0.7,
+    preferredExecutionWindow: t.preferred_execution_window ?? null,
+    delayPattern: t.delay_pattern ?? null,
+    taskDecompositionPotential: t.task_decomposition_potential ?? 0.3,
+    energyToRewardRatio: t.energy_to_reward_ratio ?? 0.5,
+    metadata: t.metadata ?? {},
+    skippedCount: t.skipped_count ?? 0,
+    lastSkippedAt: t.last_skipped_at ?? null,
+  };
+}

@@ -7,6 +7,8 @@ import { useCircuitAuth } from "@/lib/use-circuit-auth";
 const links = [
   { href: "/", label: "Dashboard" },
   { href: "/tasks", label: "Tasks" },
+  { href: "/calendar", label: "Calendar" },
+  { href: "/analytics", label: "Analytics" },
 ];
 
 export function Nav() {
