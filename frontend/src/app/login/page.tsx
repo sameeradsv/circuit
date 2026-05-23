@@ -76,6 +76,7 @@ export default function LoginPage() {
             cortexApiBase={CORTEX_URL}
             tokenKey="circuit_auth_token"
             appName="Circuit"
+            showHeader={false}
             onSuccess={async () => {
               await refetch();
               router.push("/");
