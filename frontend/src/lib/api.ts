@@ -67,7 +67,7 @@ export interface ApiTask {
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
-export type TaskPatch = Partial<Pick<ApiTask, "text" | "completed" | "tag" | "tiny_step" | "effort" | "duration" | "deadline_type" | "time_sensitivity" | "scheduled_at" | "urgency" | "importance" | "skipped_count" | "last_skipped_at">>;
+export type TaskPatch = Partial<Pick<ApiTask, "text" | "completed" | "tag" | "tiny_step" | "effort" | "duration" | "deadline_type" | "time_sensitivity" | "scheduled_at" | "urgency" | "importance" | "skipped_count" | "last_skipped_at" | "preferred_execution_window" | "delay_pattern">>;
 
 export const api = {
   // auth

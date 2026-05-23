@@ -68,6 +68,8 @@ class TaskPatch(BaseModel):
     importance: Optional[float] = None
     skipped_count: Optional[int] = None
     last_skipped_at: Optional[int] = None
+    preferred_execution_window: Optional[str] = None
+    delay_pattern: Optional[str] = None
     client_updated_at: Optional[int] = None
 
 

@@ -1,8 +1,9 @@
 import type { RescheduleEntry, Task } from '../types';
 import { detectDelayPattern } from './delay-pattern';
+import { suggestSlot } from './suggest-slot';
 
-export function skipTask(task: Task, now = Date.now()): Task {
-  const newScheduledAt = now + 60 * 60 * 1000;
+export function skipTask(task: Task, allTasks: Task[] = [], now = Date.now()): Task {
+  const { scheduledAt: newScheduledAt } = suggestSlot(task, allTasks, now);
   const entry: RescheduleEntry = {
     at: now,
     from: task.scheduledAt,

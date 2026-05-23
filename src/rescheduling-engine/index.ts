@@ -13,6 +13,7 @@ export * from './splitting';
 export * from './momentum';
 export * from './recurrence';
 export * from './delay-pattern';
+export * from './suggest-slot';
 
 export function rescheduleAll(tasks: Task[], mode: EnergyMode, now = Date.now()): RescheduleResult {
   const changes: string[] = [];
@@ -27,8 +28,8 @@ export function handleSkip(tasks: Task[], taskId: string, now = Date.now()): Res
   const changes: string[] = [];
   const next = tasks.map((t) => {
     if (t.id !== taskId) return t;
-    const skipped = skipTask(t, now);
-    changes.push(`Skipped "${t.text}" — rescheduled +1h`);
+    const skipped = skipTask(t, tasks, now);
+    changes.push(`Skipped "${t.text}" — rescheduled to suggested slot`);
     return skipped;
   });
   return { tasks: next, changes };
