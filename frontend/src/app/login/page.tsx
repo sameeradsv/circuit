@@ -17,7 +17,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("register");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showLocal, setShowLocal] = useState(!CORTEX_URL);
+  const [showLocal, setShowLocal] = useState(true);
 
   useEffect(() => {
     if (!loading && user) router.replace("/");
@@ -58,20 +58,17 @@ export default function LoginPage() {
     <div className="mx-auto max-w-md space-y-6">
       <header>
         <h1 className="text-2xl font-medium text-circuit-text">
-          {showLocal
-            ? (mode === "register" ? "Create account" : "Sign in")
-            : "Sign in with Cortex"}
+          {mode === "register" ? "Create account" : "Sign in"}
         </h1>
         <p className="mt-1 text-sm text-circuit-muted">
-          {showLocal
-            ? "Your account keeps data synced across devices. Credentials are hashed and never stored in plain text."
-            : "One Cortex account works across Canopy, Chef, and Circuit."}
+          Your account keeps data synced across devices. Credentials are hashed and never stored in plain text.
         </p>
       </header>
 
       {/* Cortex sign-in section */}
       {CORTEX_URL && !showLocal && (
-        <div className="panel p-5 space-y-1">
+        <div className="panel p-5 space-y-4">
+          <p className="text-xs text-circuit-muted">One account across Canopy, Chef, and Circuit.</p>
           <CortexSignIn
             cortexApiBase={CORTEX_URL}
             tokenKey="circuit_auth_token"
