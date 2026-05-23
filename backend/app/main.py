@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, _migrate_sqlite, engine
+from app.database import Base, _migrate_sqlite, _migrate_postgres, engine
 from app.routers.auth import router as auth_router
 from app.routers.tasks import router as tasks_router
 
@@ -32,6 +32,7 @@ app.include_router(tasks_router)
 def on_startup():
     Base.metadata.create_all(bind=engine)
     _migrate_sqlite()
+    _migrate_postgres()
 
 
 @app.get("/health")

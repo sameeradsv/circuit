@@ -38,6 +38,18 @@ def _migrate_sqlite() -> None:
             conn.commit()
 
 
+def _migrate_postgres() -> None:
+    if DATABASE_URL.startswith("sqlite"):
+        return
+    with engine.connect() as conn:
+        # Add columns introduced after initial schema — safe to run repeatedly
+        conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+            "cortex_user_id INTEGER UNIQUE"
+        ))
+        conn.commit()
+
+
 def get_db():
     db = SessionLocal()
     try:
