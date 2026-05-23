@@ -13,7 +13,7 @@ primary_region = "iad"
   DATABASE_URL = "sqlite:////app/data/circuit.db"
   CORS_ORIGINS = "https://sameeradsv.github.io,http://localhost:3000,http://127.0.0.1:3000"
   AUTH_REQUIRED = "true"
-  # CORTEX_AUTH_URL set via: fly secrets set CORTEX_AUTH_URL="https://cortex-auth.fly.dev" -a circuit-api
+  # CORTEX_AUTH_URL set via: fly secrets set CORTEX_AUTH_URL="https://cortex-auth.onrender.com" -a circuit-api
 
 [http_service]
   internal_port = 8000
