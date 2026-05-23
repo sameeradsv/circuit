@@ -1,7 +1,7 @@
-import type { Task } from '../types';
+import type { RescheduleEntry, Task } from '../types';
 import { createTask } from '../task-engine/schema';
 
-export function splitTask(task: Task): { parent: Task; child: Task | null } {
+export function splitTask(task: Task, now = Date.now()): { parent: Task; child: Task | null } {
   if (task.taskDecompositionPotential < 0.5 || task.effort !== 'high') {
     return { parent: task, child: null };
   }
@@ -15,11 +15,19 @@ export function splitTask(task: Task): { parent: Task; child: Task | null } {
     importance: task.importance * 0.8,
   });
 
+  const entry: RescheduleEntry = {
+    at: now,
+    from: task.scheduledAt,
+    to: task.scheduledAt,
+    reason: 'split',
+  };
+
   const parent: Task = {
     ...task,
     duration: half,
     tinyStep: task.tinyStep || `First ${half} min only`,
-    updatedAt: Date.now(),
+    updatedAt: now,
+    rescheduleLog: [...task.rescheduleLog, entry],
   };
 
   return { parent, child };

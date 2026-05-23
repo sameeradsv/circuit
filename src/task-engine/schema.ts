@@ -80,6 +80,7 @@ export function createTask(text: string, overrides: Partial<Task> = {}): Task {
     metadata: {},
     skippedCount: 0,
     lastSkippedAt: null,
+    rescheduleLog: [],
     ...overrides,
   };
 }

@@ -1,4 +1,4 @@
-import type { Task } from '../types';
+import type { RescheduleEntry, Task } from '../types';
 
 const MAX_DAILY_MINUTES = 360;
 
@@ -20,11 +20,19 @@ export function reduceOverload(tasks: Task[], now = Date.now()): { tasks: Task[]
     if (idx === -1) continue;
     const task = updated[idx]!;
     if (task.scheduledAt && task.scheduledAt > now) continue;
+    const newScheduledAt = now + 24 * 60 * 60 * 1000;
+    const entry: RescheduleEntry = {
+      at: now,
+      from: task.scheduledAt,
+      to: newScheduledAt,
+      reason: 'overload',
+    };
     updated[idx] = {
       ...task,
-      scheduledAt: now + 24 * 60 * 60 * 1000,
+      scheduledAt: newScheduledAt,
       tag: task.tag === 'work' ? 'later' : task.tag,
       updatedAt: now,
+      rescheduleLog: [...task.rescheduleLog, entry],
     };
     deferred.push(task.text);
     total -= task.duration;

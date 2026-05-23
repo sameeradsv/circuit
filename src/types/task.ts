@@ -1,4 +1,12 @@
 export type Effort = 'low' | 'medium' | 'high';
+export type RescheduleReason = 'skip' | 'adaptive' | 'overload' | 'recurrence' | 'split';
+
+export interface RescheduleEntry {
+  at: number;
+  from: number | null;
+  to: number | null;
+  reason: RescheduleReason;
+}
 export type TaskTag = 'general' | 'work' | 'social' | 'later';
 export type DeadlineType = 'none' | 'soft' | 'hard';
 export type FocusType = 'deep' | 'shallow' | 'admin' | 'creative';
@@ -46,6 +54,7 @@ export interface Task {
   metadata: Record<string, unknown>;
   skippedCount: number;
   lastSkippedAt: number | null;
+  rescheduleLog: RescheduleEntry[];
 }
 
 export interface LegacyTask {

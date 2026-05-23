@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -187,3 +188,88 @@ def migrate_from_localstorage(
         created += 1
     db.commit()
     return {"created": created, "skipped": skipped}
+
+
+# ── Energy sync ───────────────────────────────────────────────────────────────
+
+_EFFORT_WEIGHT = {"low": 0.6, "medium": 1.0, "high": 1.4}
+
+
+def _task_drain(task: CircuitTask) -> float:
+    """Per-task drain on a 0–1 scale. A full hard day of tasks sums to ~1.0."""
+    cognitive = (
+        task.cognitive_load * 0.35
+        + task.emotional_resistance * 0.30
+        + task.activation_energy * 0.20
+        + task.recovery_cost * 0.15
+    )
+    effort_mult = _EFFORT_WEIGHT.get(task.effort, 1.0)
+    duration_mult = min(task.duration / 60.0, 2.0) / 2.0  # 60 min = 0.5, cap at 2 h
+    return cognitive * effort_mult * duration_mult * 0.4
+
+
+def _ms_to_dt(ts: Optional[int]) -> Optional[datetime]:
+    """Convert epoch ms (JS) or epoch s to datetime."""
+    if ts is None:
+        return None
+    return datetime.utcfromtimestamp(ts / 1000 if ts > 1e10 else ts)
+
+
+@router.get("/sync/energy")
+def energy_summary(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns the user's task-based energy drain split at the current moment.
+    - drain_so_far: load already absorbed today (completed + overdue tasks)
+    - drain_ahead:  load still coming today (scheduled future + unscheduled backlog fraction)
+    All values are 0–1 floats; 1.0 = completely drained by tasks alone.
+    """
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    now_ms = int(now.timestamp() * 1000)
+    today_start_ms = int(today_start.timestamp() * 1000)
+    today_end_ms = int(today_end.timestamp() * 1000)
+
+    all_tasks = (
+        db.query(CircuitTask)
+        .filter(CircuitTask.user_id == user.id)
+        .all()
+    )
+
+    past_drain = 0.0
+    future_drain = 0.0
+    past_count = 0
+    future_count = 0
+
+    for t in all_tasks:
+        sched = _ms_to_dt(t.scheduled_at)
+        drain = _task_drain(t)
+
+        if t.completed:
+            # Count completed tasks updated today as sunk cost
+            if t.updated_at >= today_start:
+                past_drain += drain
+                past_count += 1
+        elif sched is not None and today_start <= sched < today_end:
+            # Scheduled today: split by now
+            if sched <= now:
+                past_drain += drain   # overdue — already weighing on you
+                past_count += 1
+            else:
+                future_drain += drain
+                future_count += 1
+        elif sched is None and not t.completed:
+            # Unscheduled backlog: counts as mild future pressure (20% weight)
+            future_drain += drain * 0.2
+
+    return {
+        "as_of": now.isoformat() + "Z",
+        "source": "circuit",
+        "drain_so_far": round(min(past_drain, 1.0), 3),
+        "drain_ahead": round(min(future_drain, 1.0), 3),
+        "tasks_done_today": past_count,
+        "tasks_ahead_today": future_count,
+    }

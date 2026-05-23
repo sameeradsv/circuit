@@ -16,6 +16,8 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Set when this user was created via a Cortex account login
+    cortex_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, unique=True, index=True)
 
 
 class AuthSession(Base):
