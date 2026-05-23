@@ -52,6 +52,7 @@ jobs:
         env:
           GITHUB_PAGES: "true"
           NEXT_PUBLIC_API_URL: ${{ vars.CIRCUIT_API_URL || 'https://circuit-api.onrender.com' }}
+          NEXT_PUBLIC_CORTEX_URL: ${{ vars.NEXT_PUBLIC_CORTEX_URL }}
         run: npm run build
 
       - uses: actions/upload-pages-artifact@v3
