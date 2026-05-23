@@ -135,7 +135,7 @@ export default function LoginPage() {
                   onClick={() => setShowLocal(false)}
                   className="w-full text-center text-xs text-circuit-muted hover:text-circuit-text"
                 >
-                  ← Use Cortex account instead
+                  Use Cortex account instead →
                 </button>
               )}
             </>
