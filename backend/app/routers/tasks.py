@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import require_user
-from app.models import CircuitTask, User
+from app.models import CircuitTask, TaskEvent, User
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -81,7 +81,12 @@ class TaskPatch(BaseModel):
     identity_alignment: Optional[float] = None
     energy_to_reward_ratio: Optional[float] = None
     task_decomposition_potential: Optional[float] = None
+    historical_completion_rate: Optional[float] = None
     recurrence: Optional[str] = None
+    location_dependency: Optional[str] = None
+    required_resources: Optional[list[str]] = None
+    dependencies: Optional[list[str]] = None
+    metadata: Optional[dict[str, Any]] = None
     client_updated_at: Optional[int] = None
 
 
@@ -156,9 +161,31 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
     task = db.get(CircuitTask, task_id)
     if not task or task.user_id != user.id:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    was_completed = task.completed
+    _JSON_FIELDS = {"required_resources", "dependencies"}
+
     for field, value in payload.model_dump(exclude_none=True).items():
-        setattr(task, field, value)
+        if field == "metadata":
+            task.metadata_json = json.dumps(value)
+        elif field in _JSON_FIELDS:
+            setattr(task, field, json.dumps(value))
+        else:
+            setattr(task, field, value)
+
     task.updated_at = datetime.utcnow()
+
+    # Auto-log completion/uncompletion event
+    if payload.completed is not None and payload.completed != was_completed:
+        event_type = "completed" if payload.completed else "uncompleted"
+        db.add(TaskEvent(
+            user_id=user.id,
+            task_id=task_id,
+            event_type=event_type,
+            occurred_at=datetime.utcnow(),
+            metadata_json="{}",
+        ))
+
     db.commit()
     db.refresh(task)
     return _task_to_dict(task)

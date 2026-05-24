@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import { getAuthToken, getLocalUser, setLocalUser, type LocalUser } from "./auth";
+import { getAuthToken, getLocalUser, setAuthToken, setLocalUser, type LocalUser } from "./auth";
 
 export type { LocalUser };
 
@@ -44,5 +44,11 @@ export function useCircuitAuth() {
     setUserState(u);
   }
 
-  return { user, loading, setUser };
+  function logout() {
+    setAuthToken(null);
+    setLocalUser(null);
+    setUserState(null);
+  }
+
+  return { user, loading, setUser, logout };
 }

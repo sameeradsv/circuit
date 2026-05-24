@@ -1,0 +1,285 @@
+"""Backend API tests using an in-memory SQLite database."""
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.database import Base, get_db
+from app.main import app
+
+TEST_DB_URL = "sqlite:///:memory:"
+
+
+@pytest.fixture(scope="module")
+def client():
+    # StaticPool ensures all connections share the same in-memory database
+    engine = create_engine(
+        TEST_DB_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="module")
+def auth(client):
+    r = client.post("/api/auth/register", json={"username": "tester", "password": "test1234"})
+    assert r.status_code == 201
+    token = r.json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+# ── Health ──────────────────────────────────────────────────────────────────
+
+
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+# ── Auth ─────────────────────────────────────────────────────────────────────
+
+
+def test_register_duplicate(client, auth):
+    r = client.post("/api/auth/register", json={"username": "tester", "password": "pass"})
+    assert r.status_code == 409
+
+
+def test_login(client):
+    r = client.post("/api/auth/login", json={"username": "tester", "password": "test1234"})
+    assert r.status_code == 200
+    assert "token" in r.json()
+
+
+def test_login_wrong_password(client):
+    r = client.post("/api/auth/login", json={"username": "tester", "password": "wrong"})
+    assert r.status_code == 401
+
+
+def test_me(client, auth):
+    r = client.get("/api/auth/me", headers=auth)
+    assert r.status_code == 200
+    assert r.json()["username"] == "tester"
+
+
+# ── Tasks CRUD ───────────────────────────────────────────────────────────────
+
+
+def test_create_task(client, auth):
+    r = client.post("/api/tasks", json={"text": "Write tests", "tag": "work", "urgency": 0.8}, headers=auth)
+    assert r.status_code == 201
+    data = r.json()
+    assert data["text"] == "Write tests"
+    assert data["tag"] == "work"
+
+
+def test_list_tasks(client, auth):
+    r = client.get("/api/tasks", headers=auth)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+    assert len(r.json()) >= 1
+
+
+def test_patch_task(client, auth):
+    tasks = client.get("/api/tasks", headers=auth).json()
+    task_id = tasks[0]["id"]
+    r = client.patch(f"/api/tasks/{task_id}", json={"text": "Updated text"}, headers=auth)
+    assert r.status_code == 200
+    assert r.json()["text"] == "Updated text"
+
+
+def test_patch_task_json_fields(client, auth):
+    tasks = client.get("/api/tasks", headers=auth).json()
+    task_id = tasks[0]["id"]
+    r = client.patch(
+        f"/api/tasks/{task_id}",
+        json={"required_resources": ["laptop", "notes"], "dependencies": ["task-abc"]},
+        headers=auth,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["required_resources"] == ["laptop", "notes"]
+    assert data["dependencies"] == ["task-abc"]
+
+
+def test_complete_task_logs_event(client, auth):
+    tasks = client.get("/api/tasks", headers=auth).json()
+    task_id = tasks[0]["id"]
+    client.patch(f"/api/tasks/{task_id}", json={"completed": True}, headers=auth)
+    r = client.get(f"/api/history/events?task_id={task_id}", headers=auth)
+    assert r.status_code == 200
+    events = r.json()
+    assert any(e["event_type"] == "completed" for e in events)
+
+
+def test_delete_task(client, auth):
+    tasks = client.get("/api/tasks", headers=auth).json()
+    task_id = tasks[0]["id"]
+    r = client.delete(f"/api/tasks/{task_id}", headers=auth)
+    assert r.status_code == 204
+
+
+# ── Settings ─────────────────────────────────────────────────────────────────
+
+
+def test_settings_empty(client, auth):
+    r = client.get("/api/settings", headers=auth)
+    assert r.status_code == 200
+    assert "values" in r.json()
+
+
+def test_settings_upsert(client, auth):
+    r = client.put(
+        "/api/settings",
+        json={"values": {"default_energy_mode": "deep", "daily_capacity_minutes": 360}},
+        headers=auth,
+    )
+    assert r.status_code == 200
+    assert r.json()["values"]["default_energy_mode"] == "deep"
+
+
+def test_settings_get_key(client, auth):
+    r = client.get("/api/settings/default_energy_mode", headers=auth)
+    assert r.status_code == 200
+    assert r.json()["value"] == "deep"
+
+
+# ── User state ────────────────────────────────────────────────────────────────
+
+
+def test_user_state_default(client, auth):
+    r = client.get("/api/user/state", headers=auth)
+    assert r.status_code == 200
+    data = r.json()
+    assert "energy_level" in data
+    assert "focus_mode" in data
+
+
+def test_user_state_set(client, auth):
+    r = client.post(
+        "/api/user/state",
+        json={"energy_level": 0.4, "stress_level": 0.6, "time_available_minutes": 120, "focus_mode": "low"},
+        headers=auth,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["energy_level"] == 0.4
+    assert data["focus_mode"] == "low"
+
+
+# ── Search & summary ─────────────────────────────────────────────────────────
+
+
+def test_search(client, auth):
+    client.post("/api/tasks", json={"text": "Searchable task about writing"}, headers=auth)
+    r = client.get("/api/search?q=writing", headers=auth)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["query"] == "writing"
+    assert data["total"] >= 1
+
+
+def test_summary(client, auth):
+    r = client.get("/api/summary", headers=auth)
+    assert r.status_code == 200
+    data = r.json()
+    assert "total_tasks" in data
+    assert "completion_rate" in data
+
+
+# ── AI classify ───────────────────────────────────────────────────────────────
+
+
+def test_ai_classify(client, auth):
+    r = client.post(
+        "/api/ai/classify",
+        json={"text": "Urgent: fix critical bug in production today"},
+        headers=auth,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["urgency"] >= 0.7
+    assert data["effort"] in ("low", "medium", "high")
+    assert data["tag"] in ("general", "work", "social", "later")
+
+
+# ── History events ────────────────────────────────────────────────────────────
+
+
+def test_log_event(client, auth):
+    task = client.post("/api/tasks", json={"text": "Event task"}, headers=auth).json()
+    r = client.post(
+        "/api/history/events",
+        json={"task_id": task["id"], "event_type": "skipped", "metadata": {"reason": "too tired"}},
+        headers=auth,
+    )
+    assert r.status_code == 201
+    assert r.json()["event_type"] == "skipped"
+
+
+def test_list_events(client, auth):
+    r = client.get("/api/history/events", headers=auth)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+# ── Export / import ───────────────────────────────────────────────────────────
+
+
+def test_export_import_roundtrip(client, auth):
+    client.post("/api/tasks", json={"text": "Export me"}, headers=auth)
+
+    r = client.post("/api/sync/export", json={"passphrase": "supersecret1234"}, headers=auth)
+    assert r.status_code == 200
+    blob = r.json()
+    assert blob["format"] == "circuit-encrypted-export"
+
+    # Register second user and import into their account
+    r2 = client.post("/api/auth/register", json={"username": "importer", "password": "import123"})
+    auth2 = {"Authorization": f"Bearer {r2.json()['token']}"}
+
+    r = client.post(
+        "/api/sync/import",
+        json={"passphrase": "supersecret1234", "blob": blob},
+        headers=auth2,
+    )
+    assert r.status_code == 200
+    assert r.json()["tasks_created"] >= 1
+
+
+def test_import_wrong_passphrase(client, auth):
+    r_export = client.post("/api/sync/export", json={"passphrase": "correct_pass_1"}, headers=auth)
+    blob = r_export.json()
+    r = client.post(
+        "/api/sync/import",
+        json={"passphrase": "wrong_pass", "blob": blob},
+        headers=auth,
+    )
+    assert r.status_code == 400
+
+
+# ── Delete user data ──────────────────────────────────────────────────────────
+
+
+def test_delete_user_data(client, auth):
+    r = client.delete("/api/user/data", headers=auth)
+    assert r.status_code == 204
+    tasks = client.get("/api/tasks", headers=auth).json()
+    assert tasks == []

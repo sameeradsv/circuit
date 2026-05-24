@@ -72,12 +72,67 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "deadline_type" | "time_sensitivity" | "scheduled_at" | "recurrence"
   | "urgency" | "importance" | "consequence_of_delay" | "momentum_value"
   | "compound_benefit" | "identity_alignment" | "energy_to_reward_ratio"
-  | "task_decomposition_potential"
+  | "task_decomposition_potential" | "historical_completion_rate"
   | "cognitive_load" | "emotional_resistance" | "activation_energy"
   | "recovery_cost" | "focus_type"
   | "skipped_count" | "last_skipped_at"
   | "preferred_execution_window" | "delay_pattern"
+  | "required_resources" | "dependencies" | "metadata" | "location_dependency"
 >>;
+
+export interface ApiSettings {
+  values: Record<string, unknown>;
+}
+
+export interface ApiUserState {
+  energy_level: number;
+  stress_level: number;
+  time_available_minutes: number;
+  focus_mode: string;
+  updated_at: string;
+}
+
+export interface ApiSearchResult {
+  query: string;
+  tasks: Array<{
+    id: number;
+    text: string;
+    tag: string;
+    completed: boolean;
+    urgency: number;
+    importance: number;
+    effort: string;
+    scheduled_at: number | null;
+  }>;
+  total: number;
+}
+
+export interface ApiSummary {
+  total_tasks: number;
+  completed_tasks: number;
+  pending_tasks: number;
+  completion_rate: number;
+  total_pending_minutes: number;
+  avg_skip_count: number;
+  by_tag: Record<string, number>;
+}
+
+export interface ApiAiClassify {
+  urgency: number;
+  importance: number;
+  cognitive_load: number;
+  effort: string;
+  tag: string;
+  reasoning: string;
+}
+
+export interface ApiTaskEvent {
+  id: number;
+  task_id: number;
+  event_type: string;
+  occurred_at: string;
+  metadata: Record<string, unknown>;
+}
 
 export const api = {
   // auth
@@ -95,4 +150,41 @@ export const api = {
   deleteTask: (id: number) => req<void>("DELETE", `/api/tasks/${id}`),
   migrateTasks: (tasks: TaskIn[]) =>
     req<{ created: number; skipped: number }>("POST", "/api/tasks/migrate", tasks),
+
+  // settings
+  getSettings: () => req<ApiSettings>("GET", "/api/settings"),
+  updateSettings: (values: Record<string, unknown>) =>
+    req<ApiSettings>("PUT", "/api/settings", { values }),
+  getSetting: (key: string) =>
+    req<{ key: string; value: unknown }>("GET", `/api/settings/${key}`),
+  setSetting: (key: string, value: unknown) =>
+    req<{ key: string; value: unknown }>("PUT", `/api/settings/${key}`, { value }),
+
+  // user state
+  getUserState: () => req<ApiUserState>("GET", "/api/user/state"),
+  setUserState: (state: Partial<Omit<ApiUserState, "updated_at">>) =>
+    req<ApiUserState>("POST", "/api/user/state", state),
+  deleteUserData: () => req<void>("DELETE", "/api/user/data"),
+
+  // sync / export-import
+  exportData: (passphrase: string) =>
+    req<Record<string, unknown>>("POST", "/api/sync/export", { passphrase }),
+  importData: (passphrase: string, blob: Record<string, unknown>) =>
+    req<{ status: string; tasks_created: number; tasks_skipped: number }>(
+      "POST", "/api/sync/import", { passphrase, blob }
+    ),
+
+  // search & summary
+  search: (q: string) => req<ApiSearchResult>("GET", `/api/search?q=${encodeURIComponent(q)}`),
+  getSummary: () => req<ApiSummary>("GET", "/api/summary"),
+
+  // AI classify
+  classifyTask: (text: string, context?: string) =>
+    req<ApiAiClassify>("POST", "/api/ai/classify", { text, context }),
+
+  // history events
+  logEvent: (taskId: number, eventType: string, metadata: Record<string, unknown> = {}) =>
+    req<ApiTaskEvent>("POST", "/api/history/events", { task_id: taskId, event_type: eventType, metadata }),
+  getEvents: (taskId?: number) =>
+    req<ApiTaskEvent[]>("GET", taskId ? `/api/history/events?task_id=${taskId}` : "/api/history/events"),
 };

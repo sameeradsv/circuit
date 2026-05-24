@@ -68,39 +68,48 @@ export default function TasksPage() {
     const now = Date.now();
     const { scheduledAt } = suggestSlot(task, tasks, now);
     const newPattern = updateDelayPattern(task, now);
-    const updated = await api.updateTask(task.id, {
-      scheduled_at: scheduledAt,
-      skipped_count: (task.skipped_count ?? 0) + 1,
-      last_skipped_at: now,
-      ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
-    });
+    const [updated] = await Promise.all([
+      api.updateTask(task.id, {
+        scheduled_at: scheduledAt,
+        skipped_count: (task.skipped_count ?? 0) + 1,
+        last_skipped_at: now,
+        ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
+      }),
+      api.logEvent(task.id, "skipped", { rescheduled_to: scheduledAt }).catch(() => {}),
+    ]);
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
   }
 
   async function confirmReschedule(task: ApiTask, scheduledAt: number) {
     const now = Date.now();
     const newPattern = updateDelayPattern(task, now);
-    const updated = await api.updateTask(task.id, {
-      scheduled_at: scheduledAt,
-      skipped_count: (task.skipped_count ?? 0) + 1,
-      last_skipped_at: now,
-      ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
-    });
+    const [updated] = await Promise.all([
+      api.updateTask(task.id, {
+        scheduled_at: scheduledAt,
+        skipped_count: (task.skipped_count ?? 0) + 1,
+        last_skipped_at: now,
+        ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
+      }),
+      api.logEvent(task.id, "rescheduled", { scheduled_to: scheduledAt }).catch(() => {}),
+    ]);
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     setReschedulingTask(null);
   }
 
   async function splitTask(task: ApiTask) {
-    const updated = await api.updateTask(task.id, { text: `${task.text} (part 1)`, effort: 'medium' });
-    const child = await api.createTask({
-      text: `${task.text} (part 2)`,
-      tag: task.tag,
-      effort: 'medium',
-      duration: Math.ceil((task.duration ?? 30) / 2),
-      urgency: task.urgency,
-      importance: task.importance,
-      tiny_step: '',
-    });
+    const [updated, child] = await Promise.all([
+      api.updateTask(task.id, { text: `${task.text} (part 1)`, effort: 'medium' }),
+      api.createTask({
+        text: `${task.text} (part 2)`,
+        tag: task.tag,
+        effort: 'medium',
+        duration: Math.ceil((task.duration ?? 30) / 2),
+        urgency: task.urgency,
+        importance: task.importance,
+        tiny_step: '',
+      }),
+    ]);
+    api.logEvent(task.id, "split", { child_text: `${task.text} (part 2)` }).catch(() => {});
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)).concat(child));
   }
 
