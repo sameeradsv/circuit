@@ -142,6 +142,19 @@ body [class*="text-circuit"] {
   box-shadow: 0 0 8px var(--circuit-glow);
 }
 
+/* ── Completion animation ────────────────────────────────────────────────── */
+@keyframes task-out {
+  0%   { opacity: 1; transform: translateX(0);      max-height: 140px; }
+  35%  { opacity: 0.5; transform: translateX(6px);  }
+  100% { opacity: 0; transform: translateX(14px);   max-height: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; }
+}
+
+.task-completing {
+  animation: task-out 0.38s cubic-bezier(0.4, 0, 0.8, 1) forwards;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar        { width: 6px; }
 ::-webkit-scrollbar-track  { background: var(--circuit-bg); }
