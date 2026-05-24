@@ -331,6 +331,7 @@ function NewTaskForm({ onCreated }: { onCreated: (t: ApiTask) => void }) {
   const [effort, setEffort] = useState<string>("medium");
   const [urgency, setUrgency] = useState(0.5);
   const [importance, setImportance] = useState(0.5);
+  const [scheduledAt, setScheduledAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -339,9 +340,17 @@ function NewTaskForm({ onCreated }: { onCreated: (t: ApiTask) => void }) {
     setSubmitting(true);
     setError(null);
     try {
-      const created = await api.createTask({ text: text.trim(), tiny_step: tinyStep.trim(), tag, effort, urgency, importance });
+      const created = await api.createTask({
+        text: text.trim(),
+        tiny_step: tinyStep.trim(),
+        tag,
+        effort,
+        urgency,
+        importance,
+        ...(scheduledAt ? { scheduled_at: new Date(scheduledAt).getTime() } : {}),
+      });
       onCreated(created);
-      setText(""); setTinyStep("");
+      setText(""); setTinyStep(""); setScheduledAt("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create task");
     } finally {
@@ -371,6 +380,15 @@ function NewTaskForm({ onCreated }: { onCreated: (t: ApiTask) => void }) {
           <input type="range" min={0} max={1} step={0.05} value={importance} onChange={(e) => setImportance(Number(e.target.value))} className="w-full accent-circuit-accent" />
         </label>
       </div>
+      <label className="block space-y-1">
+        <span className="text-xs text-circuit-muted">Schedule for (optional)</span>
+        <input
+          type="datetime-local"
+          value={scheduledAt}
+          onChange={(e) => setScheduledAt(e.target.value)}
+          className="input-field"
+        />
+      </label>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <button type="submit" disabled={submitting} className="btn-primary">{submitting ? "Adding…" : "Add task"}</button>
     </form>
