@@ -18,7 +18,8 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("register");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showLocal, setShowLocal] = useState(true);
+  // Show Cortex first when configured; fall back to local-only if not
+  const [showLocal, setShowLocal] = useState(!CORTEX_URL);
 
   useEffect(() => {
     if (!loading && user) router.replace("/");
@@ -66,7 +67,7 @@ export default function LoginPage() {
         </p>
       </header>
 
-      {/* Cortex sign-in section */}
+      {/* Cortex sign-in — shown by default when CORTEX_URL is configured */}
       {CORTEX_URL && !showLocal && (
         <div className="panel p-5 space-y-4">
           <p className="text-xs text-circuit-muted">One account across Canopy, Chef, and Circuit.</p>
@@ -136,7 +137,7 @@ export default function LoginPage() {
                   onClick={() => setShowLocal(false)}
                   className="w-full text-center text-xs text-circuit-muted hover:text-circuit-text"
                 >
-                  Use Cortex account instead →
+                  ← Back to Cortex sign-in
                 </button>
               )}
             </>
