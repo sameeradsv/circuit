@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
 const links = [
-  { href: "/", label: "Dashboard" },
-  { href: "/tasks", label: "Tasks" },
-  { href: "/calendar", label: "Calendar" },
+  { href: "/",          label: "Dashboard" },
+  { href: "/tasks",     label: "Tasks" },
+  { href: "/calendar",  label: "Calendar" },
   { href: "/analytics", label: "Analytics" },
+  { href: "/account",   label: "Account" },
 ];
 
 export function Nav() {
@@ -18,25 +20,27 @@ export function Nav() {
   return (
     <nav className="border-b border-circuit-border bg-circuit-surface px-4 py-3">
       <div className="mx-auto flex max-w-4xl items-center justify-between">
+
         <div className="flex items-center gap-6">
           <span className="text-sm font-semibold tracking-wide text-circuit-accent">
             Circuit
           </span>
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={`text-sm ${
-                pathname === l.href
-                  ? "text-circuit-text"
-                  : "text-circuit-muted hover:text-circuit-text"
-              }`}
-            >
-              {l.label}
-            </Link>
-          ))}
+          {links.map((l) => {
+            const active = pathname === l.href;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`text-sm ${active ? "nav-active" : "text-circuit-muted hover:text-circuit-text"}`}
+              >
+                {l.label}
+              </Link>
+            );
+          })}
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-4">
+          <ThemeSwitcher />
           {user ? (
             <Link
               href="/account"
@@ -53,6 +57,7 @@ export function Nav() {
             </Link>
           )}
         </div>
+
       </div>
     </nav>
   );

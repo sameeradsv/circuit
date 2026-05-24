@@ -18,6 +18,14 @@ export default function RootLayout({
 
   return (
     <html lang="en">
+      <head>
+        {/* Apply saved theme before paint to avoid flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('circuit_ui_theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body>
         <AuthProvider
           apiBase={apiBase}

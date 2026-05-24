@@ -2,14 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --circuit-bg: #0d1117;
+/* ── Themes ──────────────────────────────────────────────────────────────────
+   Names mirror the sibling apps: hearth/mise from Chef, ink/slate from Canopy.
+   All themes are dark to match Circuit's technical character.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Default — circuit: technical blue-gray */
+:root,
+[data-theme="circuit"] {
+  --circuit-bg:      #0d1117;
   --circuit-surface: #161b22;
-  --circuit-border: #30363d;
-  --circuit-text: #e6edf3;
-  --circuit-muted: #7d8590;
-  --circuit-accent: #58a6ff;
+  --circuit-border:  #30363d;
+  --circuit-text:    #e6edf3;
+  --circuit-muted:   #7d8590;
+  --circuit-accent:  #58a6ff;
   --circuit-accent2: #3fb950;
+  --circuit-glow:    rgba(88, 166, 255, 0.18);
+}
+
+/* Dusk — warm-cool twilight hybrid: faint purple-warm base, amber accent
+   offset by sky blue. Neither Chef's heat nor Canopy's cool — somewhere between. */
+[data-theme="dusk"] {
+  --circuit-bg:      #0f0e14;
+  --circuit-surface: #181620;
+  --circuit-border:  #2c2838;
+  --circuit-text:    #ece8e2;
+  --circuit-muted:   #786c80;
+  --circuit-accent:  #d09060;
+  --circuit-accent2: #6090c8;
+  --circuit-glow:    rgba(208, 144, 96, 0.18);
+}
+
+/* Grove — organic earthy hybrid: dark forest floor from Chef's depth,
+   soft leaf green from Canopy's organic palette, amber warmth bridging both. */
+[data-theme="grove"] {
+  --circuit-bg:      #0c1410;
+  --circuit-surface: #141e16;
+  --circuit-border:  #223428;
+  --circuit-text:    #dce8dc;
+  --circuit-muted:   #5a7a60;
+  --circuit-accent:  #80c890;
+  --circuit-accent2: #c8a060;
+  --circuit-glow:    rgba(128, 200, 144, 0.16);
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+html {
+  color-scheme: dark;
 }
 
 body {
@@ -18,16 +57,93 @@ body {
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Smooth theme switching — applies to elements that hold themed values */
+body,
+body nav,
+body main,
+body header,
+body button,
+body a,
+body input,
+body select,
+body textarea,
+body [class*="bg-circuit"],
+body [class*="border-circuit"],
+body [class*="text-circuit"] {
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* ── Component layer ─────────────────────────────────────────────────────── */
 @layer components {
   .panel {
     @apply rounded-xl border border-circuit-border bg-circuit-surface;
   }
 
+  /* Interactive panels lift and glow on hover */
+  .panel-lift {
+    @apply rounded-xl border border-circuit-border bg-circuit-surface;
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease,
+      border-color 0.25s ease !important;
+  }
+
+  .panel-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--circuit-accent);
+    border-color: var(--circuit-accent) !important;
+  }
+
   .btn-primary {
     @apply rounded-lg bg-circuit-accent px-4 py-2 text-sm font-medium text-circuit-bg disabled:opacity-50;
+    transition:
+      box-shadow 0.2s ease,
+      transform 0.15s ease,
+      opacity 0.2s ease !important;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 0 18px var(--circuit-glow);
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(0);
   }
 
   .input-field {
     @apply w-full rounded-lg border border-circuit-border bg-circuit-bg px-3 py-2 text-sm text-circuit-text placeholder:text-circuit-muted focus:border-circuit-accent focus:outline-none;
   }
+
+  .input-field:focus {
+    box-shadow: 0 0 0 3px var(--circuit-glow);
+  }
 }
+
+/* ── Nav active link indicator ───────────────────────────────────────────── */
+.nav-active {
+  color: var(--circuit-text);
+  position: relative;
+}
+
+.nav-active::after {
+  content: "";
+  position: absolute;
+  bottom: -14px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--circuit-accent);
+  border-radius: 1px;
+  box-shadow: 0 0 8px var(--circuit-glow);
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; }
+::-webkit-scrollbar-track  { background: var(--circuit-bg); }
+::-webkit-scrollbar-thumb  { background: var(--circuit-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--circuit-muted); }
