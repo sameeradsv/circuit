@@ -41,3 +41,12 @@ Modular TypeScript under `src/`, bundled to a single IIFE by esbuild. All data i
 ### Next.js frontend
 
 Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed from `github:sameeradsv/cortex`) for auth context and encrypted export.
+
+## Conduit integration
+
+Circuit's backend is consumed by **conduit** — the hub app that provides cross-app AI chat and diary routing.
+
+- **Agent reads:** `GET /api/tasks`, `GET /api/summary` — conduit answers "What are my tasks today?"
+- **Diary writes:** `POST /api/tasks` — conduit's diary mode creates tasks from freeform entries
+
+Circuit also has an embedded terminal chat at `/chat` (in the nav), powered by conduit's backend with the `scope=circuit` tool set. Set `NEXT_PUBLIC_CONDUIT_API_URL` in `frontend/.env.local` to point to the conduit backend (default: `http://localhost:8000`).
