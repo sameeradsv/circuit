@@ -2,6 +2,25 @@
 
 Adaptive planning PWA — local-first, offline-first task management with scheduling, rescheduling, and behavioral insights.
 
+## Vision
+
+Circuit is an adaptive planning assistant that understands:
+- changing energy levels and cognitive fatigue
+- emotional resistance and activation energy
+- shifting priorities and interruptions
+- recovery needs and behavioral patterns
+
+## Engineering principles
+
+- Local-first, offline-first — no network calls for core functionality
+- Explainable scheduling — deterministic, human-readable rationale
+- Modular architecture — each engine has a single responsibility
+- Strict TypeScript — `"strict": true`, typecheck must pass before any PR
+
+### UX intent
+
+The app should feel calm, adaptive, supportive, and realistic.
+
 ## Development
 
 ### Vanilla PWA (`src/` → `app.js`)
@@ -15,8 +34,6 @@ npm test
 ```
 
 ### Next.js frontend (`frontend/`)
-
-A separate Next.js UI that uses `@shared/cortex` for auth.
 
 ```bash
 cd frontend
@@ -50,3 +67,11 @@ Circuit's backend is consumed by **conduit** — the hub app that provides cross
 - **Diary writes:** `POST /api/tasks` — conduit's diary mode creates tasks from freeform entries
 
 Circuit also has an embedded terminal chat at `/chat` (in the nav), powered by conduit's backend with the `scope=circuit` tool set. Set `NEXT_PUBLIC_CONDUIT_API_URL` in `frontend/.env.local` to point to the conduit backend (default: `http://localhost:8000`).
+
+## Docs
+
+- [Architecture](docs/architecture.md)
+- [Task model](docs/task-model.md)
+- [App features](docs/features.md)
+- [Backlog](docs/BACKLOG.md)
+- [Roadmap](docs/roadmap.md)
