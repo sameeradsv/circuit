@@ -75,6 +75,7 @@
 * { box-sizing: border-box; }
 
 html { color-scheme: light; }
+[data-palette="ink"] { color-scheme: dark; }
 
 body {
   background: var(--paper);
@@ -287,6 +288,17 @@ body {
   padding: 12px 14px; width: 100%; outline: none;
 }
 .input-base:focus { border-color: var(--ink); }
+
+.input-field {
+  font-family: var(--font-body); font-size: 14px;
+  background: var(--paper); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; width: 100%; outline: none;
+  transition: border-color .12s;
+}
+.input-field:focus { border-color: var(--ink-2); }
+.input-field::placeholder { color: var(--ink-3); }
+.input-field option { background: var(--paper); color: var(--ink); }
 
 /* ── App shell ── */
 .app-shell {
