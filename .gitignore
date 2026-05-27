@@ -7,3 +7,4 @@ __pycache__/
 *.pyo
 .pytest_cache/
 backend/data/
+.claude/settings.local.json
