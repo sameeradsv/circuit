@@ -2,11 +2,11 @@
 
 import type { EnergyMode } from "@/lib/use-energy-mode";
 
-const MODES: { value: EnergyMode; label: string; desc: string }[] = [
-  { value: "normal", label: "Normal", desc: "Balanced scoring" },
-  { value: "deep",   label: "Deep",   desc: "Prioritise focus work" },
-  { value: "low",    label: "Low",    desc: "Easy tasks only" },
-  { value: "social", label: "Social", desc: "People & comms first" },
+const MODES: { value: EnergyMode; label: string }[] = [
+  { value: "normal", label: "Normal" },
+  { value: "deep",   label: "Deep"   },
+  { value: "low",    label: "Low"    },
+  { value: "social", label: "Social" },
 ];
 
 export function EnergyModeSwitcher({
@@ -17,25 +17,21 @@ export function EnergyModeSwitcher({
   onChange: (m: EnergyMode) => void;
 }) {
   return (
-    <div className="flex gap-1 rounded-lg bg-circuit-surface border border-circuit-border p-1">
-      {MODES.map((m) => {
-        const active = mode === m.value;
-        return (
-          <button
-            key={m.value}
-            onClick={() => onChange(m.value)}
-            title={m.desc}
-            className={[
-              "rounded px-3 py-1 text-xs font-medium transition-all duration-200",
-              active
-                ? "bg-circuit-accent text-circuit-bg animate-pulse-glow"
-                : "text-circuit-muted hover:text-circuit-text",
-            ].join(" ")}
-          >
-            {m.label}
-          </button>
-        );
-      })}
+    <div className="row gap-1 wrap">
+      {MODES.map((m) => (
+        <button
+          key={m.value}
+          onClick={() => onChange(m.value)}
+          className="pill"
+          style={{
+            background:   mode === m.value ? "var(--ink)"  : "transparent",
+            color:        mode === m.value ? "var(--paper)" : "var(--ink-2)",
+            borderColor:  mode === m.value ? "var(--ink)"  : "var(--line)",
+          }}
+        >
+          {m.label}
+        </button>
+      ))}
     </div>
   );
 }

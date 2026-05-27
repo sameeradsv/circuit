@@ -1,22 +1,239 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, ApiTask } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
-import { useEnergyMode } from "@/lib/use-energy-mode";
-import { apiTaskToTask } from "@/lib/engine-adapter";
-import { scoreTasks } from "@/engines/src/scheduling-engine/scoring";
-import { detectProcrastination } from "@/engines/src/behavioral-engine/procrastination";
-import { adaptiveRecommendations } from "@/engines/src/behavioral-engine/recommendations";
-import { EnergyModeSwitcher } from "@/components/EnergyModeSwitcher";
-import { WorkloadBar } from "@/components/WorkloadBar";
-import { BehavioralInsights } from "@/components/BehavioralInsights";
-import { formatSlot } from "@/lib/suggest-slot";
+import { useEnergyLevel, energyDescriptor } from "@/lib/use-energy-level";
 
-export default function DashboardPage() {
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+
+function dueInDays(task: ApiTask): number {
+  if (!task.scheduled_at) return 14;
+  return Math.round((task.scheduled_at - Date.now()) / DAY_MS);
+}
+
+function fmtDue(task: ApiTask): string {
+  const d = dueInDays(task);
+  if (d < 0)  return `${Math.abs(d)}d overdue`;
+  if (d === 0) return "today";
+  if (d === 1) return "tomorrow";
+  if (d < 7)   return `${d}d`;
+  if (!task.scheduled_at) return "no date";
+  return new Date(task.scheduled_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function fmtTime(min: number): string {
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function effortToEnergyReq(effort: string | null | undefined): number {
+  if (effort === "high") return 8;
+  if (effort === "low")  return 2;
+  return 5;
+}
+
+function taskTypeMeta(task: ApiTask): { label: string; color: string; cls: string } {
+  const tag = task.tag ?? "general";
+  const effort = task.effort ?? "medium";
+  if (tag === "work" && effort === "high") return { label: "Creative",  color: "var(--terra)",   cls: "creative" };
+  if (tag === "work")                      return { label: "Deep work", color: "var(--sage)",    cls: "deep" };
+  if (tag === "social")                    return { label: "Comms",     color: "var(--mustard)", cls: "comms" };
+  if (effort === "low")                    return { label: "Admin",     color: "var(--ink-3)",   cls: "admin" };
+  return                                          { label: "Task",      color: "var(--sage)",    cls: "deep" };
+}
+
+interface ScoredTask extends ApiTask {
+  score: number;
+  reason: string;
+  segs: { k: string; v: number; max: number }[];
+}
+
+function scoreTask(task: ApiTask, energy: number, timeAvail: number): ScoredTask {
+  const dueIn = dueInDays(task);
+  const energyReq = effortToEnergyReq(task.effort);
+  const urgency     = dueIn <= 0 ? 1 : Math.max(0, 1 - dueIn / 7);
+  const energyMatch = 1 - Math.min(1, Math.abs(energyReq - energy) / 5);
+  const timeFit     = timeAvail >= (task.duration ?? 30) ? 1 : Math.max(0, timeAvail / (task.duration ?? 30));
+  const momentum    = (task.skipped_count ?? 0) > 0 ? 0 : task.urgency > 0.7 ? 0.5 : 0;
+  const segs = [
+    { k: "urgency",  v: urgency * 30,      max: 30 },
+    { k: "energy",   v: energyMatch * 28,  max: 28 },
+    { k: "time",     v: timeFit * 18,      max: 18 },
+    { k: "momentum", v: momentum * 12,     max: 12 },
+  ];
+  const score = segs.reduce((a, s) => a + s.v, 0);
+  const top = [...segs].sort((a, b) => b.v / b.max - a.v / a.max)[0];
+  const reasons: Record<string, string> = {
+    urgency:  dueIn < 0 ? "overdue" : dueIn === 0 ? "due today" : `due in ${dueIn}d`,
+    energy:   `matches your energy (${energyReq}/10)`,
+    time:     `fits your ${fmtTime(timeAvail)} window`,
+    momentum: `high priority`,
+  };
+  return { ...task, score, reason: reasons[top.k] ?? "", segs };
+}
+
+function rankTasks(tasks: ApiTask[], energy: number, timeAvail: number): ScoredTask[] {
+  return tasks
+    .filter((t) => !t.completed)
+    .map((t) => scoreTask(t, energy, timeAvail))
+    .sort((a, b) => b.score - a.score);
+}
+
+// ── Components ────────────────────────────────────────────────────────────────
+
+function ScoreBreakdown({ segs }: { segs: { k: string; v: number; max: number }[] }) {
+  const total = segs.reduce((a, s) => a + s.max, 0);
+  const labels: Record<string, string> = { urgency: "urgent", energy: "energy fit", time: "time fit", momentum: "in flight" };
+  const colors: Record<string, string> = { urgency: "var(--terra)", energy: "var(--sage)", time: "var(--mustard)", momentum: "var(--rose)" };
+  return (
+    <div>
+      <div className="score-bar" style={{ marginBottom: 8 }}>
+        {segs.map((s) => (
+          <span key={s.k} className={`seg-${s.k}`} style={{ width: `${(s.v / total) * 100}%` }} />
+        ))}
+      </div>
+      <div className="row gap-3 wrap" style={{ fontSize: 11 }}>
+        {segs
+          .filter((s) => s.v / s.max > 0.35)
+          .map((s) => (
+            <span key={s.k} className="mono dim">
+              <span className="dot" style={{ background: colors[s.k], marginRight: 4 }} />
+              {labels[s.k]} {Math.round((s.v / s.max) * 100)}%
+            </span>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function TopPickCard({ task, energy, timeAvail }: { task: ScoredTask; energy: number; timeAvail: number }) {
+  const type = taskTypeMeta(task);
+  return (
+    <div className="card" style={{ padding: 28, borderColor: "var(--ink)", boxShadow: "6px 6px 0 var(--ink)" }}>
+      <div className="row gap-6">
+        <div style={{ flex: 1 }}>
+          <div className="row gap-2 aic" style={{ marginBottom: 12 }}>
+            <span className={`type-dot type-${type.cls}`} />
+            <span className="tiny" style={{ color: "var(--ink-2)" }}>{type.label}</span>
+            <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+              · {fmtDue(task)} · {fmtTime(task.duration ?? 30)}
+            </span>
+          </div>
+          <h2 className="display" style={{ fontSize: 32, margin: "0 0 8px" }}>{task.text}</h2>
+          {task.tiny_step && (
+            <p className="serif" style={{ fontSize: 16, color: "var(--ink-2)", margin: "0 0 16px", maxWidth: 480 }}>
+              {task.tiny_step}
+            </p>
+          )}
+          <ScoreBreakdown segs={task.segs} />
+        </div>
+        <div className="col gap-2" style={{ minWidth: 180, alignItems: "stretch" }}>
+          <Link
+            href="/tasks"
+            className="btn btn-primary"
+            style={{ padding: "14px 18px", fontSize: 15, justifyContent: "center" }}
+          >
+            Start a focus block →
+          </Link>
+          <button
+            className="btn"
+            style={{ justifyContent: "center" }}
+            onClick={() => {}}
+          >
+            Snooze 2h
+          </button>
+          <button
+            className="btn"
+            style={{ justifyContent: "center" }}
+            onClick={() => {}}
+          >
+            Not now, why?
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskRow({ task, rank }: { task: ScoredTask; rank: number }) {
+  const type = taskTypeMeta(task);
+  return (
+    <Link href="/tasks" className="task" style={{ textDecoration: "none" }}>
+      <div className="rank">{String(rank).padStart(2, "0")}</div>
+      <div>
+        <div className="row aic gap-2">
+          <span className={`type-dot type-${type.cls}`} />
+          <span className="title">{task.text}</span>
+        </div>
+        <div className="meta">
+          <span><b>{fmtDue(task)}</b></span>
+          <span>· {fmtTime(task.duration ?? 30)}</span>
+          {task.reason && <span style={{ color: "var(--terra)" }}>· {task.reason}</span>}
+        </div>
+      </div>
+      <div className="row gap-2 aic">
+        {task.urgency > 0.6 && (
+          <span className="pill ghost mono" style={{ fontSize: 10 }}>
+            {Math.round(task.urgency * 100)}%
+          </span>
+        )}
+        <button
+          className="btn-icon"
+          onClick={(e) => { e.preventDefault(); }}
+          aria-label="Open"
+        >
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M13 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+    </Link>
+  );
+}
+
+function EnergyRail({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  const pct = ((value - 1) / 9) * 100;
+  const railRef = useRef<HTMLDivElement>(null);
+
+  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (!railRef.current) return;
+    const rect = railRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    onChange(Math.round(1 + x * 9));
+  }
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="energy-rail" ref={railRef} onClick={handleClick}>
+        <div className="track" style={{ width: `${pct}%` }} />
+        <div className="knob" style={{ left: `${pct}%` }} />
+      </div>
+      <div className="energy-ticks">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+          <span key={n}>{n}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
+export default function HomePage() {
   const { user, loading } = useCircuitAuth();
-  const [mode, setMode] = useEnergyMode();
+  const [energy, setEnergy] = useEnergyLevel();
+  const [timeAvail, setTimeAvail] = useState(120);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
 
@@ -30,148 +247,167 @@ export default function DashboardPage() {
 
   if (!user) {
     return (
-      <div className="space-y-4 text-center animate-fade-in">
-        <h1 className="text-3xl font-semibold text-circuit-text">Circuit</h1>
-        <p className="text-circuit-muted">Adaptive task planning for focused work.</p>
-        <Link href="/login" className="btn-primary inline-block">Get started</Link>
+      <div className="col gap-6" style={{ maxWidth: 480, margin: "80px auto", textAlign: "center" }}>
+        <div>
+          <h1 className="display" style={{ fontSize: 48, margin: "0 0 12px" }}>circuit</h1>
+          <p className="serif" style={{ fontSize: 20, color: "var(--ink-3)" }}>
+            energy-aware task planning.
+          </p>
+        </div>
+        <Link href="/login" className="btn btn-primary" style={{ alignSelf: "center", padding: "14px 32px", fontSize: 16 }}>
+          Get started →
+        </Link>
       </div>
     );
   }
 
-  const engineTasks = tasks.map(apiTaskToTask);
-  const now = Date.now();
-  const ctx = {
-    mode,
-    now,
-    availableMinutes: 480,
-    completedToday: tasks.filter((t) => t.completed && new Date(t.updated_at).toDateString() === new Date().toDateString()).length,
-  };
+  const desc = energyDescriptor(energy);
+  const ranked = rankTasks(tasks, energy, timeAvail);
+  const top = ranked[0];
+  const next = ranked.slice(1, 4);
+  const completedToday = tasks.filter((t) => {
+    if (!t.completed) return false;
+    const sod = new Date(); sod.setHours(0, 0, 0, 0);
+    return new Date(t.updated_at).getTime() > sod.getTime();
+  }).length;
 
-  const scored = scoreTasks(engineTasks, ctx);
-  const pendingMinutes = tasks.filter((t) => !t.completed).reduce((s, t) => s + (t.duration ?? 30), 0);
-  const insights = [
-    ...detectProcrastination(engineTasks),
-    ...adaptiveRecommendations(engineTasks, mode),
-  ].slice(0, 4);
-
-  const open = tasks.filter((t) => !t.completed);
-  const done = tasks.filter((t) => t.completed);
-  const highUrgency = open.filter((t) => t.urgency >= 0.7);
-  const todayScheduled = open.filter((t) => {
-    if (!t.scheduled_at) return false;
-    const d = new Date(t.scheduled_at);
-    return d.toDateString() === new Date().toDateString();
-  });
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const timeLabel = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Good morning," : hour < 17 ? "Good afternoon," : "Good evening,";
 
   return (
-    <div className="space-y-6">
+    <div className="col gap-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 animate-fade-up">
-        <h1 className="text-xl font-medium text-circuit-text">Hey, {user?.username}</h1>
-        <EnergyModeSwitcher mode={mode} onChange={setMode} />
+      <header className="between" style={{ alignItems: "flex-start" }}>
+        <div>
+          <div className="label" style={{ marginBottom: 6 }}>
+            {dateLabel} · {timeLabel}
+          </div>
+          <h1 className="display" style={{ fontSize: 40, margin: 0 }}>
+            {greeting} {user.username}.{" "}
+            <span className="serif" style={{ color: "var(--ink-3)", fontSize: 32 }}>
+              feeling{" "}
+              <span style={{ color: "var(--terra)" }}>
+                {desc.word.toLowerCase()}
+              </span>
+              ?
+            </span>
+          </h1>
+        </div>
+        <div className="row gap-2 aic" style={{ flexShrink: 0, marginTop: 4 }}>
+          {completedToday > 0 && (
+            <span className="pill">
+              <span className="dot" style={{ background: "var(--sage)" }} />
+              {completedToday} done today
+            </span>
+          )}
+          <span className="pill">
+            <span className="dot" style={{ background: "var(--mustard)" }} />
+            {fmtTime(timeAvail)} focus left
+          </span>
+        </div>
+      </header>
+
+      {/* Energy + Window card */}
+      <div className="card" style={{ padding: 24 }}>
+        <div className="row gap-6">
+          <div style={{ flex: 1 }}>
+            <div className="label" style={{ marginBottom: 8 }}>Energy</div>
+            <div className="row aib gap-3" style={{ marginBottom: 4 }}>
+              <span className="display tnum" style={{ fontSize: 56, lineHeight: 1 }}>{energy}</span>
+              <span className="mono" style={{ color: "var(--ink-3)", fontSize: 14 }}>/10</span>
+              <span className="serif" style={{ marginLeft: 12, fontSize: 22, color: "var(--ink-2)" }}>
+                {desc.word.toLowerCase()} — {desc.hint}
+              </span>
+            </div>
+            <EnergyRail value={energy} onChange={setEnergy} />
+          </div>
+          <div className="hairline-v" style={{ paddingLeft: 24, minWidth: 220 }}>
+            <div className="label" style={{ marginBottom: 8 }}>Window</div>
+            <div className="row aib gap-2" style={{ marginBottom: 12 }}>
+              <span className="display tnum" style={{ fontSize: 40, lineHeight: 1 }}>{fmtTime(timeAvail)}</span>
+              <span className="serif" style={{ fontSize: 18, color: "var(--ink-3)" }}>before your next meeting</span>
+            </div>
+            <div className="row gap-1">
+              {[30, 60, 90, 120].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setTimeAvail(m)}
+                  className={"btn" + (m === timeAvail ? " btn-primary" : "")}
+                  style={{ padding: "6px 12px", fontSize: 13 }}
+                >
+                  {fmtTime(m)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard label="Open tasks"   value={open.length}         delay={0} />
-        <StatCard label="High urgency" value={highUrgency.length}  delay={1} accent />
-        <StatCard label="Today"        value={todayScheduled.length} delay={2} />
-        <StatCard label="Completed"    value={done.length}         delay={3} />
-      </div>
-
-      {fetching && <p className="text-sm text-circuit-muted animate-pulse">Loading…</p>}
-
-      {/* Workload bar */}
-      {open.length > 0 && (
-        <div className="animate-fade-up-2">
-          <WorkloadBar pendingMinutes={pendingMinutes} />
+      {/* Top pick */}
+      {fetching && (
+        <div className="serif" style={{ fontSize: 16, color: "var(--ink-3)" }}>
+          loading your tasks…
         </div>
       )}
 
-      {/* Today's ranked plan */}
-      {scored.length > 0 && (
-        <section className="space-y-2 animate-fade-up-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">
-              Today's plan <span className="normal-case font-normal text-xs">({mode} mode)</span>
-            </h2>
-            <Link href="/tasks" className="text-xs text-circuit-accent hover:underline">All tasks →</Link>
+      {!fetching && top && (
+        <div>
+          <div className="row aic gap-3" style={{ marginBottom: 10 }}>
+            <span className="label">Suggested next →</span>
+            <span className="serif" style={{ color: "var(--ink-3)" }}>
+              the highest-leverage thing right now
+            </span>
           </div>
-          <ul className="space-y-2">
-            {scored.slice(0, 6).map((s, i) => {
-              const t = tasks.find((x) => String(x.id) === s.task.id);
-              return (
-                <li
-                  key={s.task.id}
-                  className="panel-lift flex items-center gap-3 px-4 py-3"
-                  style={{ animationDelay: `${0.18 + i * 0.05}s` }}
-                >
-                  <span className="w-5 shrink-0 text-xs font-semibold text-circuit-accent">
-                    #{i + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-circuit-text truncate">{s.task.text}</p>
-                    {s.reasons.length > 0 && (
-                      <p className="mt-0.5 text-xs text-circuit-muted">{s.reasons.join(" · ")}</p>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span className="text-xs text-circuit-accent font-medium">{Math.round(s.score)}</span>
-                    {t?.scheduled_at && (
-                      <span className="text-xs text-circuit-muted">{formatSlot(t.scheduled_at)}</span>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+          <TopPickCard task={top} energy={energy} timeAvail={timeAvail} />
+        </div>
       )}
 
-      {/* Behavioural insights */}
-      {insights.length > 0 && (
-        <div className="panel p-4 animate-fade-up-4">
-          <BehavioralInsights insights={insights} />
+      {/* After that */}
+      {!fetching && next.length > 0 && (
+        <div>
+          <div className="between" style={{ marginBottom: 10 }}>
+            <div className="label">After that</div>
+            <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+              showing {next.length} of {ranked.length - 1}
+            </span>
+          </div>
+          <div className="card" style={{ padding: 6 }}>
+            {next.map((t, i) => (
+              <TaskRow key={t.id} task={t} rank={i + 2} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!fetching && ranked.length === 0 && (
+        <div className="card col gap-4" style={{ padding: 40, alignItems: "center", textAlign: "center" }}>
+          <p className="display" style={{ fontSize: 22, margin: 0 }}>Nothing waiting.</p>
+          <p className="serif" style={{ color: "var(--ink-3)", fontSize: 16 }}>
+            Add your first task and circuit will rank it for you.
+          </p>
+          <Link href="/add" className="btn btn-primary">Add a task →</Link>
         </div>
       )}
 
       {/* Quick links */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 animate-fade-up-4">
-        <QuickLink href="/tasks"     label="Tasks"     desc="Add & manage" />
-        <QuickLink href="/calendar"  label="Calendar"  desc="Day view" />
-        <QuickLink href="/analytics" label="Analytics" desc="Patterns & stats" />
+      <div className="row gap-3 wrap" style={{ marginTop: 4 }}>
+        <Link href="/tasks"     className="card" style={{ flex: 1, minWidth: 120, cursor: "pointer", textDecoration: "none" }}>
+          <p className="display" style={{ fontSize: 15, margin: "0 0 2px" }}>Tasks</p>
+          <p className="tiny muted">full ranked list</p>
+        </Link>
+        <Link href="/calendar"  className="card" style={{ flex: 1, minWidth: 120, cursor: "pointer", textDecoration: "none" }}>
+          <p className="display" style={{ fontSize: 15, margin: "0 0 2px" }}>Calendar</p>
+          <p className="tiny muted">month view</p>
+        </Link>
+        <Link href="/analytics" className="card" style={{ flex: 1, minWidth: 120, cursor: "pointer", textDecoration: "none" }}>
+          <p className="display" style={{ fontSize: 15, margin: "0 0 2px" }}>Analytics</p>
+          <p className="tiny muted">patterns & stats</p>
+        </Link>
       </div>
     </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  accent,
-  delay = 0,
-}: {
-  label: string;
-  value: number;
-  accent?: boolean;
-  delay?: number;
-}) {
-  const delayClass = ["animate-fade-up", "animate-fade-up-1", "animate-fade-up-2", "animate-fade-up-3"][delay] ?? "animate-fade-up";
-  return (
-    <div className={`panel p-4 ${delayClass}`}>
-      <p className="text-xs text-circuit-muted">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold animate-count-up ${accent ? "text-circuit-accent" : "text-circuit-text"}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function QuickLink({ href, label, desc }: { href: string; label: string; desc: string }) {
-  return (
-    <Link href={href} className="panel-lift p-4 block">
-      <p className="text-sm font-medium text-circuit-text">{label}</p>
-      <p className="mt-0.5 text-xs text-circuit-muted">{desc}</p>
-    </Link>
   );
 }

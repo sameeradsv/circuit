@@ -18,7 +18,6 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("register");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Show Cortex first when configured; fall back to local-only if not
   const [showLocal, setShowLocal] = useState(!CORTEX_URL);
 
   useEffect(() => {
@@ -57,48 +56,50 @@ export default function LoginPage() {
   if (loading || user) return null;
 
   return (
-    <div className="mx-auto max-w-md space-y-6">
-      <header>
-        <h1 className="text-2xl font-medium text-circuit-text">
+    <div className="col gap-6" style={{ width: "100%", maxWidth: 400 }}>
+      <div>
+        <div className="row aic gap-2" style={{ marginBottom: 20 }}>
+          <span style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--terra)", display: "inline-block" }} />
+          <span className="display" style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.03em" }}>circuit</span>
+        </div>
+        <h1 className="display" style={{ fontSize: 28, margin: "0 0 6px" }}>
           {mode === "register" ? "Create account" : "Sign in"}
         </h1>
-        <p className="mt-1 text-sm text-circuit-muted">
-          Your account keeps data synced across devices. Credentials are hashed and never stored in plain text.
+        <p className="serif" style={{ color: "var(--ink-3)", fontSize: 15, margin: 0 }}>
+          your tasks, ranked by energy and urgency.
         </p>
-      </header>
+      </div>
 
-      {/* Cortex sign-in — shown by default when CORTEX_URL is configured */}
       {CORTEX_URL && !showLocal && (
-        <div className="panel p-5 space-y-4">
-          <p className="text-xs text-circuit-muted">One account across Canopy, Chef, and Circuit.</p>
+        <div className="card" style={{ padding: 24 }}>
+          <p className="tiny muted" style={{ marginBottom: 16 }}>One account across Canopy, Chef, and Circuit.</p>
           <CortexSignIn
             cortexApiBase={CORTEX_URL}
             tokenKey="circuit_auth_token"
             appName="Circuit"
             showHeader={false}
             onSuccess={async () => {
-              try { setUser(await api.me()); } catch { /* cortex user, ignore */ }
+              try { setUser(await api.me()); } catch { /* ignore */ }
               router.push("/");
             }}
             onLocalMode={() => setShowLocal(true)}
             classNames={{
-              title: "text-base font-medium text-circuit-text",
-              subtitle: "text-xs text-circuit-muted",
-              input: "input-field",
-              submitBtn: "btn-primary w-full",
-              toggleBtn: "w-full text-center text-xs text-circuit-muted hover:text-circuit-text",
-              localBtn: "w-full text-center text-xs text-circuit-muted hover:text-circuit-text",
-              error: "text-sm text-red-400",
+              title: "display",
+              subtitle: "serif muted",
+              input: "input-base",
+              submitBtn: "btn btn-primary",
+              toggleBtn: "btn",
+              localBtn: "btn",
+              error: "marginalia",
             }}
           />
         </div>
       )}
 
-      {/* Local login form */}
       {showLocal && (
-        <form onSubmit={handleLocalSubmit} className="panel space-y-4 p-5">
+        <form onSubmit={handleLocalSubmit} className="card col gap-4" style={{ padding: 24 }}>
           {hasUsers === null ? (
-            <p className="text-sm text-circuit-muted">Checking status…</p>
+            <p className="serif muted">Checking…</p>
           ) : (
             <>
               <input
@@ -108,7 +109,7 @@ export default function LoginPage() {
                 placeholder="Username"
                 required
                 autoComplete="username"
-                className="input-field"
+                className="input-base"
               />
               <input
                 type="password"
@@ -118,28 +119,32 @@ export default function LoginPage() {
                 required
                 minLength={6}
                 autoComplete={mode === "register" ? "new-password" : "current-password"}
-                className="input-field"
+                className="input-base"
               />
-              {error && <p className="text-sm text-red-400">{error}</p>}
-              <button type="submit" disabled={submitting} className="btn-primary w-full">
+              {error && (
+                <p style={{ color: "var(--terra)", fontSize: 13, margin: 0 }}>{error}</p>
+              )}
+              <button type="submit" disabled={submitting} className="btn btn-primary" style={{ justifyContent: "center" }}>
                 {submitting ? "Please wait…" : mode === "register" ? "Create account" : "Sign in"}
               </button>
-              <button
-                type="button"
-                onClick={() => setMode(mode === "login" ? "register" : "login")}
-                className="w-full text-center text-xs text-circuit-muted hover:text-circuit-text"
-              >
-                {mode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}
-              </button>
-              {CORTEX_URL && (
+              <div className="col gap-2" style={{ alignItems: "center" }}>
                 <button
                   type="button"
-                  onClick={() => setShowLocal(false)}
-                  className="w-full text-center text-xs text-circuit-muted hover:text-circuit-text"
+                  onClick={() => setMode(mode === "login" ? "register" : "login")}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--ink-3)", fontFamily: "var(--font-body)" }}
                 >
-                  ← Back to Cortex sign-in
+                  {mode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}
                 </button>
-              )}
+                {CORTEX_URL && (
+                  <button
+                    type="button"
+                    onClick={() => setShowLocal(false)}
+                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--ink-3)", fontFamily: "var(--font-body)" }}
+                  >
+                    ← Back to Cortex sign-in
+                  </button>
+                )}
+              </div>
             </>
           )}
         </form>

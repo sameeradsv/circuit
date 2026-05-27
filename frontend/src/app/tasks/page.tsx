@@ -4,101 +4,92 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiTask } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useEnergyLevel } from "@/lib/use-energy-level";
+import { parseTaskText } from "@/lib/parse-task";
+import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { useEnergyMode } from "@/lib/use-energy-mode";
 import { apiTaskToTask } from "@/lib/engine-adapter";
 import { scoreTasks } from "@/engines/src/scheduling-engine/scoring";
 import { suggestSlot, updateDelayPattern, formatSlot, SlotSuggestion } from "@/lib/suggest-slot";
-import { parseTaskText } from "@/lib/parse-task";
-import { TaskDetailModal } from "@/components/TaskDetailModal";
-import { EnergyModeSwitcher } from "@/components/EnergyModeSwitcher";
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-type Filter = "open" | "done" | "all";
-
-const TAG_OPTIONS    = ["general", "work", "social", "later"] as const;
-const EFFORT_OPTIONS = ["low", "medium", "high"] as const;
-const RECUR_OPTIONS  = [
-  { value: "",         label: "No repeat" },
-  { value: "daily",    label: "Daily" },
-  { value: "weekdays", label: "Weekdays (Mon–Fri)" },
-  { value: "weekly",   label: "Weekly" },
-  { value: "monthly",  label: "Monthly" },
-] as const;
-const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120] as const;
-
-const NOW_MS = () => Date.now();
 const DAY_MS = 86_400_000;
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function startOfDay(d = new Date()) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
-type DateBucket = "overdue" | "today" | "tomorrow" | "week" | "later" | "unscheduled";
-
-function bucket(task: ApiTask): DateBucket {
-  if (!task.scheduled_at) return "unscheduled";
-  const tod = startOfDay();
-  if (task.scheduled_at < tod) return "overdue";
-  if (task.scheduled_at < tod + DAY_MS) return "today";
-  if (task.scheduled_at < tod + 2 * DAY_MS) return "tomorrow";
-  if (task.scheduled_at < tod + 7 * DAY_MS) return "week";
-  return "later";
+function dueInDays(task: ApiTask): number {
+  if (!task.scheduled_at) return 14;
+  return Math.round((task.scheduled_at - Date.now()) / DAY_MS);
 }
 
-const BUCKET_LABEL: Record<DateBucket, string> = {
-  overdue:     "Overdue",
-  today:       "Today",
-  tomorrow:    "Tomorrow",
-  week:        "This week",
-  later:       "Later",
-  unscheduled: "Unscheduled",
-};
-
-const BUCKET_ORDER: DateBucket[] = ["overdue", "today", "tomorrow", "week", "later", "unscheduled"];
-
-function groupTasks(tasks: ApiTask[]): { key: DateBucket; label: string; items: ApiTask[] }[] {
-  const map = new Map<DateBucket, ApiTask[]>();
-  BUCKET_ORDER.forEach((b) => map.set(b, []));
-  tasks.forEach((t) => map.get(bucket(t))!.push(t));
-  return BUCKET_ORDER.filter((b) => map.get(b)!.length > 0).map((b) => ({
-    key: b,
-    label: BUCKET_LABEL[b],
-    items: map.get(b)!,
-  }));
+function fmtDue(task: ApiTask): string {
+  const d = dueInDays(task);
+  if (d < 0)   return `${Math.abs(d)}d overdue`;
+  if (d === 0)  return "today";
+  if (d === 1)  return "tomorrow";
+  if (d < 7)    return `${d}d`;
+  if (!task.scheduled_at) return "no date";
+  return new Date(task.scheduled_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// Date chip: label + colour class
-function dateChip(ts: number): { label: string; cls: string } {
-  const tod = startOfDay();
-  const d = new Date(ts);
-  const timeStr = d.toLocaleTimeString("en", {
-    hour: "numeric",
-    minute: d.getMinutes() ? "2-digit" : undefined,
-  });
-
-  if (ts < tod) {
-    const label = d.toLocaleDateString("en", { month: "short", day: "numeric" });
-    return { label: `Overdue · ${label}`, cls: "text-red-400" };
-  }
-  if (ts < tod + DAY_MS) {
-    return { label: `Today · ${timeStr}`, cls: "text-circuit-accent" };
-  }
-  if (ts < tod + 2 * DAY_MS) {
-    return { label: `Tomorrow · ${timeStr}`, cls: "text-amber-400" };
-  }
-  const label = d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
-  return { label, cls: "text-circuit-muted" };
+function fmtTime(min: number): string {
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
 }
 
-// Priority dot from urgency
-function priorityDot(urgency: number): { label: string; cls: string } | null {
-  if (urgency >= 0.75) return { label: "P1", cls: "bg-red-500" };
-  if (urgency >= 0.5)  return { label: "P2", cls: "bg-orange-400" };
-  if (urgency >= 0.25) return { label: "P3", cls: "bg-sky-400" };
-  return null;
+function effortToEnergyReq(effort: string | null | undefined): number {
+  if (effort === "high") return 8;
+  if (effort === "low")  return 2;
+  return 5;
+}
+
+function taskTypeMeta(task: ApiTask): { label: string; color: string; cls: string } {
+  const tag    = task.tag    ?? "general";
+  const effort = task.effort ?? "medium";
+  if (tag === "work" && effort === "high") return { label: "Creative",  color: "var(--terra)",   cls: "creative" };
+  if (tag === "work")                      return { label: "Deep work", color: "var(--sage)",    cls: "deep"     };
+  if (tag === "social")                    return { label: "Comms",     color: "var(--mustard)", cls: "comms"    };
+  if (effort === "low")                    return { label: "Admin",     color: "var(--ink-3)",   cls: "admin"    };
+  return                                          { label: "Task",      color: "var(--sage)",    cls: "deep"     };
+}
+
+const TYPE_FILTERS = [
+  { value: "all",      label: "All",      color: null },
+  { value: "creative", label: "Creative", color: "var(--terra)"   },
+  { value: "deep",     label: "Deep",     color: "var(--sage)"    },
+  { value: "comms",    label: "Comms",    color: "var(--mustard)" },
+  { value: "admin",    label: "Admin",    color: "var(--ink-3)"   },
+  { value: "errand",   label: "Errand",   color: "var(--rose)"    },
+];
+
+interface ScoredTask extends ApiTask {
+  score: number;
+  reason: string;
+}
+
+function scoreForRank(task: ApiTask, energy: number, timeAvail: number): { score: number; reason: string } {
+  const dueIn      = dueInDays(task);
+  const energyReq  = effortToEnergyReq(task.effort);
+  const urgency    = dueIn <= 0 ? 1 : Math.max(0, 1 - dueIn / 7);
+  const energyMatch= 1 - Math.min(1, Math.abs(energyReq - energy) / 5);
+  const timeFit    = timeAvail >= (task.duration ?? 30) ? 1 : Math.max(0, timeAvail / (task.duration ?? 30));
+  const segs = [
+    { k: "urgency", v: urgency * 30,      max: 30 },
+    { k: "energy",  v: energyMatch * 28,  max: 28 },
+    { k: "time",    v: timeFit * 18,      max: 18 },
+  ];
+  const score = segs.reduce((a, s) => a + s.v, 0);
+  const top = [...segs].sort((a, b) => b.v / b.max - a.v / a.max)[0];
+  const reasons: Record<string, string> = {
+    urgency: dueIn < 0 ? "overdue" : dueIn === 0 ? "due today" : `due in ${dueIn}d`,
+    energy:  `matches your energy (${energyReq}/10)`,
+    time:    `fits your ${fmtTime(timeAvail)} window`,
+  };
+  return { score, reason: reasons[top.k] ?? "" };
 }
 
 function toInputValue(ts: number) {
@@ -112,14 +103,15 @@ function toInputValue(ts: number) {
 export default function TasksPage() {
   const { user, loading } = useCircuitAuth();
   const router = useRouter();
-  const [mode, setMode] = useEnergyMode();
+  const [mode, setMode]   = useEnergyMode();
+  const [energy]          = useEnergyLevel();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
-  const [filter, setFilter] = useState<Filter>("open");
-  const [showNew, setShowNew] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("all");
   const [detailTask, setDetailTask] = useState<ApiTask | null>(null);
   const [reschedulingTask, setReschedulingTask] = useState<ApiTask | null>(null);
   const [completingIds, setCompletingIds] = useState<Set<number>>(new Set());
+  const [showDone, setShowDone] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -133,20 +125,24 @@ export default function TasksPage() {
 
   if (loading || !user) return null;
 
-  const engineTasks = tasks.map(apiTaskToTask);
-  const ctx = { mode, now: NOW_MS(), availableMinutes: 480, completedToday: 0 };
-  const scored = scoreTasks(engineTasks, ctx);
-  const rankMap = new Map(scored.map((s, i) => [s.task.id, { rank: i + 1, score: s.score, reasons: s.reasons }]));
+  const timeAvail = 120;
+  const open = tasks.filter((t) => !t.completed);
+  const done = tasks.filter((t) => t.completed);
 
-  const filtered = tasks.filter((t) =>
-    filter === "open" ? !t.completed : filter === "done" ? t.completed : true
-  );
-  const sorted = [...filtered].sort((a, b) => {
-    if (filter !== "open") return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    const ra = rankMap.get(String(a.id))?.rank ?? 999;
-    const rb = rankMap.get(String(b.id))?.rank ?? 999;
-    return ra - rb;
-  });
+  // Score and rank open tasks
+  const ranked = [...open]
+    .map((t) => { const { score, reason } = scoreForRank(t, energy, timeAvail); return { ...t, score, reason }; })
+    .sort((a, b) => b.score - a.score);
+
+  // Apply type filter
+  const filtered = typeFilter === "all"
+    ? ranked
+    : ranked.filter((t) => taskTypeMeta(t).cls === typeFilter);
+
+  // Three groups
+  const nowGroup   = filtered.slice(0, 2);
+  const soonGroup  = filtered.slice(2, 6);
+  const laterGroup = filtered.slice(6);
 
   async function handleToggle(t: ApiTask) {
     if (t.completed) {
@@ -154,7 +150,6 @@ export default function TasksPage() {
       setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
       return;
     }
-    // Animate out, then complete
     setCompletingIds((prev) => new Set([...prev, t.id]));
     await new Promise((r) => setTimeout(r, 360));
     const updated = await api.updateTask(t.id, { completed: true });
@@ -168,7 +163,7 @@ export default function TasksPage() {
   }
 
   async function skipTask(task: ApiTask) {
-    const now = NOW_MS();
+    const now = Date.now();
     const { scheduledAt } = suggestSlot(task, tasks, now);
     const newPattern = updateDelayPattern(task, now);
     const [updated] = await Promise.all([
@@ -184,7 +179,7 @@ export default function TasksPage() {
   }
 
   async function confirmReschedule(task: ApiTask, scheduledAt: number) {
-    const now = NOW_MS();
+    const now = Date.now();
     const newPattern = updateDelayPattern(task, now);
     const [updated] = await Promise.all([
       api.updateTask(task.id, {
@@ -208,96 +203,158 @@ export default function TasksPage() {
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)).concat(child));
   }
 
-  const groups = filter === "open" ? groupTasks(sorted) : null;
-
-  const sharedRowProps = (t: ApiTask) => ({
-    task: t,
-    rank: rankMap.get(String(t.id))?.rank,
-    score: rankMap.get(String(t.id))?.score,
-    completing: completingIds.has(t.id),
-    onToggle: () => handleToggle(t),
-    onDelete: () => deleteTask(t.id),
-    onSkip: () => skipTask(t),
-    onReschedule: () => setReschedulingTask(t),
-    onDetail: () => setDetailTask(t),
-    onSplit: () => splitTask(t),
-  });
-
   return (
-    <div className="space-y-6">
+    <div className="col gap-5">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-medium text-circuit-text">Tasks</h1>
-        <div className="flex items-center gap-3">
-          <EnergyModeSwitcher mode={mode} onChange={setMode} />
-          <button onClick={() => setShowNew((v) => !v)} className="btn-primary">
-            {showNew ? "Cancel" : "+ New task"}
-          </button>
-        </div>
-      </div>
-
-      {showNew && (
-        <NewTaskForm
-          onCreated={(t) => { setTasks((prev) => [t, ...prev]); setShowNew(false); }}
-        />
-      )}
-
-      {/* Filters */}
-      <div className="flex gap-3 text-sm border-b border-circuit-border pb-3">
-        {(["open", "done", "all"] as Filter[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`capitalize pb-0.5 ${
-              filter === f
-                ? "text-circuit-accent border-b-2 border-circuit-accent"
-                : "text-circuit-muted hover:text-circuit-text"
-            }`}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
-
-      {fetching && <p className="text-sm text-circuit-muted animate-pulse">Loading…</p>}
-      {!fetching && sorted.length === 0 && (
-        <div className="py-12 text-center">
-          <p className="text-circuit-muted text-sm">No tasks yet.</p>
-          <p className="text-circuit-muted/60 text-xs mt-1">Hit "+ New task" or use the quick-add below.</p>
-        </div>
-      )}
-
-      {/* Date-grouped list (open) */}
-      {groups && groups.map((g) => (
-        <section key={g.key} className="space-y-1">
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`text-xs font-semibold uppercase tracking-wider ${g.key === "overdue" ? "text-red-400" : "text-circuit-muted"}`}>
-              {g.label}
+      <header className="between" style={{ alignItems: "flex-end" }}>
+        <div>
+          <div className="label" style={{ marginBottom: 6 }}>All tasks · ranked for you</div>
+          <h1 className="display" style={{ fontSize: 36, margin: 0 }}>
+            {ranked.length} things{" "}
+            <span className="serif" style={{ color: "var(--ink-3)", fontSize: 28 }}>
+              sorted by what fits <em>right now</em>
             </span>
-            <span className="text-xs text-circuit-muted/60">{g.items.length}</span>
-          </div>
-          <ul className="space-y-1">
-            {g.items.map((t) => (
-              <TaskRow key={t.id} {...sharedRowProps(t)} />
-            ))}
-          </ul>
-        </section>
-      ))}
+          </h1>
+        </div>
+        <div className="row gap-2 aic">
+          <button className="btn" style={{ fontSize: 13 }}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M7 12h10M11 18h2"/></svg>
+            Filter
+          </button>
+          <button className="btn" style={{ fontSize: 13 }}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            Re-rank
+          </button>
+          <QuickAddRow onCreated={(t) => setTasks((prev) => [t, ...prev])} />
+        </div>
+      </header>
 
-      {/* Flat list (done / all) */}
-      {!groups && (
-        <ul className="space-y-1">
-          {sorted.map((t) => (
-            <TaskRow key={t.id} {...sharedRowProps(t)} />
-          ))}
-        </ul>
+      {/* Type filter pills */}
+      <div className="row gap-2 wrap">
+        {TYPE_FILTERS.map((f) => {
+          const count = f.value === "all" ? ranked.length : open.filter((t) => taskTypeMeta(t).cls === f.value).length;
+          return (
+            <button
+              key={f.value}
+              className="pill"
+              onClick={() => setTypeFilter(f.value)}
+              style={{
+                background:  typeFilter === f.value ? "var(--ink)"   : "transparent",
+                color:       typeFilter === f.value ? "var(--paper)" : "var(--ink)",
+                borderColor: typeFilter === f.value ? "var(--ink)"   : "var(--line)",
+              }}
+            >
+              {f.color && <span className="dot" style={{ background: f.color }} />}
+              {f.label} ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      {fetching && (
+        <p className="serif" style={{ color: "var(--ink-3)", fontSize: 15 }}>Loading…</p>
       )}
 
-      {/* Inline quick-add */}
-      {filter === "open" && (
-        <QuickAddRow
-          onCreated={(t) => setTasks((prev) => [...prev, t])}
-        />
+      {/* Right now */}
+      {nowGroup.length > 0 && (
+        <TaskGroup
+          title="Right now"
+          subtitle={`with your energy at ${energy} and ${fmtTime(timeAvail)} free`}
+          tone="terra"
+        >
+          {nowGroup.map((t, i) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              rank={i + 1}
+              isNow
+              completing={completingIds.has(t.id)}
+              onToggle={() => handleToggle(t)}
+              onDelete={() => deleteTask(t.id)}
+              onSkip={() => skipTask(t)}
+              onReschedule={() => setReschedulingTask(t)}
+              onDetail={() => setDetailTask(t)}
+              onSplit={() => splitTask(t)}
+            />
+          ))}
+        </TaskGroup>
+      )}
+
+      {/* Soon */}
+      {soonGroup.length > 0 && (
+        <TaskGroup
+          title="Soon"
+          subtitle="when your state shifts a little"
+          tone="sage"
+        >
+          {soonGroup.map((t, i) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              rank={i + 1 + nowGroup.length}
+              completing={completingIds.has(t.id)}
+              onToggle={() => handleToggle(t)}
+              onDelete={() => deleteTask(t.id)}
+              onSkip={() => skipTask(t)}
+              onReschedule={() => setReschedulingTask(t)}
+              onDetail={() => setDetailTask(t)}
+              onSplit={() => splitTask(t)}
+            />
+          ))}
+        </TaskGroup>
+      )}
+
+      {/* Later */}
+      {laterGroup.length > 0 && (
+        <TaskGroup
+          title="Later"
+          subtitle="parked until conditions match"
+          tone="muted"
+        >
+          {laterGroup.map((t, i) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              rank={i + 1 + nowGroup.length + soonGroup.length}
+              completing={completingIds.has(t.id)}
+              onToggle={() => handleToggle(t)}
+              onDelete={() => deleteTask(t.id)}
+              onSkip={() => skipTask(t)}
+              onReschedule={() => setReschedulingTask(t)}
+              onDetail={() => setDetailTask(t)}
+              onSplit={() => splitTask(t)}
+            />
+          ))}
+        </TaskGroup>
+      )}
+
+      {!fetching && ranked.length === 0 && (
+        <div className="card col" style={{ padding: 40, alignItems: "center", gap: 12, textAlign: "center" }}>
+          <p className="display" style={{ fontSize: 20, margin: 0 }}>Nothing here yet.</p>
+          <p className="serif" style={{ color: "var(--ink-3)", fontSize: 15 }}>
+            Capture a task and it'll surface here ranked for your state.
+          </p>
+        </div>
+      )}
+
+      {/* Completed section toggle */}
+      {done.length > 0 && (
+        <div>
+          <button
+            className="btn"
+            onClick={() => setShowDone((v) => !v)}
+            style={{ fontSize: 13 }}
+          >
+            {showDone ? "Hide" : "Show"} {done.length} completed
+          </button>
+          {showDone && (
+            <div className="card" style={{ padding: 6, marginTop: 10 }}>
+              {done.map((t) => (
+                <DoneRow key={t.id} task={t} onToggle={() => handleToggle(t)} onDelete={() => deleteTask(t.id)} />
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Modals */}
@@ -324,86 +381,149 @@ export default function TasksPage() {
   );
 }
 
+// ── TaskGroup ─────────────────────────────────────────────────────────────────
+
+function TaskGroup({
+  title,
+  subtitle,
+  tone,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  tone: "terra" | "sage" | "muted";
+  children: React.ReactNode;
+}) {
+  const color =
+    tone === "terra" ? "var(--terra)"
+    : tone === "sage" ? "var(--sage)"
+    : "var(--ink-3)";
+
+  return (
+    <section>
+      <div className="row aib gap-3" style={{ marginBottom: 10 }}>
+        <h3 className="display" style={{ margin: 0, fontSize: 22, color }}>
+          {title}
+        </h3>
+        <span className="serif" style={{ color: "var(--ink-3)", fontSize: 14 }}>
+          {subtitle}
+        </span>
+      </div>
+      <div className="card" style={{ padding: 6 }}>{children}</div>
+    </section>
+  );
+}
+
 // ── TaskRow ───────────────────────────────────────────────────────────────────
 
 function TaskRow({
-  task, rank, score, completing,
+  task, rank, isNow = false, completing,
   onToggle, onDelete, onSkip, onReschedule, onDetail, onSplit,
 }: {
-  task: ApiTask; rank?: number; score?: number; completing: boolean;
-  onToggle: () => void; onDelete: () => void;
-  onSkip: () => Promise<void>; onReschedule: () => void;
-  onDetail: () => void; onSplit: () => void;
+  task: ApiTask & { score?: number; reason?: string };
+  rank: number;
+  isNow?: boolean;
+  completing: boolean;
+  onToggle: () => void;
+  onDelete: () => void;
+  onSkip: () => Promise<void>;
+  onReschedule: () => void;
+  onDetail: () => void;
+  onSplit: () => void;
 }) {
   const [skipping, setSkipping] = useState(false);
-  const dot = priorityDot(task.urgency);
-  const chip = task.scheduled_at ? dateChip(task.scheduled_at) : null;
-  const canSplit = (task.effort === "high" || (task.task_decomposition_potential ?? 0) >= 0.5) && !task.completed;
+  const type = taskTypeMeta(task);
+  const canSplit = (task.effort === "high" || (task.task_decomposition_potential ?? 0) >= 0.5);
 
   return (
-    <li className={`panel flex items-center gap-2 px-3 py-2.5 group ${completing ? "task-completing" : ""}`}>
-      {/* Priority dot */}
-      <div className="w-2 shrink-0 flex justify-center">
-        {dot && !task.completed && (
-          <span className={`w-2 h-2 rounded-full ${dot.cls}`} title={dot.label} />
-        )}
-      </div>
+    <div
+      className={`task${isNow ? " is-now" : ""} ${completing ? "task-completing" : ""}`}
+      style={{ cursor: "default" }}
+    >
+      <div className="rank">{String(rank).padStart(2, "0")}</div>
 
-      {/* Checkbox */}
-      <input
-        type="checkbox"
-        checked={task.completed}
-        onChange={onToggle}
-        className="shrink-0 accent-circuit-accent cursor-pointer"
-      />
-
-      {/* Content */}
-      <div className="min-w-0 flex-1">
-        <p className={`text-sm leading-snug ${task.completed ? "line-through text-circuit-muted" : "text-circuit-text"}`}>
-          {!task.completed && rank && (
-            <span className="text-xs font-semibold text-circuit-accent mr-1.5">#{rank}</span>
-          )}
-          {task.text}
+      <div>
+        <div className="row aic gap-2">
+          <span className={`type-dot type-${type.cls}`} />
+          <span className="title" style={{ cursor: "pointer" }} onClick={onDetail}>
+            {task.text}
+          </span>
           {task.recurrence && (
-            <span className="ml-1.5 text-xs text-circuit-muted" title={`Repeats: ${task.recurrence}`}>↻</span>
+            <span style={{ fontSize: 11, color: "var(--ink-3)" }} title={`Repeats: ${task.recurrence}`}>↻</span>
           )}
-        </p>
-        {task.tiny_step && (
-          <p className="text-xs text-circuit-muted mt-0.5 truncate">{task.tiny_step}</p>
-        )}
-        {/* Chips row */}
-        <div className="flex flex-wrap items-center gap-2 mt-1">
-          {chip && !task.completed && (
-            <span className={`text-xs ${chip.cls}`}>{chip.label}</span>
-          )}
-          <span className="text-xs text-circuit-muted/70 capitalize">{task.tag}</span>
-          {(task.skipped_count ?? 0) > 0 && (
-            <span className="text-xs text-amber-400/80">skipped ×{task.skipped_count}</span>
+        </div>
+        <div className="meta">
+          <span><b>{fmtDue(task)}</b></span>
+          <span>· {fmtTime(task.duration ?? 30)}</span>
+          {task.reason && <span style={{ color: "var(--terra)" }}>· {task.reason}</span>}
+          {task.skipped_count > 0 && <span>· skipped ×{task.skipped_count}</span>}
+          {task.tiny_step && (
+            <span style={{ color: "var(--ink-2)" }}>· {task.tiny_step}</span>
           )}
         </div>
       </div>
 
-      {/* Score */}
-      {score !== undefined && !task.completed && (
-        <span className="shrink-0 text-xs text-circuit-muted/60 tabular-nums">{Math.round(score)}</span>
-      )}
-
-      {/* Actions */}
-      {!task.completed && (
-        <div className="shrink-0 flex items-center gap-1.5 text-xs text-circuit-muted opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={onDetail}    className="hover:text-circuit-accent transition-colors" title="Details">···</button>
-          <button onClick={onReschedule} className="hover:text-circuit-accent transition-colors" title="Reschedule">↷</button>
-          <button onClick={async () => { setSkipping(true); try { await onSkip(); } finally { setSkipping(false); } }}
-            disabled={skipping} className="hover:text-circuit-text transition-colors">
+      <div className="row gap-2 aic">
+        <div className="row gap-1 aic" style={{ opacity: 0 }} onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")} onMouseLeave={(e) => (e.currentTarget.style.opacity = "0")}>
+          <button
+            onClick={onDetail}
+            style={{ fontSize: 13, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+            title="Details"
+          >···</button>
+          <button
+            onClick={onReschedule}
+            style={{ fontSize: 13, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+            title="Reschedule"
+          >↷</button>
+          <button
+            onClick={async () => { setSkipping(true); try { await onSkip(); } finally { setSkipping(false); } }}
+            disabled={skipping}
+            style={{ fontSize: 12, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+          >
             {skipping ? "…" : "skip"}
           </button>
           {canSplit && (
-            <button onClick={onSplit} className="hover:text-circuit-text transition-colors" title="Split">⌥</button>
+            <button
+              onClick={onSplit}
+              style={{ fontSize: 12, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+              title="Split"
+            >⌥</button>
           )}
         </div>
-      )}
-      <button onClick={onDelete} className="shrink-0 text-xs text-circuit-muted/40 hover:text-red-400 transition-colors ml-1">✕</button>
-    </li>
+        <button
+          onClick={onToggle}
+          className="btn-icon"
+          title="Complete"
+          style={{ width: 28, height: 28 }}
+        >
+          <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12l5 5L20 7" />
+          </svg>
+        </button>
+        <button
+          onClick={onDelete}
+          style={{ fontSize: 12, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", opacity: 0.5 }}
+          title="Delete"
+        >✕</button>
+      </div>
+    </div>
+  );
+}
+
+// ── DoneRow ───────────────────────────────────────────────────────────────────
+
+function DoneRow({ task, onToggle, onDelete }: { task: ApiTask; onToggle: () => void; onDelete: () => void; }) {
+  return (
+    <div className="task" style={{ opacity: 0.5 }}>
+      <div className="rank" style={{ fontSize: 14 }}>✓</div>
+      <div>
+        <span className="title" style={{ textDecoration: "line-through", fontSize: 14 }}>{task.text}</span>
+      </div>
+      <div className="row gap-2 aic">
+        <button onClick={onToggle} style={{ fontSize: 11, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer" }}>undo</button>
+        <button onClick={onDelete} style={{ fontSize: 11, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer" }}>✕</button>
+      </div>
+    </div>
   );
 }
 
@@ -414,13 +534,10 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
-
   const { parsed, preview } = value.trim() ? parseTaskText(value) : { parsed: { text: "" }, preview: {} };
   const hasPreview = Object.keys(preview).length > 0;
 
-  useEffect(() => {
-    if (open) ref.current?.focus();
-  }, [open]);
+  useEffect(() => { if (open) ref.current?.focus(); }, [open]);
 
   async function submit() {
     if (!parsed.text.trim()) return;
@@ -433,8 +550,8 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
         importance: 0.5,
         tiny_step: "",
         effort: "medium",
-        ...(parsed.scheduledAt  ? { scheduled_at: parsed.scheduledAt } : {}),
-        ...(parsed.duration     ? { duration: parsed.duration }         : {}),
+        ...(parsed.scheduledAt ? { scheduled_at: parsed.scheduledAt } : {}),
+        ...(parsed.duration    ? { duration: parsed.duration }         : {}),
       });
       onCreated(created);
       setValue("");
@@ -446,39 +563,45 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full text-left px-3 py-2 text-sm text-circuit-muted/50 hover:text-circuit-muted border border-dashed border-circuit-border/50 hover:border-circuit-border rounded-xl transition-colors"
-      >
-        + Add task
+      <button className="btn btn-primary" onClick={() => setOpen(true)}>
+        + New task
       </button>
     );
   }
 
   return (
-    <div className="panel px-3 py-2.5 space-y-2">
+    <div className="card" style={{ padding: "12px 16px", minWidth: 300 }}>
       <input
         ref={ref}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); submit(); }
+          if (e.key === "Enter") { e.preventDefault(); void submit(); }
           if (e.key === "Escape") { setOpen(false); setValue(""); }
         }}
-        placeholder="Task title — try 'Team sync tomorrow 2pm #work p2 30m'"
-        className="w-full bg-transparent text-sm text-circuit-text placeholder:text-circuit-muted/50 outline-none"
+        placeholder="Task — try 'sync tomorrow 2pm #work 30m'"
+        style={{
+          width: "100%", border: "none", background: "transparent",
+          fontSize: 14, color: "var(--ink)", outline: "none",
+          fontFamily: "var(--font-body)",
+        }}
       />
       {hasPreview && (
-        <div className="flex flex-wrap gap-2 text-xs">
-          {preview.date     && <span className="text-circuit-accent bg-circuit-accent/10 px-2 py-0.5 rounded-full">📅 {preview.date}</span>}
-          {preview.tag      && <span className="text-circuit-muted bg-circuit-border/40 px-2 py-0.5 rounded-full capitalize">🏷 {preview.tag}</span>}
-          {preview.priority && <span className="text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded-full">{preview.priority}</span>}
-          {preview.duration && <span className="text-circuit-muted bg-circuit-border/40 px-2 py-0.5 rounded-full">⏱ {preview.duration}</span>}
+        <div className="row gap-2 wrap" style={{ marginTop: 8 }}>
+          {(preview as Record<string,string>).date     && <span className="parse-chip"><span className="k">date</span>{(preview as Record<string,string>).date}</span>}
+          {(preview as Record<string,string>).tag      && <span className="parse-chip"><span className="k">tag</span>{(preview as Record<string,string>).tag}</span>}
+          {(preview as Record<string,string>).priority && <span className="parse-chip"><span className="k">p</span>{(preview as Record<string,string>).priority}</span>}
+          {(preview as Record<string,string>).duration && <span className="parse-chip"><span className="k">time</span>{(preview as Record<string,string>).duration}</span>}
         </div>
       )}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-circuit-muted/40">↵ add · esc cancel</p>
-        <button onClick={submit} disabled={submitting || !parsed.text.trim()} className="btn-primary text-xs py-1 px-3">
+      <div className="between" style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
+        <span className="tiny muted">↵ add · esc cancel</span>
+        <button
+          onClick={submit}
+          disabled={submitting || !parsed.text.trim()}
+          className="btn btn-primary"
+          style={{ padding: "6px 14px", fontSize: 13 }}
+        >
           {submitting ? "…" : "Add"}
         </button>
       </div>
@@ -488,7 +611,9 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
 
 // ── RescheduleModal ───────────────────────────────────────────────────────────
 
-function RescheduleModal({ task, allTasks, onConfirm, onClose }: {
+function RescheduleModal({
+  task, allTasks, onConfirm, onClose,
+}: {
   task: ApiTask; allTasks: ApiTask[];
   onConfirm: (scheduledAt: number) => void; onClose: () => void;
 }) {
@@ -497,134 +622,48 @@ function RescheduleModal({ task, allTasks, onConfirm, onClose }: {
   const [saving, setSaving] = useState(false);
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-circuit-surface border border-circuit-border rounded-xl p-6 w-full max-w-sm space-y-5 mx-4">
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="card col gap-5" style={{ maxWidth: 380, width: "100%", margin: "0 16px" }}>
         <div>
-          <h2 className="font-semibold text-circuit-text">Reschedule</h2>
-          <p className="mt-1 text-sm text-circuit-muted truncate">{task.text}</p>
+          <h2 className="display" style={{ fontSize: 22, margin: "0 0 6px" }}>Reschedule</h2>
+          <p style={{ fontSize: 14, color: "var(--ink-2)", margin: 0 }}>{task.text}</p>
         </div>
-        <div className="space-y-2">
-          <p className="text-xs uppercase tracking-wider text-circuit-muted">Suggested</p>
-          <p className="text-circuit-accent font-medium text-sm">{formatSlot(suggestion.scheduledAt)}</p>
-          <div className="flex flex-wrap gap-1">
+        <div className="col gap-2">
+          <div className="label">Suggested</div>
+          <p style={{ color: "var(--terra)", fontWeight: 500, margin: 0 }}>{formatSlot(suggestion.scheduledAt)}</p>
+          <div className="row gap-1 wrap">
             {suggestion.rationale.map((r) => (
-              <span key={r} className="text-xs bg-circuit-bg px-2 py-0.5 rounded-full text-circuit-muted border border-circuit-border">{r}</span>
+              <span key={r} className="parse-chip">{r}</span>
             ))}
           </div>
-          <button onClick={() => setChosen(suggestion.scheduledAt)} className="text-xs text-circuit-accent hover:underline">Use suggestion</button>
+          <button onClick={() => setChosen(suggestion.scheduledAt)} style={{ fontSize: 12, color: "var(--terra)", background: "none", border: "none", cursor: "pointer", alignSelf: "flex-start", padding: 0 }}>
+            Use suggestion
+          </button>
         </div>
-        <div className="space-y-1">
-          <label className="text-xs text-circuit-muted">Choose a time</label>
-          <input type="datetime-local" value={toInputValue(chosen)}
+        <div className="col gap-2">
+          <label className="label">Choose a time</label>
+          <input
+            type="datetime-local"
+            value={toInputValue(chosen)}
             onChange={(e) => setChosen(new Date(e.target.value).getTime())}
-            className="input-field" />
+            className="input-base"
+          />
         </div>
-        {task.scheduled_at && (
-          <p className="text-xs text-circuit-muted">Currently: {formatSlot(task.scheduled_at)}</p>
-        )}
-        <div className="flex gap-3">
-          <button onClick={async () => { setSaving(true); try { await onConfirm(chosen); } finally { setSaving(false); } }}
-            disabled={saving} className="btn-primary flex-1">
+        <div className="row gap-3">
+          <button
+            onClick={async () => { setSaving(true); try { await onConfirm(chosen); } finally { setSaving(false); } }}
+            disabled={saving}
+            className="btn btn-primary"
+            style={{ flex: 1 }}
+          >
             {saving ? "Saving…" : "Confirm"}
           </button>
-          <button onClick={onClose} className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors">Cancel</button>
+          <button onClick={onClose} className="btn" style={{ flex: 1 }}>Cancel</button>
         </div>
       </div>
     </div>
-  );
-}
-
-// ── NewTaskForm ───────────────────────────────────────────────────────────────
-
-function NewTaskForm({ onCreated }: { onCreated: (t: ApiTask) => void }) {
-  const [text, setText]           = useState("");
-  const [tinyStep, setTinyStep]   = useState("");
-  const [tag, setTag]             = useState<string>("general");
-  const [effort, setEffort]       = useState<string>("medium");
-  const [urgency, setUrgency]     = useState(0.5);
-  const [importance, setImportance] = useState(0.5);
-  const [duration, setDuration]   = useState<number>(30);
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [recurrence, setRecurrence] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError]         = useState<string | null>(null);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const created = await api.createTask({
-        text: text.trim(),
-        tiny_step: tinyStep.trim(),
-        tag, effort, urgency, importance, duration,
-        ...(scheduledAt ? { scheduled_at: new Date(scheduledAt).getTime() } : {}),
-        ...(recurrence  ? { recurrence } : {}),
-      });
-      onCreated(created);
-      setText(""); setTinyStep(""); setScheduledAt(""); setRecurrence("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create task");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const dot = priorityDot(urgency);
-
-  return (
-    <form onSubmit={handleSubmit} className="panel space-y-3 p-4">
-      <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Task description" required className="input-field" />
-      <input value={tinyStep} onChange={(e) => setTinyStep(e.target.value)} placeholder="Tiny first step (optional)" className="input-field" />
-
-      <div className="flex flex-wrap gap-2">
-        <select value={tag} onChange={(e) => setTag(e.target.value)} className="input-field w-auto">
-          {TAG_OPTIONS.map((o) => <option key={o} value={o} className="bg-circuit-bg capitalize">{o}</option>)}
-        </select>
-        <select value={effort} onChange={(e) => setEffort(e.target.value)} className="input-field w-auto">
-          {EFFORT_OPTIONS.map((o) => <option key={o} value={o} className="bg-circuit-bg capitalize">{o}</option>)}
-        </select>
-        <select value={duration} onChange={(e) => setDuration(Number(e.target.value))} className="input-field w-auto">
-          {DURATION_OPTIONS.map((m) => <option key={m} value={m} className="bg-circuit-bg">{m >= 60 ? `${m / 60}h` : `${m}m`}</option>)}
-        </select>
-        <select value={recurrence} onChange={(e) => setRecurrence(e.target.value)} className="input-field w-auto">
-          {RECUR_OPTIONS.map((o) => <option key={o.value} value={o.value} className="bg-circuit-bg">{o.label}</option>)}
-        </select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <label className="space-y-1">
-          <span className="text-xs text-circuit-muted flex items-center gap-1.5">
-            Priority
-            {dot && <span className={`w-2 h-2 rounded-full inline-block ${dot.cls}`} />}
-            <span className="ml-auto">{dot?.label ?? "P4"}</span>
-          </span>
-          <input type="range" min={0} max={1} step={0.05} value={urgency}
-            onChange={(e) => setUrgency(Number(e.target.value))}
-            className="w-full accent-circuit-accent" />
-        </label>
-        <label className="space-y-1">
-          <span className="text-xs text-circuit-muted flex justify-between">
-            Importance <span>{Math.round(importance * 100)}%</span>
-          </span>
-          <input type="range" min={0} max={1} step={0.05} value={importance}
-            onChange={(e) => setImportance(Number(e.target.value))}
-            className="w-full accent-circuit-accent" />
-        </label>
-      </div>
-
-      <label className="block space-y-1">
-        <span className="text-xs text-circuit-muted">Schedule for (optional)</span>
-        <input type="datetime-local" value={scheduledAt}
-          onChange={(e) => setScheduledAt(e.target.value)}
-          className="input-field" />
-      </label>
-
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      <button type="submit" disabled={submitting} className="btn-primary">
-        {submitting ? "Adding…" : "Add task"}
-      </button>
-    </form>
   );
 }
