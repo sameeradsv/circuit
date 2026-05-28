@@ -34,6 +34,8 @@ npm run start
 
 The frontend uses `@shared/cortex` (installed from `github:sameeradsv/cortex`) for auth context and encrypted export. It requires `transpilePackages: ["@shared/cortex"]` in `frontend/next.config.ts`.
 
+Auth supports **WebAuthn passkey / biometric sign-in** in addition to username + passcode. Backend endpoints: `POST /api/auth/webauthn/register/begin|complete` (requires Bearer token) and `POST /api/auth/webauthn/login/begin|complete` (public). Frontend: `src/lib/usePasskey.ts` hook + `PasskeyBanner` post-login prompt. Credentials stored in `webauthn_credentials` table; challenges in `webauthn_challenges` (2-min TTL, deleted on use).
+
 ## Architecture
 
 Circuit is a **local-first, offline-first PWA** — pure TypeScript, no framework, no backend. All data lives in `localStorage`. The bundle is a single IIFE (`app.js`) produced by esbuild. `index.html` + `style.css` + `sw.js` (service worker) complete the app.

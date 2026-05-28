@@ -68,6 +68,8 @@ Circuit's backend is consumed by **conduit** — the hub app that provides cross
 
 Circuit also has an embedded terminal chat at `/chat` (in the nav), powered by conduit's backend with the `scope=circuit` tool set. Set `NEXT_PUBLIC_CONDUIT_API_URL` in `frontend/.env.local` to point to the conduit backend (default: `http://localhost:8000`).
 
+Auth supports **passkey / biometric sign-in** via WebAuthn (`usePasskey` hook, `PasskeyBanner` post-login prompt). Registration challenge: `POST /api/auth/webauthn/register/begin` → `/register/complete`. Login: `POST /api/auth/webauthn/login/begin` → `/login/complete` (returns JWT).
+
 ## Docs
 
 - [Architecture](docs/architecture.md)

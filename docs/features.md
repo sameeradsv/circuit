@@ -19,6 +19,7 @@ Four main pages (bottom nav + hash routes):
 ## Account and sync
 
 - **Sign in / create account:** Username + passcode (PBKDF2-hashed locally). Per-user task storage namespace.
+- **Biometric sign-in:** WebAuthn passkey (fingerprint / Face ID). Register after first login via the `PasskeyBanner` prompt; subsequent logins show a "Sign in with biometrics" button on the login page.
 - **Continue on this device only:** Keeps legacy local storage without an account.
 - **Cross-device:** On device A, **Export account backup** (JSON). On device B, sign in with the same username/passcode, then **Import account backup**.
 - **Sign out:** Returns to the sign-in screen; tasks remain in that user's namespace on the device.
