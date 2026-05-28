@@ -192,12 +192,32 @@ export default function AddPage() {
               {parsed.title || <span className="serif muted">your task here…</span>}
             </div>
             <div className="row gap-2 wrap">
-              {parsed.chips.map((c, i) => (
+              {taskParseResult?.preview.date && (
+                <span className="parse-chip">
+                  <span className="k">scheduled</span> {taskParseResult.preview.date}
+                </span>
+              )}
+              {taskParseResult?.preview.duration && (
+                <span className="parse-chip">
+                  <span className="k">duration</span> {taskParseResult.preview.duration}
+                </span>
+              )}
+              {taskParseResult?.preview.priority && (
+                <span className="parse-chip">
+                  <span className="k">priority</span> {taskParseResult.preview.priority}
+                </span>
+              )}
+              {taskParseResult?.preview.tag && (
+                <span className="parse-chip">
+                  <span className="k">tag</span> {taskParseResult.preview.tag}
+                </span>
+              )}
+              {parsed.chips.filter((c) => !['due', 'time'].includes(c.k)).map((c, i) => (
                 <span key={i} className="parse-chip">
                   <span className="k">{c.k}</span> {c.v}
                 </span>
               ))}
-              {parsed.chips.length === 0 && (
+              {!taskParseResult?.preview.date && !taskParseResult?.preview.duration && parsed.chips.length === 0 && (
                 <span className="serif muted" style={{ fontSize: 13 }}>no signals detected yet</span>
               )}
             </div>

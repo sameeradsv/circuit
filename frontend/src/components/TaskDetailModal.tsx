@@ -39,6 +39,12 @@ function Select({
   );
 }
 
+function toDatetimeLocal(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function TaskDetailModal({
   task,
   mode,
@@ -135,6 +141,15 @@ export function TaskDetailModal({
           {/* Time & focus */}
           <section className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Time & focus</p>
+            <label className="flex items-center gap-3">
+              <span className="w-44 shrink-0 text-xs text-circuit-muted">Scheduled for</span>
+              <input
+                type="datetime-local"
+                value={merged.scheduled_at ? toDatetimeLocal(merged.scheduled_at) : ''}
+                onChange={(e) => set('scheduled_at', e.target.value ? new Date(e.target.value).getTime() : null as unknown as number)}
+                className="input-field flex-1 py-1 text-xs"
+              />
+            </label>
             <label className="flex items-center gap-3">
               <span className="w-44 shrink-0 text-xs text-circuit-muted">Duration (minutes)</span>
               <input
