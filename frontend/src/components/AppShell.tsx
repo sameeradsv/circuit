@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
 import { PasskeyBanner } from "./PasskeyBanner";
@@ -10,8 +11,15 @@ const NO_SHELL_PATHS = ["/login"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user } = useCircuitAuth();
+  const router = useRouter();
+  const { user, loading } = useCircuitAuth();
   const bare = NO_SHELL_PATHS.includes(pathname);
+
+  useEffect(() => {
+    if (!bare && !loading && !user) {
+      router.replace("/login");
+    }
+  }, [bare, loading, user, router]);
 
   if (bare) {
     return (
@@ -21,11 +29,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (!user) return null;
+
   return (
     <div className="app-shell">
       <Sidebar />
       <main className="app-content">
-        {user && <PasskeyBanner />}
+        <PasskeyBanner />
         {children}
       </main>
       <TabBar />

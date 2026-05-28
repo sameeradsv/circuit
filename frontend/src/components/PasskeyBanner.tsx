@@ -8,16 +8,18 @@ export function PasskeyBanner() {
   const [dismissed, setDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   if (!supported || registered || dismissed || done) return null;
 
   async function handleEnable() {
     setBusy(true);
+    setErr(null);
     try {
       await registerPasskey();
       setDone(true);
-    } catch {
-      setDismissed(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Registration failed");
     } finally {
       setBusy(false);
     }
@@ -25,7 +27,11 @@ export function PasskeyBanner() {
 
   return (
     <div className="row aic gap-3" style={{ padding: "8px 20px", background: "var(--surface-2)", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
-      <span style={{ color: "var(--ink-2)" }}>Enable biometric sign-in?</span>
+      {err ? (
+        <span style={{ color: "var(--error, #e53e3e)" }}>{err}</span>
+      ) : (
+        <span style={{ color: "var(--ink-2)" }}>Enable biometric sign-in?</span>
+      )}
       <button onClick={handleEnable} disabled={busy} className="btn btn-primary" style={{ padding: "2px 12px", fontSize: 12 }}>
         {busy ? "Setting up…" : "Enable"}
       </button>
