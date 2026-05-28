@@ -6,12 +6,14 @@ import { CortexSignIn } from "@shared/cortex";
 import { api } from "@/lib/api";
 import { setAuthToken } from "@/lib/auth";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { usePasskey } from "@/lib/usePasskey";
 
 const CORTEX_URL = (process.env.NEXT_PUBLIC_CORTEX_URL ?? "").replace(/\/$/, "");
 
 export default function LoginPage() {
   const router = useRouter();
   const { user, loading, setUser } = useCircuitAuth();
+  const { supported, loginWithPasskey } = usePasskey();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [hasUsers, setHasUsers] = useState<boolean | null>(null);
@@ -19,6 +21,8 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showLocal, setShowLocal] = useState(!CORTEX_URL);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && user) router.replace("/");
@@ -33,6 +37,21 @@ export default function LoginPage() {
       })
       .catch(() => setHasUsers(false));
   }, []);
+
+  async function handlePasskeyLogin() {
+    setPasskeyBusy(true);
+    setPasskeyError(null);
+    try {
+      const result = await loginWithPasskey();
+      setAuthToken(result.token);
+      setUser(result.user);
+      router.push("/");
+    } catch (err) {
+      setPasskeyError(err instanceof Error ? err.message : "Biometric login failed");
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
 
   async function handleLocalSubmit(e: FormEvent) {
     e.preventDefault();
@@ -73,6 +92,22 @@ export default function LoginPage() {
       {CORTEX_URL && !showLocal && (
         <div className="card" style={{ padding: 24 }}>
           <p className="tiny muted" style={{ marginBottom: 16 }}>One account across Canopy, Chef, and Circuit.</p>
+          {supported && (
+            <div style={{ marginBottom: 16 }}>
+              <button
+                type="button"
+                onClick={handlePasskeyLogin}
+                disabled={passkeyBusy || submitting}
+                className="btn"
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                {passkeyBusy ? "Please wait…" : "Sign in with biometrics"}
+              </button>
+              {passkeyError && (
+                <p style={{ color: "var(--terra)", fontSize: 13, margin: "4px 0 0" }}>{passkeyError}</p>
+              )}
+            </div>
+          )}
           <CortexSignIn
             cortexApiBase={CORTEX_URL}
             tokenKey="circuit_auth_token"
@@ -127,6 +162,22 @@ export default function LoginPage() {
               <button type="submit" disabled={submitting} className="btn btn-primary" style={{ justifyContent: "center" }}>
                 {submitting ? "Please wait…" : mode === "register" ? "Create account" : "Sign in"}
               </button>
+              {supported && (
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={handlePasskeyLogin}
+                    disabled={passkeyBusy || submitting}
+                    className="btn"
+                    style={{ width: "100%", justifyContent: "center" }}
+                  >
+                    {passkeyBusy ? "Please wait…" : "Sign in with biometrics"}
+                  </button>
+                  {passkeyError && (
+                    <p style={{ color: "var(--terra)", fontSize: 13, margin: "4px 0 0" }}>{passkeyError}</p>
+                  )}
+                </div>
+              )}
               <div className="col gap-2" style={{ alignItems: "center" }}>
                 <button
                   type="button"

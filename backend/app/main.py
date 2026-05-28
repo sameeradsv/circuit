@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, _migrate_sqlite, _migrate_postgres, engine
+from app.database import Base, _migrate_sqlite, _migrate_postgres, _migrate_webauthn_tables, engine
 from app.routers.auth import router as auth_router
 from app.routers.tasks import router as tasks_router
 from app.routers import settings as settings_router
@@ -14,6 +14,7 @@ from app.routers import sync as sync_router
 from app.routers import search as search_router
 from app.routers import ai as ai_router
 from app.routers import history as history_router
+from app.routers.webauthn import router as webauthn_router
 
 app = FastAPI(title="Circuit API", version="1.0.0")
 
@@ -38,6 +39,7 @@ app.include_router(sync_router.router)
 app.include_router(search_router.router)
 app.include_router(ai_router.router)
 app.include_router(history_router.router)
+app.include_router(webauthn_router)
 
 
 @app.on_event("startup")
@@ -45,6 +47,7 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
     _migrate_sqlite()
     _migrate_postgres()
+    _migrate_webauthn_tables()
 
 
 @app.get("/health")

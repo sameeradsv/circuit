@@ -50,6 +50,60 @@ def _migrate_postgres() -> None:
         conn.commit()
 
 
+def _migrate_webauthn_tables() -> None:
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    with engine.connect() as conn:
+        if "webauthn_credentials" not in existing_tables:
+            if DATABASE_URL.startswith("sqlite"):
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS webauthn_credentials ("
+                    "credential_id TEXT PRIMARY KEY, "
+                    "public_key TEXT NOT NULL, "
+                    "sign_count INTEGER DEFAULT 0, "
+                    "user_id TEXT NOT NULL, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_webauthn_cred_user "
+                    "ON webauthn_credentials (user_id)"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS webauthn_credentials ("
+                    "credential_id TEXT PRIMARY KEY, "
+                    "public_key TEXT NOT NULL, "
+                    "sign_count INTEGER DEFAULT 0, "
+                    "user_id TEXT NOT NULL, "
+                    "created_at TIMESTAMP DEFAULT NOW())"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_webauthn_cred_user "
+                    "ON webauthn_credentials (user_id)"
+                ))
+            conn.commit()
+        if "webauthn_challenges" not in existing_tables:
+            if DATABASE_URL.startswith("sqlite"):
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS webauthn_challenges ("
+                    "id VARCHAR(64) PRIMARY KEY, "
+                    "challenge VARCHAR(128) NOT NULL, "
+                    "user_id TEXT, "
+                    "expires_at DATETIME NOT NULL, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS webauthn_challenges ("
+                    "id VARCHAR(64) PRIMARY KEY, "
+                    "challenge VARCHAR(128) NOT NULL, "
+                    "user_id TEXT, "
+                    "expires_at TIMESTAMP NOT NULL, "
+                    "created_at TIMESTAMP DEFAULT NOW())"
+                ))
+            conn.commit()
+
+
 def get_db():
     db = SessionLocal()
     try:

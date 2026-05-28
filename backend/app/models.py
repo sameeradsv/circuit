@@ -122,3 +122,23 @@ class TaskEvent(Base):
     event_type: Mapped[str] = mapped_column(String(30), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class WebAuthnCredential(Base):
+    __tablename__ = "webauthn_credentials"
+
+    credential_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, default=0)
+    user_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WebAuthnChallenge(Base):
+    __tablename__ = "webauthn_challenges"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    challenge: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
