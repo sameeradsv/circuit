@@ -17,20 +17,12 @@ export function useCircuitAuth() {
         setLoading(false);
         return;
       }
-      // Fast path: user cached in localStorage from last login
-      const cached = getLocalUser();
-      if (cached) {
-        setUserState(cached);
-        setLoading(false);
-        return;
-      }
-      // Token exists but no cached user — validate with backend
       try {
         const me = await api.me();
         setLocalUser(me);
         setUserState(me);
       } catch {
-        // Token invalid/expired — clear stale state
+        setAuthToken(null);
         setLocalUser(null);
       } finally {
         setLoading(false);

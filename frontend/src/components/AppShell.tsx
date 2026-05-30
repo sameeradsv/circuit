@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user) return null;
+  if (loading || !user) return null;
 
   return (
     <div className="app-shell">
