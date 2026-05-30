@@ -182,7 +182,8 @@ export const api = {
   classifyTask: (text: string, context?: string) =>
     req<ApiAiClassify>("POST", "/api/ai/classify", { text, context }),
 
-  // calendar import
+  // calendar
+  googleCalendarAuthUrl: () => req<{ url: string }>("GET", "/api/calendar/google/auth"),
   importCalendar: (file: File) => {
     const token = getAuthToken();
     const form = new FormData();
