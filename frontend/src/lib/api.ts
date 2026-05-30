@@ -182,6 +182,21 @@ export const api = {
   classifyTask: (text: string, context?: string) =>
     req<ApiAiClassify>("POST", "/api/ai/classify", { text, context }),
 
+  // calendar import
+  importCalendar: (file: File) => {
+    const token = getAuthToken();
+    const form = new FormData();
+    form.append("file", file);
+    return fetch(`${apiBase}/api/calendar/import`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
+      return res.json() as Promise<{ imported: number; total: number }>;
+    });
+  },
+
   // history events
   logEvent: (taskId: number, eventType: string, metadata: Record<string, unknown> = {}) =>
     req<ApiTaskEvent>("POST", "/api/history/events", { task_id: taskId, event_type: eventType, metadata }),
