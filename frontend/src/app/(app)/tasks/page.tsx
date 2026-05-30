@@ -10,6 +10,7 @@ import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { useEnergyMode } from "@/lib/use-energy-mode";
 import { apiTaskToTask } from "@/lib/engine-adapter";
 import { scoreTasks } from "@/engines/src/scheduling-engine/scoring";
+import { useVoiceInput } from "@/lib/use-voice-input";
 import { suggestSlot, updateDelayPattern, formatSlot, SlotSuggestion } from "@/lib/suggest-slot";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -534,6 +535,7 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
+  const voice = useVoiceInput();
   const { parsed, preview } = value.trim() ? parseTaskText(value) : { parsed: { text: "" }, preview: {} };
   const hasPreview = Object.keys(preview).length > 0;
 
@@ -595,15 +597,34 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
         </div>
       )}
       <div className="between" style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-        <span className="tiny muted">↵ add · esc cancel</span>
-        <button
-          onClick={submit}
-          disabled={submitting || !parsed.text.trim()}
-          className="btn btn-primary"
-          style={{ padding: "6px 14px", fontSize: 13 }}
-        >
-          {submitting ? "…" : "Add"}
-        </button>
+        <div className="row gap-2 aic">
+          <span className="tiny muted">↵ add · esc cancel</span>
+          {voice.listening && <span className="mono" style={{ fontSize: 10, color: "var(--terra)" }}>listening…</span>}
+          {voice.error && <span className="mono" style={{ fontSize: 10, color: "var(--terra)" }}>{voice.error}</span>}
+        </div>
+        <div className="row gap-2 aic">
+          {voice.supported && (
+            <button
+              type="button"
+              onClick={() => voice.listening ? voice.stop() : voice.start((t) => { setValue(t); ref.current?.focus(); })}
+              title={voice.listening ? "Stop" : "Voice input"}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 6px", color: voice.listening ? "var(--terra)" : "var(--ink-3)" }}
+            >
+              {voice.listening
+                ? <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                : <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+              }
+            </button>
+          )}
+          <button
+            onClick={submit}
+            disabled={submitting || !parsed.text.trim()}
+            className="btn btn-primary"
+            style={{ padding: "6px 14px", fontSize: 13 }}
+          >
+            {submitting ? "…" : "Add"}
+          </button>
+        </div>
       </div>
     </div>
   );

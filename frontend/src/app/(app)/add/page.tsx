@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { parseTaskText } from "@/lib/parse-task";
+import { useVoiceInput } from "@/lib/use-voice-input";
 
 // ── NL parser (adapted from design reference) ─────────────────────────────────
 
@@ -90,6 +91,7 @@ export default function AddPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const voice = useVoiceInput();
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -196,6 +198,21 @@ export default function AddPage() {
         </div>
 
         <div className="row gap-2 aic" style={{ marginTop: 10 }}>
+          {voice.supported && (
+            <button
+              type="button"
+              onClick={() => voice.listening ? voice.stop() : voice.start((t) => setText((prev) => prev ? prev + " " + t : t))}
+              className="btn-icon"
+              title={voice.listening ? "Stop listening" : "Voice input"}
+              style={{ color: voice.listening ? "var(--terra)" : "var(--ink-3)", flexShrink: 0 }}
+            >
+              {voice.listening
+                ? <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                : <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+              }
+            </button>
+          )}
+          {voice.listening && <span className="mono" style={{ fontSize: 11, color: "var(--terra)" }}>listening…</span>}
           <div style={{ flex: 1 }} />
           <span className="mono muted" style={{ fontSize: 11 }}>⌘ + Enter</span>
           <button
@@ -206,7 +223,9 @@ export default function AddPage() {
             {submitting ? "Capturing…" : "Capture →"}
           </button>
         </div>
-        {error && <p style={{ color: "var(--terra)", fontSize: 13, marginTop: 8 }}>{error}</p>}
+        {(error || voice.error) && (
+          <p style={{ color: "var(--terra)", fontSize: 13, marginTop: 8 }}>{error ?? voice.error}</p>
+        )}
       </div>
 
       {/* Parsed preview */}
