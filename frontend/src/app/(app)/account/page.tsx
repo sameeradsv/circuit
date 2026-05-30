@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiSettings, ApiUserState } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { usePasskey } from "@/lib/usePasskey";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
 
@@ -30,6 +31,22 @@ export default function AccountPage() {
   // danger zone
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const { supported: passkeySupported, registered: passkeyRegistered, registerPasskey } = usePasskey();
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyErr, setPasskeyErr] = useState<string | null>(null);
+
+  async function handleEnablePasskey() {
+    setPasskeyBusy(true);
+    setPasskeyErr(null);
+    try {
+      await registerPasskey();
+    } catch (e) {
+      setPasskeyErr(e instanceof Error ? e.message : "Registration failed");
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -276,6 +293,35 @@ export default function AccountPage() {
           {importErr && <p className="text-sm text-red-400">{importErr}</p>}
         </form>
       </section>
+
+      {/* Security */}
+      {passkeySupported && (
+        <section className="space-y-4">
+          <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Security</h2>
+          <div className="panel p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-circuit-text">Biometric sign-in</p>
+                <p className="text-xs text-circuit-muted mt-1">
+                  {passkeyRegistered
+                    ? "Passkey registered on this device — sign in with Face ID or fingerprint."
+                    : "Register a passkey to sign in with Face ID or fingerprint."}
+                </p>
+                {passkeyErr && <p className="text-sm text-red-400 mt-2">{passkeyErr}</p>}
+              </div>
+              {passkeyRegistered ? (
+                <span className="shrink-0 text-xs text-circuit-accent border border-circuit-accent/30 rounded px-2 py-1">
+                  Enabled
+                </span>
+              ) : (
+                <button onClick={handleEnablePasskey} disabled={passkeyBusy} className="btn-primary shrink-0 text-xs">
+                  {passkeyBusy ? "Setting up…" : "Enable"}
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Danger zone */}
       <section className="space-y-4">

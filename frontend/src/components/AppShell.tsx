@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
-import { PasskeyBanner } from "./PasskeyBanner";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -23,7 +22,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <Sidebar />
       <main className="app-content">
-        <PasskeyBanner />
         {children}
       </main>
       <TabBar />
