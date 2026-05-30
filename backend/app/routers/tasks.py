@@ -165,7 +165,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
     was_completed = task.completed
     _JSON_FIELDS = {"required_resources", "dependencies"}
 
-    for field, value in payload.model_dump(exclude_none=True).items():
+    for field, value in payload.model_dump(exclude_unset=True).items():
         if field == "metadata":
             task.metadata_json = json.dumps(value)
         elif field in _JSON_FIELDS:

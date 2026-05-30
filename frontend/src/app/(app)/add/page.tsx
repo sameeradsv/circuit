@@ -76,10 +76,17 @@ const EXAMPLES = [
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+function toDatetimeLocal(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export default function AddPage() {
   const { user, loading } = useCircuitAuth();
   const router = useRouter();
   const [text, setText] = useState("");
+  const [scheduledAt, setScheduledAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -96,6 +103,9 @@ export default function AddPage() {
   const taskParseResult = text.trim() ? parseTaskText(text) : null;
   const taskParsed = taskParseResult?.parsed ?? { text: "" };
 
+  // Explicit picker overrides NL-parsed date
+  const finalScheduledAt = scheduledAt ?? (taskParsed as { text: string; scheduledAt?: number }).scheduledAt ?? null;
+
   async function handleCapture() {
     const taskText = taskParsed.text?.trim() || text.trim();
     if (!taskText) return;
@@ -109,7 +119,7 @@ export default function AddPage() {
         importance: 0.5,
         tiny_step: "",
         effort: "medium",
-        ...((taskParsed as { text: string; scheduledAt?: number }).scheduledAt ? { scheduled_at: (taskParsed as { text: string; scheduledAt?: number }).scheduledAt } : {}),
+        ...(finalScheduledAt ? { scheduled_at: finalScheduledAt } : {}),
         ...((taskParsed as { text: string; duration?: number }).duration ? { duration: (taskParsed as { text: string; duration?: number }).duration } : {}),
       });
       router.push("/tasks");
@@ -160,16 +170,32 @@ export default function AddPage() {
             color: "var(--ink)",
           }}
         />
-        <div className="row gap-2 aic" style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-          <button className="btn" type="button" title="Voice (coming soon)" disabled style={{ opacity: 0.4 }}>
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="3" width="6" height="12" rx="3" />
-              <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-            </svg>
-          </button>
-          <button className="btn" type="button" title="Suggest tags (coming soon)" disabled style={{ opacity: 0.5, fontSize: 13 }}>
-            ✨ Suggest tags
-          </button>
+        {/* Schedule row */}
+        <div className="row gap-3 aic" style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+          <span className="tiny muted" style={{ whiteSpace: "nowrap" }}>Schedule for</span>
+          <input
+            type="datetime-local"
+            value={finalScheduledAt ? toDatetimeLocal(finalScheduledAt) : ""}
+            onChange={(e) => setScheduledAt(e.target.value ? new Date(e.target.value).getTime() : null)}
+            className="input-base"
+            style={{ flex: 1, fontSize: 13, padding: "4px 8px" }}
+          />
+          {scheduledAt && (
+            <button
+              type="button"
+              onClick={() => setScheduledAt(null)}
+              className="btn-icon"
+              title="Clear"
+              style={{ flexShrink: 0 }}
+            >
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <div className="row gap-2 aic" style={{ marginTop: 10 }}>
           <div style={{ flex: 1 }} />
           <span className="mono muted" style={{ fontSize: 11 }}>⌘ + Enter</span>
           <button
