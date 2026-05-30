@@ -1,18 +1,13 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@shared/cortex";
-import { AppShell } from "@/components/AppShell";
 
 export const metadata: Metadata = {
   title: "Circuit",
   description: "Adaptive task planner",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
   return (
@@ -25,12 +20,8 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <AuthProvider
-          apiBase={apiBase}
-          tokenKey="circuit_auth_token"
-          authPath="/api/auth"
-        >
-          <AppShell>{children}</AppShell>
+        <AuthProvider apiBase={apiBase} tokenKey="circuit_auth_token" authPath="/api/auth">
+          {children}
         </AuthProvider>
       </body>
     </html>
