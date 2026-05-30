@@ -167,19 +167,19 @@ def google_callback(
     error: str = Query(default=""),
     db: Session = Depends(get_db),
 ):
-    dest = f"{FRONTEND_URL}/calendar"
+    root = FRONTEND_URL
 
     try:
         if error:
-            return RedirectResponse(f"{dest}?google_error={urllib.parse.quote(error)}")
+            return RedirectResponse(f"{root}?google_error={urllib.parse.quote(error)}")
 
         if not code or not state:
-            return RedirectResponse(f"{dest}?google_error=missing_code_or_state")
+            return RedirectResponse(f"{root}?google_error=missing_code_or_state")
 
         user_id = _parse_state(state)
         user = db.get(User, user_id)
         if not user:
-            return RedirectResponse(f"{dest}?google_error=user_not_found")
+            return RedirectResponse(f"{root}?google_error=user_not_found")
 
         # Exchange auth code → access token
         with httpx.Client(timeout=15) as client:
@@ -192,11 +192,11 @@ def google_callback(
             })
         if not token_resp.is_success:
             detail = token_resp.json().get("error_description", token_resp.text)[:200]
-            return RedirectResponse(f"{dest}?google_error={urllib.parse.quote(detail)}")
+            return RedirectResponse(f"{root}?google_error={urllib.parse.quote(detail)}")
 
         access_token = token_resp.json().get("access_token", "")
         if not access_token:
-            return RedirectResponse(f"{dest}?google_error=no_access_token")
+            return RedirectResponse(f"{root}?google_error=no_access_token")
 
         # Fetch events: 30 days ago → 180 days ahead
         now = datetime.now(timezone.utc)
@@ -209,7 +209,7 @@ def google_callback(
                 "maxResults":    500,
             }, headers={"Authorization": f"Bearer {access_token}"})
         if not events_resp.is_success:
-            return RedirectResponse(f"{dest}?google_error=fetch_failed_{events_resp.status_code}")
+            return RedirectResponse(f"{root}?google_error=fetch_failed_{events_resp.status_code}")
 
         items = events_resp.json().get("items", [])
         created = 0
@@ -227,12 +227,15 @@ def google_callback(
         if created:
             db.commit()
 
-        return RedirectResponse(f"{dest}?google_import={created}")
+        # Redirect to root — GitHub Pages only reliably serves /
+        root = FRONTEND_URL
+        return RedirectResponse(f"{root}?google_import={created}")
 
     except HTTPException:
         raise
     except Exception as exc:
-        return RedirectResponse(f"{dest}?google_error={urllib.parse.quote(str(exc)[:200])}")
+        root = FRONTEND_URL
+        return RedirectResponse(f"{root}?google_error={urllib.parse.quote(str(exc)[:200])}")
 
 
 # ── ICS file import ───────────────────────────────────────────────────────────
