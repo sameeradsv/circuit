@@ -59,6 +59,19 @@ Modular TypeScript under `src/`, bundled to a single IIFE by esbuild. All data i
 
 Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed from `github:sameeradsv/cortex`) for auth context and encrypted export.
 
+## Recent features
+
+| Feature | Notes |
+|---------|-------|
+| **Day / week calendar views** | Hour-by-hour timeline; toggle between day and week layout |
+| **Manual datetime picker** | Set exact scheduled date + time when adding or editing a task |
+| **Voice input** | Dictate tasks on the Add page and quick-add row (Web Speech API) |
+| **Google Calendar import** | OAuth flow pulls events from Google Calendar into Circuit |
+| **ICS import** | Upload an `.ics` file from iOS Calendar (or any calendar app) to import events |
+| **More tab — bottom sheet** | Mobile tab bar now has a "More" tab that opens a bottom sheet for Analytics, Chat, Account |
+| **Biometric sign-in** | Moved from a post-login banner to a persistent toggle in Account → Security |
+| **Safe-area insets** | `viewport-fit=cover` + `env(safe-area-inset-*)` on fixed sidenav and tab bar; correct 100dvh sizing |
+
 ## Conduit integration
 
 Circuit's backend is consumed by **conduit** — the hub app that provides cross-app AI chat and diary routing.
@@ -68,7 +81,7 @@ Circuit's backend is consumed by **conduit** — the hub app that provides cross
 
 Circuit also has an embedded terminal chat at `/chat` (in the nav), powered by conduit's backend with the `scope=circuit` tool set. Set `NEXT_PUBLIC_CONDUIT_API_URL` in `frontend/.env.local` to point to the conduit backend (default: `http://localhost:8000`).
 
-Auth supports **passkey / biometric sign-in** via WebAuthn (`usePasskey` hook, `PasskeyBanner` post-login prompt). Registration challenge: `POST /api/auth/webauthn/register/begin` → `/register/complete`. Login: `POST /api/auth/webauthn/login/begin` → `/login/complete` (returns JWT).
+Auth supports **passkey / biometric sign-in** via WebAuthn. Enable or check status in **Account → Security**. Registration: `POST /api/auth/webauthn/register/begin` → `/register/complete`. Login: `POST /api/auth/webauthn/login/begin` → `/login/complete` (returns JWT).
 
 ## Docs
 
