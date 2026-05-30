@@ -169,60 +169,70 @@ def google_callback(
 ):
     dest = f"{FRONTEND_URL}/calendar"
 
-    if error:
-        return RedirectResponse(f"{dest}?google_error={urllib.parse.quote(error)}")
+    try:
+        if error:
+            return RedirectResponse(f"{dest}?google_error={urllib.parse.quote(error)}")
 
-    user_id = _parse_state(state)
-    user = db.get(User, user_id)
-    if not user:
-        return RedirectResponse(f"{dest}?google_error=user_not_found")
+        if not code or not state:
+            return RedirectResponse(f"{dest}?google_error=missing_code_or_state")
 
-    # Exchange auth code → access token
-    with httpx.Client() as client:
-        token_resp = client.post(GOOGLE_TOKEN_URL, data={
-            "code":          code,
-            "client_id":     GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri":  GOOGLE_REDIRECT_URI,
-            "grant_type":    "authorization_code",
-        })
-    if not token_resp.is_success:
-        return RedirectResponse(f"{dest}?google_error=token_exchange_failed")
+        user_id = _parse_state(state)
+        user = db.get(User, user_id)
+        if not user:
+            return RedirectResponse(f"{dest}?google_error=user_not_found")
 
-    access_token = token_resp.json().get("access_token", "")
-    if not access_token:
-        return RedirectResponse(f"{dest}?google_error=no_access_token")
+        # Exchange auth code → access token
+        with httpx.Client(timeout=15) as client:
+            token_resp = client.post(GOOGLE_TOKEN_URL, data={
+                "code":          code,
+                "client_id":     GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri":  GOOGLE_REDIRECT_URI,
+                "grant_type":    "authorization_code",
+            })
+        if not token_resp.is_success:
+            detail = token_resp.json().get("error_description", token_resp.text)[:200]
+            return RedirectResponse(f"{dest}?google_error={urllib.parse.quote(detail)}")
 
-    # Fetch events: 30 days ago → 180 days ahead
-    now = datetime.now(timezone.utc)
-    with httpx.Client() as client:
-        events_resp = client.get(GOOGLE_EVENTS_URL, params={
-            "timeMin":       (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "timeMax":       (now + timedelta(days=180)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "singleEvents":  "true",
-            "orderBy":       "startTime",
-            "maxResults":    500,
-        }, headers={"Authorization": f"Bearer {access_token}"})
-    if not events_resp.is_success:
-        return RedirectResponse(f"{dest}?google_error=fetch_failed")
+        access_token = token_resp.json().get("access_token", "")
+        if not access_token:
+            return RedirectResponse(f"{dest}?google_error=no_access_token")
 
-    items = events_resp.json().get("items", [])
-    created = 0
+        # Fetch events: 30 days ago → 180 days ahead
+        now = datetime.now(timezone.utc)
+        with httpx.Client(timeout=15) as client:
+            events_resp = client.get(GOOGLE_EVENTS_URL, params={
+                "timeMin":       (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "timeMax":       (now + timedelta(days=180)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "singleEvents":  "true",
+                "orderBy":       "startTime",
+                "maxResults":    500,
+            }, headers={"Authorization": f"Bearer {access_token}"})
+        if not events_resp.is_success:
+            return RedirectResponse(f"{dest}?google_error=fetch_failed_{events_resp.status_code}")
 
-    for ev in items:
-        parsed = _parse_google_event(ev)
-        if not parsed:
-            continue
-        cid = f"google:{ev.get('id', '')}"
-        if db.query(CircuitTask).filter_by(user_id=user.id, client_id=cid).first():
-            continue  # already imported
-        db.add(_make_task(user.id, parsed, cid))
-        created += 1
+        items = events_resp.json().get("items", [])
+        created = 0
 
-    if created:
-        db.commit()
+        for ev in items:
+            parsed = _parse_google_event(ev)
+            if not parsed:
+                continue
+            cid = f"google:{ev.get('id', '')}"
+            if db.query(CircuitTask).filter_by(user_id=user.id, client_id=cid).first():
+                continue  # already imported
+            db.add(_make_task(user.id, parsed, cid))
+            created += 1
 
-    return RedirectResponse(f"{dest}?google_import={created}")
+        if created:
+            db.commit()
+
+        return RedirectResponse(f"{dest}?google_import={created}")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        return RedirectResponse(f"{dest}?google_error={urllib.parse.quote(str(exc)[:200])}")
 
 
 # ── ICS file import ───────────────────────────────────────────────────────────
