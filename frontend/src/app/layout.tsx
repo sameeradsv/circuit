@@ -1,10 +1,21 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@shared/cortex";
 
 export const metadata: Metadata = {
   title: "Circuit",
   description: "Adaptive task planner",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Circuit",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

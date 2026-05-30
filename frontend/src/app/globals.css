@@ -302,7 +302,7 @@ body {
 
 /* ── App shell ── */
 .app-shell {
-  display: flex; min-height: 100vh;
+  display: flex; min-height: 100dvh;
 }
 .app-content {
   flex: 1; min-width: 0;
@@ -314,6 +314,9 @@ body {
 /* ── Sidebar ── */
 .sidenav {
   width: 220px; padding: 24px 18px;
+  padding-top: max(24px, env(safe-area-inset-top, 0px));
+  padding-left: max(18px, env(safe-area-inset-left, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
   border-right: 1px solid var(--line);
   display: flex; flex-direction: column;
   background: var(--paper);
@@ -351,6 +354,9 @@ body {
   display: none;
   border-top: 1px solid var(--line);
   background: var(--paper); padding: 8px 4px 14px;
+  padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(4px, env(safe-area-inset-left, 0px));
+  padding-right: max(4px, env(safe-area-inset-right, 0px));
   justify-content: space-around;
   position: fixed; bottom: 0; left: 0; right: 0;
   z-index: 50;
@@ -373,7 +379,7 @@ body {
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .sidenav                     { display: none; }
-  .app-content                 { margin-left: 0; padding-bottom: 88px; }
+  .app-content                 { margin-left: 0; padding-bottom: 88px; padding-top: env(safe-area-inset-top, 0px); }
   .tabbar                      { display: flex; }
 }
 
