@@ -184,6 +184,8 @@ export const api = {
 
   // calendar
   googleCalendarAuthUrl: () => req<{ url: string }>("GET", "/api/calendar/google/auth"),
+  importCalendarUrl: (url: string) =>
+    req<{ imported: number; total: number }>("POST", "/api/calendar/import/url", { url }),
   importCalendar: (file: File) => {
     const token = getAuthToken();
     const form = new FormData();
