@@ -375,9 +375,6 @@ export default function CalendarPage() {
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
-  const [showUrlInput, setShowUrlInput] = useState(false);
-  const [icsUrl, setIcsUrl] = useState("");
-  const [importingUrl, setImportingUrl] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -414,25 +411,6 @@ export default function CalendarPage() {
     } catch (e) {
       setImportError(e instanceof Error ? e.message : "Could not start Google sign-in");
       setConnectingGoogle(false);
-    }
-  }
-
-  async function handleImportUrl() {
-    if (!icsUrl.trim()) return;
-    setImportingUrl(true);
-    setImportMsg(null);
-    setImportError(null);
-    try {
-      const result = await api.importCalendarUrl(icsUrl.trim());
-      setImportMsg(`Imported ${result.imported} event${result.imported !== 1 ? "s" : ""} from iCloud`);
-      setIcsUrl("");
-      setShowUrlInput(false);
-      const updated = await api.listTasks();
-      setTasks(updated);
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : "Import failed — check the URL");
-    } finally {
-      setImportingUrl(false);
     }
   }
 
@@ -542,20 +520,6 @@ export default function CalendarPage() {
             {connectingGoogle ? "Connecting…" : "Google Calendar"}
           </button>
 
-          {/* iCloud Calendar */}
-          <button
-            className="btn"
-            style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
-            onClick={() => { setShowUrlInput((v) => !v); setImportError(null); }}
-            title="Import from iCloud Calendar (paste private share URL)"
-          >
-            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
-              <path d="M8 12h8M12 8v8"/>
-            </svg>
-            iCloud
-          </button>
-
           {/* ICS import */}
           <input
             ref={fileRef}
@@ -575,41 +539,6 @@ export default function CalendarPage() {
           </button>
         </div>
       </header>
-
-      {/* iCloud URL input */}
-      {showUrlInput && (
-        <div className="card" style={{ padding: "12px 16px", display: "flex", gap: 10, alignItems: "center" }}>
-          <div style={{ flex: 1 }}>
-            <div className="label" style={{ marginBottom: 4 }}>iCloud Calendar URL</div>
-            <p className="mono" style={{ fontSize: 11, color: "var(--ink-3)", margin: "0 0 8px" }}>
-              Calendar app → right-click calendar → Share → Copy Link (private link, not public)
-            </p>
-            <input
-              autoFocus
-              type="url"
-              value={icsUrl}
-              onChange={(e) => setIcsUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleImportUrl(); } if (e.key === "Escape") setShowUrlInput(false); }}
-              placeholder="webcal:// or https://p01-caldav.icloud.com/…"
-              className="input-base"
-              style={{ width: "100%", fontSize: 13, padding: "6px 10px" }}
-            />
-          </div>
-          <div className="col gap-2" style={{ flexShrink: 0 }}>
-            <button
-              className="btn btn-primary"
-              style={{ fontSize: 13 }}
-              disabled={importingUrl || !icsUrl.trim()}
-              onClick={handleImportUrl}
-            >
-              {importingUrl ? "Importing…" : "Import"}
-            </button>
-            <button className="btn" style={{ fontSize: 13 }} onClick={() => setShowUrlInput(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Import feedback */}
       {importMsg && (

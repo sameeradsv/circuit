@@ -14,7 +14,6 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -338,46 +337,6 @@ async def import_ics(
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         text = content.decode("latin-1")
-    events = parse_ics(text)
-    created = 0
-    for ev in events:
-        db.add(_make_task(user.id, ev, client_id=""))
-        created += 1
-    if created:
-        db.commit()
-    return {"imported": created, "total": len(events)}
-
-
-class UrlImportIn(BaseModel):
-    url: str
-
-
-@router.post("/import/url")
-def import_ics_url(
-    payload: UrlImportIn,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    url = payload.url.strip()
-    if url.startswith("webcal://"):
-        url = "https://" + url[len("webcal://"):]
-    if not (url.startswith("https://") or url.startswith("http://")):
-        raise HTTPException(400, "URL must start with https:// or webcal://")
-    try:
-        with httpx.Client(timeout=15, follow_redirects=True) as client:
-            resp = client.get(url)
-        if not resp.is_success:
-            raise HTTPException(400, f"Could not fetch calendar: HTTP {resp.status_code}")
-        try:
-            text = resp.content.decode("utf-8")
-        except UnicodeDecodeError:
-            text = resp.content.decode("latin-1")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(400, f"Could not fetch calendar: {e}")
-    if "BEGIN:VCALENDAR" not in text:
-        raise HTTPException(400, "URL did not return a valid .ics calendar")
     events = parse_ics(text)
     created = 0
     for ev in events:
