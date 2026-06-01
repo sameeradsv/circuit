@@ -33,7 +33,7 @@ function Select({
         onChange={(e) => onChange(e.target.value)}
         className="input-field flex-1 py-1 text-xs"
       >
-        {options.map((o) => <option key={o} value={o} className="bg-circuit-bg capitalize">{o}</option>)}
+        {options.map((o) => <option key={o} value={o} className="bg-circuit-bg capitalize">{o || 'any'}</option>)}
       </select>
     </label>
   );
@@ -58,6 +58,7 @@ export function TaskDetailModal({
 }) {
   const [patch, setPatch] = useState<TaskPatch>({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const merged = { ...task, ...patch };
 
@@ -72,9 +73,13 @@ export function TaskDetailModal({
   async function handleSave() {
     if (Object.keys(patch).length === 0) { onClose(); return; }
     setSaving(true);
+    setSaveError(null);
     try {
       const updated = await api.updateTask(task.id, patch);
       onSave(updated);
+      onClose();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -172,6 +177,12 @@ export function TaskDetailModal({
                 className="input-field flex-1 py-1 text-xs"
               />
             </label>
+            <Select
+              label="Preferred window"
+              value={merged.preferred_execution_window ?? ''}
+              options={['', 'morning', 'afternoon', 'evening']}
+              onChange={(v) => set('preferred_execution_window', v || null as unknown as string)}
+            />
           </section>
 
           {/* Behavioural (read-only) */}
@@ -181,7 +192,6 @@ export function TaskDetailModal({
               {[
                 ['Skipped', task.skipped_count],
                 ['Completion rate', `${Math.round((task.historical_completion_rate ?? 0.7) * 100)}%`],
-                ['Preferred window', task.preferred_execution_window ?? '—'],
                 ['Avoidance pattern', task.delay_pattern ?? '—'],
               ].map(([k, v]) => (
                 <div key={String(k)} className="panel px-3 py-2">
@@ -194,13 +204,18 @@ export function TaskDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="flex gap-3 p-5 border-t border-circuit-border">
-          <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-          <button onClick={onClose} className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors">
-            Cancel
-          </button>
+        <div className="flex flex-col gap-2 p-5 border-t border-circuit-border">
+          {saveError && (
+            <p className="text-xs text-red-500">{saveError}</p>
+          )}
+          <div className="flex gap-3">
+            <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+            <button onClick={onClose} className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors">
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>

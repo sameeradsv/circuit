@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, Boolean, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -48,7 +48,7 @@ class CircuitTask(Base):
     duration: Mapped[int] = mapped_column(Integer, default=30)
     deadline_type: Mapped[str] = mapped_column(String(10), default="none")
     time_sensitivity: Mapped[float] = mapped_column(Float, default=0.5)
-    scheduled_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    scheduled_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     recurrence: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Cognitive
@@ -69,7 +69,7 @@ class CircuitTask(Base):
     # Behavioral
     historical_completion_rate: Mapped[float] = mapped_column(Float, default=0.7)
     skipped_count: Mapped[int] = mapped_column(Integer, default=0)
-    last_skipped_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_skipped_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     energy_to_reward_ratio: Mapped[float] = mapped_column(Float, default=0.5)
     task_decomposition_potential: Mapped[float] = mapped_column(Float, default=0.3)
 
@@ -82,8 +82,8 @@ class CircuitTask(Base):
     location_dependency: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     # Timestamps
-    client_created_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    client_updated_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    client_created_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    client_updated_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

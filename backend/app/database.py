@@ -47,6 +47,15 @@ def _migrate_postgres() -> None:
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
             "cortex_user_id INTEGER UNIQUE"
         ))
+        # Widen timestamp columns from INTEGER (32-bit) to BIGINT (64-bit)
+        # so they can hold JavaScript ms-epoch values (~1.75 trillion).
+        for col in ("scheduled_at", "last_skipped_at", "client_created_at", "client_updated_at"):
+            row = conn.execute(text(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name = 'circuit_tasks' AND column_name = :col"
+            ), {"col": col}).fetchone()
+            if row and row[0] == "integer":
+                conn.execute(text(f"ALTER TABLE circuit_tasks ALTER COLUMN {col} TYPE BIGINT"))
         conn.commit()
 
 

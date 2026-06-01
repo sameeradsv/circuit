@@ -397,7 +397,7 @@ export default function CalendarPage() {
       api.listTasks().then(setTasks).catch(() => {});
     }
     if (err) setImportError(`Google Calendar error: ${err.replace(/_/g, " ")}`);
-    if (count !== null || err) window.history.replaceState({}, "", "/calendar");
+    if (count !== null || err) router.replace("/calendar");
   }, []);
 
   if (loading || !user) return null;

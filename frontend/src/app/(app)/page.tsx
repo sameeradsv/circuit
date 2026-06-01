@@ -231,7 +231,7 @@ function EnergyRail({
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
-  const { user, loading } = useCircuitAuth();
+  const { user } = useCircuitAuth();
   const [energy, setEnergy] = useEnergyLevel();
   const [timeAvail, setTimeAvail] = useState(120);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
@@ -243,23 +243,7 @@ export default function HomePage() {
     api.listTasks().then(setTasks).catch(() => {}).finally(() => setFetching(false));
   }, [user]);
 
-  if (loading) return null;
-
-  if (!user) {
-    return (
-      <div className="col gap-6" style={{ maxWidth: 480, margin: "80px auto", textAlign: "center" }}>
-        <div>
-          <h1 className="display" style={{ fontSize: 48, margin: "0 0 12px" }}>circuit</h1>
-          <p className="serif" style={{ fontSize: 20, color: "var(--ink-3)" }}>
-            energy-aware task planning.
-          </p>
-        </div>
-        <Link href="/login" className="btn btn-primary" style={{ alignSelf: "center", padding: "14px 32px", fontSize: 16 }}>
-          Get started →
-        </Link>
-      </div>
-    );
-  }
+  if (!user) return null;
 
   const desc = energyDescriptor(energy);
   const ranked = rankTasks(tasks, energy, timeAvail);
