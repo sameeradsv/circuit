@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -13,6 +14,9 @@ from app.deps.auth import require_user
 from app.models import CircuitTask, User
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
+
+_RRULE_HORIZON_DAYS = 180
+_RRULE_MAX = 200
 
 
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
@@ -49,7 +53,7 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
     )
 
 
-# ── ICS file import ───────────────────────────────────────────────────────────
+# ── ICS parsing ───────────────────────────────────────────────────────────────
 
 def _unfold(text: str) -> str:
     return re.sub(r"\r?\n[ \t]", "", text)
@@ -78,6 +82,106 @@ def _parse_duration(value: str) -> int:
     return max(total, 15)
 
 
+def _expand_rrule(dtstart_ms: int, rrule_str: str, exdate_set: set[int]) -> list[int]:
+    """Expand RRULE into a list of occurrence timestamps (ms) up to _RRULE_HORIZON_DAYS ahead."""
+    start = datetime.fromtimestamp(dtstart_ms / 1000, tz=timezone.utc)
+    horizon = datetime.now(timezone.utc) + timedelta(days=_RRULE_HORIZON_DAYS)
+
+    parts: dict[str, str] = {}
+    for seg in rrule_str.upper().split(";"):
+        if "=" in seg:
+            k, v = seg.split("=", 1)
+            parts[k] = v
+
+    freq = parts.get("FREQ", "")
+    interval = max(1, int(parts.get("INTERVAL", "1")))
+    count_max = int(parts.get("COUNT", "0")) or _RRULE_MAX
+
+    until: Optional[datetime] = None
+    if "UNTIL" in parts:
+        ts = _parse_dt(parts["UNTIL"], False)
+        if ts:
+            until = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+
+    day_map = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+    byday: list[int] = []
+    if "BYDAY" in parts:
+        for token in parts["BYDAY"].split(","):
+            wd = day_map.get(token.strip()[-2:], -1)
+            if wd >= 0 and wd not in byday:
+                byday.append(wd)
+        byday.sort()
+
+    results: list[int] = []
+    current = start
+    count = 0
+
+    while count < count_max and current <= horizon:
+        if until and current > until:
+            break
+
+        if freq == "WEEKLY" and byday:
+            # Expand all matching weekdays within this anchor week
+            week_mon = current - timedelta(days=current.weekday())
+            past_horizon = False
+            for wd in byday:
+                candidate = (week_mon + timedelta(days=wd)).replace(
+                    hour=start.hour, minute=start.minute, second=start.second,
+                    microsecond=0, tzinfo=timezone.utc,
+                )
+                if candidate < start:
+                    continue
+                if until and candidate > until:
+                    continue
+                if candidate > horizon:
+                    past_horizon = True
+                    break
+                ts_ms = int(candidate.timestamp() * 1000)
+                if ts_ms not in exdate_set:
+                    results.append(ts_ms)
+                count += 1
+                if count >= count_max:
+                    break
+            if past_horizon:
+                break
+            current += timedelta(weeks=interval)
+        else:
+            ts_ms = int(current.timestamp() * 1000)
+            if ts_ms not in exdate_set:
+                results.append(ts_ms)
+            count += 1
+
+            if freq == "DAILY":
+                current += timedelta(days=interval)
+            elif freq == "WEEKLY":
+                current += timedelta(weeks=interval)
+            elif freq == "MONTHLY":
+                m = current.month - 1 + interval
+                y = current.year + m // 12
+                m = m % 12 + 1
+                try:
+                    current = current.replace(year=y, month=m)
+                except ValueError:
+                    break
+            elif freq == "YEARLY":
+                try:
+                    current = current.replace(year=current.year + interval)
+                except ValueError:
+                    break
+            else:
+                break
+
+    results.sort()
+    return results
+
+
+def _client_id(uid: str, suffix: str = "") -> str:
+    key = f"{uid}{suffix}"
+    if len(key) <= 90:
+        return f"ics:{key}"
+    return f"ics:{hashlib.md5(key.encode()).hexdigest()}"
+
+
 def _process_ics_event(ev: dict) -> Optional[dict]:
     summary = ev.get("SUMMARY", "").strip()
     if not summary:
@@ -98,6 +202,9 @@ def _process_ics_event(ev: dict) -> Optional[dict]:
         "location":     (ev.get("LOCATION", "").strip()    or "")[:100],
         "scheduled_at": dtstart_ms,
         "duration_min": min(duration_min, 720),
+        "rrule":        ev.get("RRULE"),
+        "exdates":      ev.get("EXDATES", []),
+        "uid":          ev.get("UID", ""),
     }
 
 
@@ -131,10 +238,19 @@ def parse_ics(text: str) -> list[dict]:
             current["DTSTART"] = value; current["DTSTART_DATE_ONLY"] = is_date_only
         elif name_base == "DTEND":
             current["DTEND"] = value; current["DTEND_DATE_ONLY"] = is_date_only
-        elif name_base in ("SUMMARY", "DESCRIPTION", "DURATION", "LOCATION", "UID"):
+        elif name_base in ("SUMMARY", "DESCRIPTION", "DURATION", "LOCATION", "UID", "RRULE"):
             current[name_base] = value
+        elif name_base == "EXDATE":
+            exdates = current.get("EXDATES", [])
+            for v in value.split(","):
+                ts = _parse_dt(v.strip(), is_date_only)
+                if ts:
+                    exdates.append(ts)
+            current["EXDATES"] = exdates
     return events
 
+
+# ── Import endpoint ───────────────────────────────────────────────────────────
 
 @router.post("/import")
 async def import_ics(
@@ -149,12 +265,27 @@ async def import_ics(
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         text = content.decode("latin-1")
+
     events = parse_ics(text)
     created = 0
     try:
         for ev in events:
-            db.add(_make_task(user.id, ev, client_id=""))
-            created += 1
+            uid = ev["uid"]
+            rrule = ev.get("rrule")
+            if rrule:
+                exdate_set = set(ev.get("exdates", []))
+                for ts_ms in _expand_rrule(ev["scheduled_at"], rrule, exdate_set):
+                    cid = _client_id(uid, f":{ts_ms}") if uid else ""
+                    if cid and db.query(CircuitTask).filter_by(user_id=user.id, client_id=cid).first():
+                        continue
+                    db.add(_make_task(user.id, {**ev, "scheduled_at": ts_ms}, client_id=cid))
+                    created += 1
+            else:
+                cid = _client_id(uid) if uid else ""
+                if cid and db.query(CircuitTask).filter_by(user_id=user.id, client_id=cid).first():
+                    continue
+                db.add(_make_task(user.id, ev, client_id=cid))
+                created += 1
         if created:
             db.commit()
     except Exception as exc:
