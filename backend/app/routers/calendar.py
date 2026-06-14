@@ -294,11 +294,19 @@ def _classify_event(title: str, description: str) -> tuple[str, str]:
 
 
 def _extract_series_uid(client_id: str) -> Optional[str]:
-    """Extract UID from a recurring client_id like 'ics:{uid}:{ts_ms}'. Returns None if not a series."""
+    """Extract UID from a recurring client_id like 'ics:{uid}:{ts_ms}'.
+    Uses rfind on the last colon so it handles UIDs that contain colons.
+    Returns None if the client_id is not a recurring-series entry."""
     if not client_id or not client_id.startswith("ics:"):
         return None
-    m = re.match(r"^ics:(.+):\d{10,13}$", client_id)
-    return m.group(1) if m else None
+    inner = client_id[4:]  # strip leading "ics:"
+    last_colon = inner.rfind(":")
+    if last_colon < 0:
+        return None
+    suffix = inner[last_colon + 1:]
+    if not suffix.isdigit() or len(suffix) < 10:
+        return None
+    return inner[:last_colon]
 
 
 def _client_id(uid: str, suffix: str = "") -> str:

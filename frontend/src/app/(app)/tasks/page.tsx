@@ -458,7 +458,7 @@ function TaskRow({
   const [skipping, setSkipping] = useState(false);
   const type = taskTypeMeta(task);
   const canSplit = (task.effort === "high" || (task.task_decomposition_potential ?? 0) >= 0.5);
-  const isSeries = /^ics:.+:\d{10,13}$/.test(task.client_id ?? "");
+  const isSeries = /^ics:.+:\d{10,}$/.test(task.client_id ?? "");
 
   return (
     <div

@@ -68,7 +68,7 @@ export function TaskDetailModal({
   const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
   const [deletingSeries, setDeletingSeries] = useState(false);
 
-  const isSeries = /^ics:.+:\d{10,13}$/.test(task.client_id ?? "");
+  const isSeries = /^ics:.+:\d{10,}$/.test(task.client_id ?? "");
 
   async function handleApplyToSeries() {
     setPropagating(true);
@@ -286,7 +286,14 @@ export function TaskDetailModal({
                         <button
                           onClick={async () => {
                             setDeletingSeries(true);
-                            try { await onDeleteSeries(task.scheduled_at ?? undefined); } finally { setDeletingSeries(false); }
+                            setSaveError(null);
+                            try {
+                              await onDeleteSeries(task.scheduled_at ?? undefined);
+                            } catch (e) {
+                              setSaveError(e instanceof Error ? e.message : 'Delete failed');
+                            } finally {
+                              setDeletingSeries(false);
+                            }
                           }}
                           disabled={deletingSeries}
                           className="flex-1 text-xs font-medium transition-colors"
@@ -297,7 +304,14 @@ export function TaskDetailModal({
                         <button
                           onClick={async () => {
                             setDeletingSeries(true);
-                            try { await onDeleteSeries(); } finally { setDeletingSeries(false); }
+                            setSaveError(null);
+                            try {
+                              await onDeleteSeries();
+                            } catch (e) {
+                              setSaveError(e instanceof Error ? e.message : 'Delete failed');
+                            } finally {
+                              setDeletingSeries(false);
+                            }
                           }}
                           disabled={deletingSeries}
                           className="flex-1 text-xs font-medium transition-colors"
