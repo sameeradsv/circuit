@@ -152,7 +152,17 @@ export const api = {
     const params = new URLSearchParams();
     if (opts.afterMs  != null) params.set("after_ms",  String(opts.afterMs));
     if (opts.beforeMs != null) params.set("before_ms", String(opts.beforeMs));
-    return req<{ deleted: number }>("DELETE", `/api/tasks/cleanup?${params}`);
+    const token = getAuthToken();
+    return fetch(`${apiBase}/api/tasks/cleanup?${params}`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
+      return res.json() as Promise<{ deleted: number }>;
+    });
   },
   migrateTasks: (tasks: TaskIn[]) =>
     req<{ created: number; skipped: number }>("POST", "/api/tasks/migrate", tasks),

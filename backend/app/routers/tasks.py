@@ -198,23 +198,36 @@ def cleanup_tasks(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Delete scheduled tasks outside a date range.
+    """Delete scheduled tasks outside a date range in batches.
     Pass after_ms to remove far-future events, before_ms to remove old past events.
-    Only tasks with a scheduled_at are affected — floating tasks are untouched.
-    Uses bulk delete for performance with large result sets."""
+    Only tasks with a scheduled_at are affected — floating tasks are untouched."""
     if after_ms is None and before_ms is None:
         raise HTTPException(400, "Provide after_ms or before_ms")
-    q = db.query(CircuitTask).filter(
-        CircuitTask.user_id == user.id,
-        CircuitTask.scheduled_at.isnot(None),
-    )
-    if after_ms is not None:
-        q = q.filter(CircuitTask.scheduled_at > after_ms)
-    if before_ms is not None:
-        q = q.filter(CircuitTask.scheduled_at < before_ms)
-    count = q.delete(synchronize_session=False)
-    db.commit()
-    return {"deleted": count}
+
+    batch_size = 1000
+    total_deleted = 0
+
+    while True:
+        q = db.query(CircuitTask.id).filter(
+            CircuitTask.user_id == user.id,
+            CircuitTask.scheduled_at.isnot(None),
+        )
+        if after_ms is not None:
+            q = q.filter(CircuitTask.scheduled_at > after_ms)
+        if before_ms is not None:
+            q = q.filter(CircuitTask.scheduled_at < before_ms)
+
+        # Get IDs in a batch
+        ids = [row[0] for row in q.limit(batch_size).all()]
+        if not ids:
+            break
+
+        # Delete the batch
+        db.query(CircuitTask).filter(CircuitTask.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+        total_deleted += len(ids)
+
+    return {"deleted": total_deleted}
 
 
 @router.delete("/{task_id}", status_code=204)
