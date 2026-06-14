@@ -5,6 +5,26 @@ export interface SlotSuggestion {
   rationale: string[];
 }
 
+export interface EnergyContext {
+  composite: number;  // 0-1 combined energy
+  stress: number;     // 0-1 (higher = more stressed)
+}
+
+// IST is UTC+5:30
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function nextISTSlot(istHour: number, after: number): number {
+  // Returns the next UTC ms timestamp where the IST clock reads istHour:00
+  const utcMs = istHour * 3_600_000 - IST_OFFSET_MS; // offset from UTC midnight
+  const todayUTCMidnight = after - (after % 86_400_000);
+  const todayTarget = todayUTCMidnight + utcMs;
+  return todayTarget > after ? todayTarget : todayTarget + 86_400_000;
+}
+
+function istHourOf(ms: number): number {
+  return Math.floor(((ms + IST_OFFSET_MS) % 86_400_000) / 3_600_000);
+}
+
 type HourBucket = 'morning' | 'afternoon' | 'evening';
 
 const WINDOW_START_HOUR: Record<HourBucket, number> = {
@@ -53,22 +73,49 @@ export function suggestSlot(
   task: ApiTask,
   allTasks: ApiTask[],
   now = Date.now(),
+  energy?: EnergyContext,
 ): SlotSuggestion {
   const rationale: string[] = [];
-  const durationMs = (task.duration ?? 30) * 60 * 1000;
+  const durationMs = (task.duration ?? 30) * 60_000;
   const others = allTasks.filter((t) => t.id !== task.id && !t.completed && t.scheduled_at != null);
+  const focusType = task.focus_type ?? 'shallow';
+  const composite = energy?.composite ?? 0.6;
+  const stress = energy?.stress ?? 0.3;
+  const energyPct = Math.round(composite * 100);
 
-  // Start from preferred execution window or fall back to 2h from now
   let candidate: number;
   const win = task.preferred_execution_window as HourBucket | null;
+
   if (win && win in WINDOW_START_HOUR) {
+    // Explicit preferred window always wins
     candidate = nextWindowStart(win, now);
-    rationale.push(`you usually do this in the ${win}`);
+    rationale.push(`preferred ${win} window`);
+  } else if (focusType === 'deep' || focusType === 'creative') {
+    if (composite < 0.35) {
+      // Too drained — defer to tomorrow morning
+      candidate = nextISTSlot(9, now + 86_400_000);
+      rationale.push(`energy too low (${energyPct}%) — deep work deferred to tomorrow morning`);
+    } else {
+      candidate = nextISTSlot(9, now);
+      const label = composite >= 0.7 ? `energy good (${energyPct}%)` : `energy ok (${energyPct}%)`;
+      rationale.push(`deep work → morning slot · ${label}`);
+    }
+  } else if (focusType === 'admin') {
+    candidate = nextISTSlot(14, now);
+    rationale.push('admin task → afternoon slot');
   } else {
-    candidate = now + 2 * 60 * 60 * 1000;
+    // shallow / social — 2h from now, flexible
+    candidate = now + 2 * 60 * 60_000;
+    if (rationale.length === 0) rationale.push('you usually do this in the afternoon');
   }
 
-  // Push past the learned avoidance window if we'd land inside it
+  // High stress: add a 30-min buffer before the task
+  if (stress > 0.65) {
+    candidate += 30 * 60_000;
+    rationale.push('30 min buffer added (high stress)');
+  }
+
+  // Push past learned avoidance window
   const pattern = task.delay_pattern;
   if (pattern?.startsWith('peak-skip:')) {
     const peakBucket = pattern.slice('peak-skip:'.length) as HourBucket;
@@ -76,22 +123,21 @@ export function suggestSlot(
       const end = avoidanceWindowEnd(peakBucket, candidate);
       if (end > candidate) {
         candidate = end;
-        rationale.push(`skipped often in the ${peakBucket} — moving past it`);
+        rationale.push(`skipped often in the ${peakBucket} — moved past it`);
       }
     }
   }
 
-  // Nudge past any conflicting scheduled tasks (up to 5 iterations)
+  // Nudge past conflicting scheduled tasks (up to 5 iterations)
   for (let i = 0; i < 5; i++) {
     const conflict = findConflict(candidate, durationMs, others);
     if (!conflict) break;
-    candidate = conflict.scheduled_at! + (conflict.duration ?? 30) * 60 * 1000 + 5 * 60 * 1000;
+    candidate = conflict.scheduled_at! + (conflict.duration ?? 30) * 60_000 + 5 * 60_000;
     if (i === 0) rationale.push('moved past a conflict');
   }
 
-  // Never suggest a time in the past
   if (candidate <= now) {
-    candidate = now + 60 * 60 * 1000;
+    candidate = now + 60 * 60_000;
     if (rationale.length === 0) rationale.push('earliest available slot');
   }
 

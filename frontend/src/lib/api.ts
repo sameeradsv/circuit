@@ -161,6 +161,12 @@ export const api = {
     req<{ key: string; value: unknown }>("PUT", `/api/settings/${key}`, { value }),
 
   // user state
+  getSyncEnergy: () => req<{
+    energy_so_far: number; drain_so_far: number;
+    drain_ahead: number; energy_ahead: number;
+    manual_energy: number; stress_level: number;
+    events_so_far: number; events_ahead: number;
+  }>("GET", "/api/energy/sync"),
   getUserState: () => req<ApiUserState>("GET", "/api/user/state"),
   setUserState: (state: Partial<Omit<ApiUserState, "updated_at">>) =>
     req<ApiUserState>("POST", "/api/user/state", state),

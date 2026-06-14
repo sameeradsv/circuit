@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, ApiTask } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { parseTaskText } from "@/lib/parse-task";
 import { useVoiceInput } from "@/lib/use-voice-input";
+import { suggestSlot, formatSlot } from "@/lib/suggest-slot";
+import { useCombinedEnergy } from "@/lib/use-combined-energy";
 
 // ── NL parser (adapted from design reference) ─────────────────────────────────
 
@@ -90,8 +92,15 @@ export default function AddPage() {
   const [scheduledAt, setScheduledAt] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<{ label: string; rationale: string[] } | null>(null);
+  const [allTasks, setAllTasks] = useState<ApiTask[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const voice = useVoiceInput();
+  const { energy } = useCombinedEnergy();
+
+  useEffect(() => {
+    api.listTasks().then(setAllTasks).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -100,6 +109,38 @@ export default function AddPage() {
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  function handleSuggest() {
+    const taskParsedLocal = text.trim() ? parseTaskText(text) : null;
+    const partial = {
+      id: -1,
+      text: text.trim() || "task",
+      completed: false,
+      tag: (taskParsedLocal?.parsed as { tag?: string })?.tag ?? "work",
+      effort: "medium" as const,
+      duration: (taskParsedLocal?.parsed as { duration?: number })?.duration ?? 30,
+      focus_type: null,
+      preferred_execution_window: null,
+      delay_pattern: null,
+      scheduled_at: null,
+      urgency: 0.5, importance: 0.5,
+      cognitive_load: 0.5, emotional_resistance: 0.5, activation_energy: 0.5,
+      recovery_cost: 0.3, energy_to_reward_ratio: 0.5,
+      consequence_of_delay: 0.3, momentum_value: 0.5,
+      compound_benefit: 0.3, identity_alignment: 0.3,
+      historical_completion_rate: 0.7, task_decomposition_potential: 0.3,
+      skipped_count: 0, last_skipped_at: null, tiny_step: "", location_dependency: null,
+      recurrence: null, deadline_type: "none" as const,
+      time_sensitivity: 0.5, client_id: null, required_resources: "[]",
+      dependencies: "[]", metadata_json: "{}", metadata: {},
+      client_created_at: null, client_updated_at: null,
+      created_at: "", updated_at: "",
+    } as unknown as ApiTask;
+
+    const slot = suggestSlot(partial, allTasks, Date.now(), energy ?? undefined);
+    setScheduledAt(slot.scheduledAt);
+    setSuggestion({ label: formatSlot(slot.scheduledAt), rationale: slot.rationale });
+  }
 
   const parsed = text.trim() ? parseNL(text) : { title: "", chips: [], reason: "" };
   const taskParseResult = text.trim() ? parseTaskText(text) : null;
@@ -173,8 +214,30 @@ export default function AddPage() {
           }}
         />
         {/* Schedule row */}
-        <div className="row gap-3 aic" style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-          <span className="tiny muted" style={{ whiteSpace: "nowrap" }}>Schedule for</span>
+        <div className="col gap-2" style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+          <div className="row gap-3 aic">
+            <span className="tiny muted" style={{ whiteSpace: "nowrap" }}>Schedule for</span>
+            <button
+              type="button"
+              onClick={handleSuggest}
+              className="btn"
+              title={energy ? `Suggest based on energy (${Math.round(energy.composite * 100)}% · ${energy.sources.join(', ')})` : "Suggest a time"}
+              style={{ fontSize: 11, padding: "3px 10px", whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              ✦ Suggest
+            </button>
+          </div>
+          {suggestion && (
+            <div className="row gap-2 wrap" style={{ marginBottom: 4 }}>
+              <span className="parse-chip" style={{ background: "var(--sage)", color: "var(--paper)" }}>
+                {suggestion.label}
+              </span>
+              {suggestion.rationale.map((r) => (
+                <span key={r} className="parse-chip">{r}</span>
+              ))}
+            </div>
+          )}
+          <div className="row gap-3 aic">
           <input
             type="datetime-local"
             value={finalScheduledAt ? toDatetimeLocal(finalScheduledAt) : ""}
@@ -185,7 +248,7 @@ export default function AddPage() {
           {scheduledAt && (
             <button
               type="button"
-              onClick={() => setScheduledAt(null)}
+              onClick={() => { setScheduledAt(null); setSuggestion(null); }}
               className="btn-icon"
               title="Clear"
               style={{ flexShrink: 0 }}
@@ -195,6 +258,7 @@ export default function AddPage() {
               </svg>
             </button>
           )}
+          </div>
         </div>
 
         <div className="row gap-2 aic" style={{ marginTop: 10 }}>
