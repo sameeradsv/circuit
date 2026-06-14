@@ -104,10 +104,20 @@ def _parse_duration(value: str) -> int:
     return max(total, 15)
 
 
-def _expand_rrule(dtstart_ms: int, rrule_str: str, exdate_set: set[int]) -> list[int]:
-    """Expand RRULE into a list of occurrence timestamps (ms) up to _RRULE_HORIZON_DAYS ahead."""
+def _expand_rrule(dtstart_ms: int, rrule_str: str, exdate_set: set[int], cutoff_ms: Optional[int] = None) -> list[int]:
+    """Expand RRULE into a list of occurrence timestamps (ms) from cutoff to horizon (now + 2yr).
+    Generates only occurrences within [cutoff, horizon] to avoid wasting cycles on ancient events."""
     start = datetime.fromtimestamp(dtstart_ms / 1000, tz=timezone.utc)
-    horizon = datetime.now(timezone.utc) + timedelta(days=_RRULE_HORIZON_DAYS)
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(days=_RRULE_HORIZON_DAYS)
+
+    # If a cutoff is set, skip to the cutoff time instead of starting from ancient DTSTART
+    # This is critical: a series from 2020 with a daily recurrence would generate thousands
+    # of occurrences between 2020 and now; we only want those from cutoff onward.
+    if cutoff_ms:
+        cutoff_dt = datetime.fromtimestamp(cutoff_ms / 1000, tz=timezone.utc)
+        if cutoff_dt > start:
+            start = cutoff_dt
 
     parts: dict[str, str] = {}
     for seg in rrule_str.upper().split(";"):
@@ -456,9 +466,10 @@ async def import_ics(
             rrule = ev.get("rrule")
             if rrule:
                 exdate_set = set(ev.get("exdates", []))
-                occurrences = _expand_rrule(ev["scheduled_at"], rrule, exdate_set)
+                occurrences = _expand_rrule(ev["scheduled_at"], rrule, exdate_set, cutoff_ms)
                 for ts_ms in occurrences:
-                    if ts_ms < cutoff_ms:
+                    # Safety filter: ensure occurrence is within [cutoff, horizon]
+                    if cutoff_ms and ts_ms < cutoff_ms:
                         continue
                     cid = _client_id(uid, f":{ts_ms}") if uid else ""
                     if _seen(cid, ts_ms, ev["summary"]):
