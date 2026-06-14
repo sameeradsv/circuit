@@ -191,15 +191,6 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
     return _task_to_dict(task)
 
 
-@router.delete("/{task_id}", status_code=204)
-def delete_task(task_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    task = db.get(CircuitTask, task_id)
-    if not task or task.user_id != user.id:
-        raise HTTPException(status_code=404, detail="Task not found")
-    db.delete(task)
-    db.commit()
-
-
 @router.delete("/cleanup", status_code=200)
 def cleanup_tasks(
     after_ms: Optional[int] = None,
@@ -227,6 +218,15 @@ def cleanup_tasks(
     if count:
         db.commit()
     return {"deleted": count}
+
+
+@router.delete("/{task_id}", status_code=204)
+def delete_task(task_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    task = db.get(CircuitTask, task_id)
+    if not task or task.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Task not found")
+    db.delete(task)
+    db.commit()
 
 
 @router.post("/migrate", status_code=201)
