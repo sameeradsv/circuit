@@ -66,7 +66,6 @@ Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed fr
 | **Day / week calendar views** | Hour-by-hour timeline; toggle between day and week layout |
 | **Manual datetime picker** | Set exact scheduled date + time when adding or editing a task |
 | **Voice input** | Dictate tasks on the Add page and quick-add row (Web Speech API) |
-| **Google Calendar import** | OAuth flow pulls events from Google Calendar into Circuit |
 | **ICS import** | Upload an `.ics` file from iOS Calendar (or any calendar app) to import events |
 | **More tab — bottom sheet** | Mobile tab bar now has a "More" tab that opens a bottom sheet for Analytics, Chat, Account |
 | **Biometric sign-in** | Moved from a post-login banner to a persistent toggle in Account → Security |

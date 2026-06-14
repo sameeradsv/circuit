@@ -374,7 +374,6 @@ export default function CalendarPage() {
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [connectingGoogle, setConnectingGoogle] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -387,32 +386,7 @@ export default function CalendarPage() {
     api.listTasks().then(setTasks).catch(() => {}).finally(() => setFetching(false));
   }, [user]);
 
-  // Handle redirect back from Google OAuth
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const count = params.get("google_import");
-    const err   = params.get("google_error");
-    if (count !== null) {
-      setImportMsg(`Imported ${count} event${count !== "1" ? "s" : ""} from Google Calendar`);
-      api.listTasks().then(setTasks).catch(() => {});
-    }
-    if (err) setImportError(`Google Calendar error: ${err.replace(/_/g, " ")}`);
-    if (count !== null || err) router.replace("/calendar");
-  }, []);
-
   if (loading || !user) return null;
-
-  async function handleGoogleConnect() {
-    setConnectingGoogle(true);
-    setImportError(null);
-    try {
-      const { url } = await api.googleCalendarAuthUrl();
-      window.location.href = url;
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : "Could not start Google sign-in");
-      setConnectingGoogle(false);
-    }
-  }
 
   async function handleImport(file: File) {
     setImporting(true);
@@ -422,8 +396,8 @@ export default function CalendarPage() {
       setImportMsg(`Imported ${result.imported} event${result.imported !== 1 ? "s" : ""}`);
       const updated = await api.listTasks();
       setTasks(updated);
-    } catch {
-      setImportMsg("Import failed — check the file is a valid .ics");
+    } catch (e) {
+      setImportMsg(`Import failed: ${e instanceof Error ? e.message : "unknown error"}`);
     } finally {
       setImporting(false);
     }
@@ -505,20 +479,6 @@ export default function CalendarPage() {
               <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
             </button>
           </div>
-
-          {/* Google Calendar */}
-          <button
-            className="btn"
-            style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
-            disabled={connectingGoogle}
-            onClick={handleGoogleConnect}
-            title="Import events from Google Calendar"
-          >
-            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
-            </svg>
-            {connectingGoogle ? "Connecting…" : "Google Calendar"}
-          </button>
 
           {/* ICS import */}
           <input
