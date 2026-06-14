@@ -270,13 +270,25 @@ async def import_ics(
     created = 0
     expires_at: Optional[int] = None
 
-    def _already_imported(cid: str, ts_ms: int, summary: str) -> bool:
-        if cid and db.query(CircuitTask).filter_by(user_id=user.id, client_id=cid).first():
+    # Pre-fetch all existing fingerprints in two bulk queries — O(1) lookups
+    # instead of one DB query per occurrence.
+    existing_cids: set[str] = {
+        row[0] for row in
+        db.query(CircuitTask.client_id)
+        .filter(CircuitTask.user_id == user.id, CircuitTask.client_id.isnot(None))
+        .all()
+    }
+    existing_schedtext: set[tuple] = {
+        (row[0], row[1]) for row in
+        db.query(CircuitTask.scheduled_at, CircuitTask.text)
+        .filter(CircuitTask.user_id == user.id, CircuitTask.scheduled_at.isnot(None))
+        .all()
+    }
+
+    def _seen(cid: str, ts_ms: int, summary: str) -> bool:
+        if cid and cid in existing_cids:
             return True
-        # Fallback: catch events imported before UID-based client_ids were introduced
-        if db.query(CircuitTask).filter_by(user_id=user.id, scheduled_at=ts_ms, text=summary[:500]).first():
-            return True
-        return False
+        return (ts_ms, summary[:500]) in existing_schedtext
 
     try:
         for ev in events:
@@ -287,9 +299,10 @@ async def import_ics(
                 occurrences = _expand_rrule(ev["scheduled_at"], rrule, exdate_set)
                 for ts_ms in occurrences:
                     cid = _client_id(uid, f":{ts_ms}") if uid else ""
-                    if _already_imported(cid, ts_ms, ev["summary"]):
+                    if _seen(cid, ts_ms, ev["summary"]):
                         continue
                     db.add(_make_task(user.id, {**ev, "scheduled_at": ts_ms}, client_id=cid))
+                    existing_cids.add(cid)
                     created += 1
                 if occurrences:
                     last = max(occurrences)
@@ -297,9 +310,10 @@ async def import_ics(
                         expires_at = last
             else:
                 cid = _client_id(uid) if uid else ""
-                if _already_imported(cid, ev["scheduled_at"], ev["summary"]):
+                if _seen(cid, ev["scheduled_at"], ev["summary"]):
                     continue
                 db.add(_make_task(user.id, ev, client_id=cid))
+                existing_cids.add(cid)
                 created += 1
         if created:
             db.commit()
