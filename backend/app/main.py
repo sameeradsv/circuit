@@ -16,6 +16,7 @@ from app.routers import ai as ai_router
 from app.routers import history as history_router
 from app.routers.webauthn import router as webauthn_router
 from app.routers.calendar import router as calendar_router
+from app.routers.energy import router as energy_router
 
 app = FastAPI(title="Circuit API", version="1.0.0")
 
@@ -42,6 +43,7 @@ app.include_router(ai_router.router)
 app.include_router(history_router.router)
 app.include_router(webauthn_router)
 app.include_router(calendar_router)
+app.include_router(energy_router)
 
 
 @app.on_event("startup")
