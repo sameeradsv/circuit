@@ -15,8 +15,8 @@ from app.models import CircuitTask, User
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
-_RRULE_HORIZON_DAYS = 180
-_RRULE_MAX = 200
+_RRULE_HORIZON_DAYS = 3650  # 10 years
+_RRULE_MAX = 3650
 
 
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
@@ -268,21 +268,36 @@ async def import_ics(
 
     events = parse_ics(text)
     created = 0
+    expires_at: Optional[int] = None
+
+    def _already_imported(cid: str, ts_ms: int, summary: str) -> bool:
+        if cid and db.query(CircuitTask).filter_by(user_id=user.id, client_id=cid).first():
+            return True
+        # Fallback: catch events imported before UID-based client_ids were introduced
+        if db.query(CircuitTask).filter_by(user_id=user.id, scheduled_at=ts_ms, text=summary[:500]).first():
+            return True
+        return False
+
     try:
         for ev in events:
             uid = ev["uid"]
             rrule = ev.get("rrule")
             if rrule:
                 exdate_set = set(ev.get("exdates", []))
-                for ts_ms in _expand_rrule(ev["scheduled_at"], rrule, exdate_set):
+                occurrences = _expand_rrule(ev["scheduled_at"], rrule, exdate_set)
+                for ts_ms in occurrences:
                     cid = _client_id(uid, f":{ts_ms}") if uid else ""
-                    if cid and db.query(CircuitTask).filter_by(user_id=user.id, client_id=cid).first():
+                    if _already_imported(cid, ts_ms, ev["summary"]):
                         continue
                     db.add(_make_task(user.id, {**ev, "scheduled_at": ts_ms}, client_id=cid))
                     created += 1
+                if occurrences:
+                    last = max(occurrences)
+                    if expires_at is None or last > expires_at:
+                        expires_at = last
             else:
                 cid = _client_id(uid) if uid else ""
-                if cid and db.query(CircuitTask).filter_by(user_id=user.id, client_id=cid).first():
+                if _already_imported(cid, ev["scheduled_at"], ev["summary"]):
                     continue
                 db.add(_make_task(user.id, ev, client_id=cid))
                 created += 1
@@ -291,4 +306,4 @@ async def import_ics(
     except Exception as exc:
         db.rollback()
         raise HTTPException(400, f"Database error during import: {str(exc)[:300]}")
-    return {"imported": created, "total": len(events)}
+    return {"imported": created, "total": len(events), "expires_at": expires_at}

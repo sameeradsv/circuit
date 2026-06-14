@@ -193,7 +193,7 @@ export const api = {
       body: form,
     }).then(async (res) => {
       if (!res.ok) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
-      return res.json() as Promise<{ imported: number; total: number }>;
+      return res.json() as Promise<{ imported: number; total: number; expires_at: number | null }>;
     });
   },
 

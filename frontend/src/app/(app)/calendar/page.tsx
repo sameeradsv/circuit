@@ -393,7 +393,13 @@ export default function CalendarPage() {
     setImportMsg(null);
     try {
       const result = await api.importCalendar(file);
-      setImportMsg(`Imported ${result.imported} event${result.imported !== 1 ? "s" : ""}`);
+      let msg = `Imported ${result.imported} event${result.imported !== 1 ? "s" : ""}`;
+      if (result.expires_at) {
+        const expiry = new Date(result.expires_at).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        msg += `. Recurring events run until ${expiry} — re-import to extend.`;
+        localStorage.setItem("circuit-ics-expires", String(result.expires_at));
+      }
+      setImportMsg(msg);
       const updated = await api.listTasks();
       setTasks(updated);
     } catch (e) {
