@@ -456,6 +456,7 @@ from pydantic import BaseModel as _BaseModel
 class PropagateSeries(_BaseModel):
     include_classification: bool = True
     include_text: bool = False
+    from_scheduled_at: Optional[int] = None  # ms timestamp; if set, only affect occurrences >= this
 
 
 _CLASSIFICATION_FIELDS = (
@@ -486,15 +487,14 @@ def propagate_classification(
         raise HTTPException(400, "Nothing to propagate — select at least one option")
 
     pattern = f"ics:{uid}:%"
-    siblings = (
-        db.query(CircuitTask)
-        .filter(
-            CircuitTask.user_id == user.id,
-            CircuitTask.client_id.like(pattern),
-            CircuitTask.id != source.id,
-        )
-        .all()
+    q = db.query(CircuitTask).filter(
+        CircuitTask.user_id == user.id,
+        CircuitTask.client_id.like(pattern),
+        CircuitTask.id != source.id,
     )
+    if body.from_scheduled_at is not None:
+        q = q.filter(CircuitTask.scheduled_at >= body.from_scheduled_at)
+    siblings = q.all()
 
     for sibling in siblings:
         if body.include_classification:
@@ -511,6 +511,7 @@ def propagate_classification(
 @router.delete("/series/{task_id}")
 def delete_series(
     task_id: int,
+    from_scheduled_at: Optional[int] = None,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -523,14 +524,13 @@ def delete_series(
         raise HTTPException(400, "Task is not part of a recurring series")
 
     pattern = f"ics:{uid}:%"
-    tasks = (
-        db.query(CircuitTask)
-        .filter(
-            CircuitTask.user_id == user.id,
-            CircuitTask.client_id.like(pattern),
-        )
-        .all()
+    q = db.query(CircuitTask).filter(
+        CircuitTask.user_id == user.id,
+        CircuitTask.client_id.like(pattern),
     )
+    if from_scheduled_at is not None:
+        q = q.filter(CircuitTask.scheduled_at >= from_scheduled_at)
+    tasks = q.all()
 
     count = len(tasks)
     for t in tasks:

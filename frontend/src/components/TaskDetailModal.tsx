@@ -55,7 +55,7 @@ export function TaskDetailModal({
   task: ApiTask;
   mode: EnergyMode;
   onSave: (updated: ApiTask) => void;
-  onDeleteSeries?: () => Promise<void>;
+  onDeleteSeries?: (fromScheduledAt?: number) => Promise<void>;
   onClose: () => void;
 }) {
   const [patch, setPatch] = useState<TaskPatch>({});
@@ -64,7 +64,7 @@ export function TaskDetailModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [propagateMsg, setPropagateMsg] = useState<string | null>(null);
   const [showSeriesPanel, setShowSeriesPanel] = useState(false);
-  const [seriesOpts, setSeriesOpts] = useState({ classification: true, name: false });
+  const [seriesOpts, setSeriesOpts] = useState({ classification: true, name: false, forwardOnly: false });
   const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
   const [deletingSeries, setDeletingSeries] = useState(false);
 
@@ -79,6 +79,7 @@ export function TaskDetailModal({
       const { updated } = await api.propagateClassification(task.id, {
         include_classification: seriesOpts.classification,
         include_text: seriesOpts.name,
+        from_scheduled_at: seriesOpts.forwardOnly ? (task.scheduled_at ?? Date.now()) : undefined,
       });
       const what = [seriesOpts.classification && 'classification', seriesOpts.name && 'name'].filter(Boolean).join(' + ');
       setPropagateMsg(`${what} applied to ${updated} other occurrence${updated !== 1 ? 's' : ''}`);
@@ -260,6 +261,15 @@ export function TaskDetailModal({
                 />
                 Name — rename all occurrences to match this one
               </label>
+              <label className="flex items-center gap-2 text-xs text-circuit-text cursor-pointer select-none" style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--circuit-border)' }}>
+                <input
+                  type="checkbox"
+                  checked={seriesOpts.forwardOnly}
+                  onChange={(e) => setSeriesOpts((o) => ({ ...o, forwardOnly: e.target.checked }))}
+                  className="accent-circuit-accent"
+                />
+                From this occurrence onward only
+              </label>
               <button
                 onClick={handleApplyToSeries}
                 disabled={propagating || (!seriesOpts.classification && !seriesOpts.name)}
@@ -271,22 +281,35 @@ export function TaskDetailModal({
               {onDeleteSeries && (
                 <div style={{ borderTop: '1px solid var(--circuit-border)', paddingTop: 8, marginTop: 4 }}>
                   {confirmDeleteSeries ? (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={async () => {
-                          setDeletingSeries(true);
-                          try { await onDeleteSeries(); } finally { setDeletingSeries(false); }
-                        }}
-                        disabled={deletingSeries}
-                        className="flex-1 text-xs text-red-500 hover:text-red-600 font-medium transition-colors"
-                        style={{ background: 'none', border: '1px solid currentColor', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}
-                      >
-                        {deletingSeries ? 'Deleting…' : 'Yes, delete all'}
-                      </button>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            setDeletingSeries(true);
+                            try { await onDeleteSeries(task.scheduled_at ?? undefined); } finally { setDeletingSeries(false); }
+                          }}
+                          disabled={deletingSeries}
+                          className="flex-1 text-xs font-medium transition-colors"
+                          style={{ background: 'none', border: '1px solid var(--terra)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--terra)' }}
+                        >
+                          {deletingSeries ? 'Deleting…' : 'From here onward'}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setDeletingSeries(true);
+                            try { await onDeleteSeries(); } finally { setDeletingSeries(false); }
+                          }}
+                          disabled={deletingSeries}
+                          className="flex-1 text-xs font-medium transition-colors"
+                          style={{ background: 'none', border: '1px solid var(--terra)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--terra)' }}
+                        >
+                          {deletingSeries ? 'Deleting…' : 'All occurrences'}
+                        </button>
+                      </div>
                       <button
                         onClick={() => setConfirmDeleteSeries(false)}
-                        className="flex-1 text-xs text-circuit-muted hover:text-circuit-text transition-colors"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                        className="text-xs text-circuit-muted hover:text-circuit-text transition-colors"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0' }}
                       >
                         Cancel
                       </button>
@@ -297,7 +320,7 @@ export function TaskDetailModal({
                       className="w-full text-xs text-circuit-muted hover:text-red-500 transition-colors"
                       style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: '2px 0' }}
                     >
-                      Delete entire series…
+                      Delete series…
                     </button>
                   )}
                 </div>

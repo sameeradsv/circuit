@@ -163,12 +163,11 @@ export default function TasksPage() {
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }
 
-  async function deleteSeriesTasks(id: number) {
-    const { deleted } = await api.deleteSeries(id);
+  async function deleteSeriesTasks(id: number, fromScheduledAt?: number) {
+    await api.deleteSeries(id, fromScheduledAt);
     // Re-fetch rather than filter since we don't know all sibling ids client-side
     const updated = await api.listTasks();
     setTasks(updated);
-    return deleted;
   }
 
   async function skipTask(task: ApiTask) {
@@ -386,8 +385,8 @@ export default function TasksPage() {
             setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
             setDetailTask(updated);
           }}
-          onDeleteSeries={async () => {
-            await deleteSeriesTasks(detailTask.id);
+          onDeleteSeries={async (fromScheduledAt) => {
+            await deleteSeriesTasks(detailTask.id, fromScheduledAt);
             setDetailTask(null);
           }}
           onClose={() => setDetailTask(null)}

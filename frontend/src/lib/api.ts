@@ -189,14 +189,15 @@ export const api = {
     req<ApiAiClassify>("POST", "/api/ai/classify", { text, context }),
 
   // calendar
-  deleteSeries: (taskId: number) =>
-    req<{ deleted: number }>("DELETE", `/api/calendar/series/${taskId}`),
+  deleteSeries: (taskId: number, fromScheduledAt?: number) =>
+    req<{ deleted: number }>("DELETE", `/api/calendar/series/${taskId}${fromScheduledAt != null ? `?from_scheduled_at=${fromScheduledAt}` : ''}`),
   propagateClassification: (
     taskId: number,
-    opts: { include_classification?: boolean; include_text?: boolean } = {},
+    opts: { include_classification?: boolean; include_text?: boolean; from_scheduled_at?: number } = {},
   ) => req<{ updated: number }>("POST", `/api/calendar/propagate-classification/${taskId}`, {
     include_classification: opts.include_classification ?? true,
     include_text: opts.include_text ?? false,
+    from_scheduled_at: opts.from_scheduled_at ?? null,
   }),
   importCalendar: (file: File) => {
     const token = getAuthToken();
