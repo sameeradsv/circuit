@@ -34,7 +34,7 @@ def energy_timeline(
     db: Session = Depends(get_db),
 ):
     """
-    Per-task-event energy for a given calendar day (default: today UTC).
+    Per-task-event energy for a given calendar day (default: today in IST).
     Returns a common shape shared by all personal apps:
       { date, source, events: [{occurred_at, time, energy, label, note, source}], avg_energy }
     """
@@ -45,18 +45,20 @@ def energy_timeline(
         except ValueError:
             raise HTTPException(400, "date must be YYYY-MM-DD")
     else:
-        target = datetime.utcnow().date()
+        target = datetime.now(_IST).date()
 
-    day_start = datetime(target.year, target.month, target.day)
-    day_end = day_start + timedelta(days=1)
+    day_start_ist = datetime(target.year, target.month, target.day, tzinfo=_IST)
+    day_end_ist = day_start_ist + timedelta(days=1)
+    day_start_utc = day_start_ist.astimezone(timezone.utc).replace(tzinfo=None)
+    day_end_utc = day_end_ist.astimezone(timezone.utc).replace(tzinfo=None)
 
     rows = (
         db.query(TaskEvent, CircuitTask)
         .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
         .filter(
             TaskEvent.user_id == user.id,
-            TaskEvent.occurred_at >= day_start,
-            TaskEvent.occurred_at < day_end,
+            TaskEvent.occurred_at >= day_start_utc,
+            TaskEvent.occurred_at < day_end_utc,
         )
         .order_by(TaskEvent.occurred_at)
         .all()
@@ -66,12 +68,13 @@ def energy_timeline(
     for ev, task in rows:
         energy = _event_energy(ev.event_type, task)
         label = "draining" if energy < 0.35 else "energising" if energy > 0.65 else "neutral"
+        local_time = ev.occurred_at.replace(tzinfo=timezone.utc).astimezone(_IST)
         events.append({
             "occurred_at": ev.occurred_at.isoformat() + "Z",
-            "time": ev.occurred_at.strftime("%H:%M"),
+            "time": local_time.strftime("%H:%M"),
             "energy": energy,
             "label": label,
-            "note": f"{task.text[:60]} ({ev.event_type})",
+            "note": f"{task.text[:80]} ({ev.event_type})",
             "source": "circuit",
         })
 
