@@ -33,7 +33,7 @@ function fmtDue(task: ApiTask): string {
   if (d === 1)  return "tomorrow";
   if (d < 7)    return `${d}d`;
   if (!task.scheduled_at) return "no date";
-  return new Date(task.scheduled_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(task.scheduled_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", timeZone: "Asia/Kolkata" });
 }
 
 function fmtTime(min: number): string {

@@ -23,7 +23,7 @@ function useIcsRenewalBanner() {
     if (dismissed === raw) return;
     const daysLeft = Math.round((expiresAt - Date.now()) / 86_400_000);
     if (daysLeft <= WARN_DAYS) {
-      const expiry = new Date(expiresAt).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      const expiry = new Date(expiresAt).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
       setBanner({ daysLeft, expiry });
     }
   }, []);

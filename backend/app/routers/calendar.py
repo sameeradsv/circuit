@@ -5,6 +5,9 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+_IST = ZoneInfo("Asia/Kolkata")
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -59,15 +62,27 @@ def _unfold(text: str) -> str:
     return re.sub(r"\r?\n[ \t]", "", text)
 
 
-def _parse_dt(value: str, is_date_only: bool) -> Optional[int]:
+def _parse_dt(value: str, is_date_only: bool, tzid: Optional[str] = None) -> Optional[int]:
     value = value.strip()
     try:
         if is_date_only or (len(value) == 8 and value.isdigit()):
-            d = datetime.strptime(value[:8], "%Y%m%d").replace(hour=9, tzinfo=timezone.utc)
+            tz = _IST
+            if tzid:
+                try:
+                    tz = ZoneInfo(tzid)
+                except (ZoneInfoNotFoundError, KeyError):
+                    pass
+            d = datetime.strptime(value[:8], "%Y%m%d").replace(hour=0, tzinfo=tz)
         elif value.endswith("Z"):
             d = datetime.strptime(value[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
         else:
-            d = datetime.strptime(value[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+            tz = _IST
+            if tzid:
+                try:
+                    tz = ZoneInfo(tzid)
+                except (ZoneInfoNotFoundError, KeyError):
+                    pass
+            d = datetime.strptime(value[:15], "%Y%m%dT%H%M%S").replace(tzinfo=tz)
         return int(d.timestamp() * 1000)
     except Exception:
         return None
@@ -186,12 +201,12 @@ def _process_ics_event(ev: dict) -> Optional[dict]:
     summary = ev.get("SUMMARY", "").strip()
     if not summary:
         return None
-    dtstart_ms = _parse_dt(ev.get("DTSTART", ""), ev.get("DTSTART_DATE_ONLY", False))
+    dtstart_ms = _parse_dt(ev.get("DTSTART", ""), ev.get("DTSTART_DATE_ONLY", False), ev.get("DTSTART_TZID"))
     if dtstart_ms is None:
         return None
     duration_min = 60
     if "DTEND" in ev:
-        dtend_ms = _parse_dt(ev["DTEND"], ev.get("DTEND_DATE_ONLY", False))
+        dtend_ms = _parse_dt(ev["DTEND"], ev.get("DTEND_DATE_ONLY", False), ev.get("DTEND_TZID"))
         if dtend_ms and dtend_ms > dtstart_ms:
             duration_min = max(5, (dtend_ms - dtstart_ms) // 60_000)
     elif "DURATION" in ev:
@@ -230,20 +245,33 @@ def parse_ics(text: str) -> list[dict]:
         colon = line.find(":")
         if colon < 0:
             continue
-        name_part = line[:colon].upper()
+        name_part_raw = line[:colon]        # original case — needed for TZID value
+        name_part = name_part_raw.upper()   # uppercase for comparisons
         value = line[colon + 1:]
         name_base = name_part.split(";")[0]
         is_date_only = "VALUE=DATE" in name_part and "DATE-TIME" not in name_part
+
+        # Extract TZID parameter preserving case (e.g. "Asia/Kolkata")
+        tzid: Optional[str] = None
+        for param in name_part_raw.split(";")[1:]:
+            if param.upper().startswith("TZID="):
+                tzid = param[5:]
+                break
+
         if name_base == "DTSTART":
-            current["DTSTART"] = value; current["DTSTART_DATE_ONLY"] = is_date_only
+            current["DTSTART"] = value
+            current["DTSTART_DATE_ONLY"] = is_date_only
+            current["DTSTART_TZID"] = tzid
         elif name_base == "DTEND":
-            current["DTEND"] = value; current["DTEND_DATE_ONLY"] = is_date_only
+            current["DTEND"] = value
+            current["DTEND_DATE_ONLY"] = is_date_only
+            current["DTEND_TZID"] = tzid
         elif name_base in ("SUMMARY", "DESCRIPTION", "DURATION", "LOCATION", "UID", "RRULE"):
             current[name_base] = value
         elif name_base == "EXDATE":
             exdates = current.get("EXDATES", [])
             for v in value.split(","):
-                ts = _parse_dt(v.strip(), is_date_only)
+                ts = _parse_dt(v.strip(), is_date_only, tzid or current.get("DTSTART_TZID"))
                 if ts:
                     exdates.append(ts)
             current["EXDATES"] = exdates

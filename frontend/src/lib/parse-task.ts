@@ -36,13 +36,14 @@ function previewDate(d: Date, hasTime: boolean): string {
   } else if (d.getTime() >= tomorrowMs && d.getTime() < tomorrowMs + 86_400_000) {
     label = 'Tomorrow';
   } else {
-    label = d.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' });
+    label = d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' });
   }
 
   if (hasTime) {
-    const timeStr = d.toLocaleTimeString('en', {
+    const timeStr = d.toLocaleTimeString('en-IN', {
       hour: 'numeric',
       minute: d.getMinutes() ? '2-digit' : undefined,
+      timeZone: 'Asia/Kolkata',
     });
     return `${label} · ${timeStr}`;
   }

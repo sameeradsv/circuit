@@ -22,7 +22,7 @@ function fmtDue(task: ApiTask): string {
   if (d === 1) return "tomorrow";
   if (d < 7)   return `${d}d`;
   if (!task.scheduled_at) return "no date";
-  return new Date(task.scheduled_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(task.scheduled_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", timeZone: "Asia/Kolkata" });
 }
 
 function fmtTime(min: number): string {
@@ -256,8 +256,8 @@ export default function HomePage() {
   }).length;
 
   const now = new Date();
-  const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-  const timeLabel = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const dateLabel = now.toLocaleDateString("en-IN", { weekday: "long", month: "long", day: "numeric", timeZone: "Asia/Kolkata" });
+  const timeLabel = now.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning," : hour < 17 ? "Good afternoon," : "Good evening,";
 

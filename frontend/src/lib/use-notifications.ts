@@ -33,9 +33,10 @@ export function useNotificationScheduler(tasks: ApiTask[]) {
       if (delay < 0) continue;
 
       const id = setTimeout(() => {
-        const time = new Date(task.scheduled_at!).toLocaleTimeString("en-US", {
+        const time = new Date(task.scheduled_at!).toLocaleTimeString("en-IN", {
           hour: "numeric",
           minute: "2-digit",
+          timeZone: "Asia/Kolkata",
         });
         new Notification(`Starting soon: ${task.text}`, {
           body: `${time} · ${task.duration ?? 30}m`,

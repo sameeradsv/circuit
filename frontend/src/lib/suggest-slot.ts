@@ -120,7 +120,7 @@ export function formatSlot(ts: number): string {
   const now = Date.now();
   const diff = ts - now;
   const d = new Date(ts);
-  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
 
   if (diff < 60 * 60 * 1000 && diff > 0) {
     return `in ${Math.round(diff / 60000)}m (${time})`;
@@ -129,6 +129,6 @@ export function formatSlot(ts: number): string {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const isToday = d.toDateString() === new Date(now).toDateString();
   const isTomorrow = d.toDateString() === tomorrow.toDateString();
-  const day = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const day = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' });
   return `${day} at ${time}`;
 }

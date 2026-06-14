@@ -21,7 +21,7 @@ function fmtHour(h: number): string {
 }
 
 function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
 }
 
 function startOfDay(d: Date): Date {
@@ -395,7 +395,7 @@ export default function CalendarPage() {
       const result = await api.importCalendar(file);
       let msg = `Imported ${result.imported} event${result.imported !== 1 ? "s" : ""}`;
       if (result.expires_at) {
-        const expiry = new Date(result.expires_at).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        const expiry = new Date(result.expires_at).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
         msg += `. Recurring events run until ${expiry} — re-import to extend.`;
         localStorage.setItem("circuit-ics-expires", String(result.expires_at));
       }
