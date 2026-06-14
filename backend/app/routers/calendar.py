@@ -268,6 +268,14 @@ def _classify_event(title: str, description: str) -> tuple[str, str]:
     return ("work", "shallow")
 
 
+def _extract_series_uid(client_id: str) -> Optional[str]:
+    """Extract UID from a recurring client_id like 'ics:{uid}:{ts_ms}'. Returns None if not a series."""
+    if not client_id or not client_id.startswith("ics:"):
+        return None
+    m = re.match(r"^ics:(.+):\d{10,13}$", client_id)
+    return m.group(1) if m else None
+
+
 def _client_id(uid: str, suffix: str = "") -> str:
     key = f"{uid}{suffix}"
     if len(key) <= 90:
@@ -438,3 +446,47 @@ async def import_ics(
         db.rollback()
         raise HTTPException(400, f"Database error during import: {str(exc)[:300]}")
     return {"imported": created, "total": len(events), "expires_at": expires_at}
+
+
+# ── Series propagation ────────────────────────────────────────────────────────
+
+_CLASSIFICATION_FIELDS = (
+    "tag", "focus_type", "effort", "importance", "urgency",
+    "consequence_of_delay", "momentum_value", "cognitive_load",
+    "emotional_resistance", "activation_energy", "recovery_cost",
+    "energy_to_reward_ratio", "deadline_type", "time_sensitivity",
+    "preferred_execution_window",
+)
+
+
+@router.post("/propagate-classification/{task_id}")
+def propagate_classification(
+    task_id: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    source = db.query(CircuitTask).filter_by(id=task_id, user_id=user.id).first()
+    if not source:
+        raise HTTPException(404, "Task not found")
+
+    uid = _extract_series_uid(source.client_id or "")
+    if not uid:
+        raise HTTPException(400, "Task is not part of a recurring series")
+
+    pattern = f"ics:{uid}:%"
+    siblings = (
+        db.query(CircuitTask)
+        .filter(
+            CircuitTask.user_id == user.id,
+            CircuitTask.client_id.like(pattern),
+            CircuitTask.id != source.id,
+        )
+        .all()
+    )
+
+    for sibling in siblings:
+        for field in _CLASSIFICATION_FIELDS:
+            setattr(sibling, field, getattr(source, field))
+
+    db.commit()
+    return {"updated": len(siblings)}

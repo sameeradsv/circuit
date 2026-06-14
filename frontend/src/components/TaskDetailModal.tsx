@@ -58,7 +58,11 @@ export function TaskDetailModal({
 }) {
   const [patch, setPatch] = useState<TaskPatch>({});
   const [saving, setSaving] = useState(false);
+  const [propagating, setPropagating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [propagateMsg, setPropagateMsg] = useState<string | null>(null);
+
+  const isSeries = /^ics:.+:\d{10,13}$/.test(task.client_id ?? "");
 
   const merged = { ...task, ...patch };
 
@@ -205,13 +209,35 @@ export function TaskDetailModal({
 
         {/* Footer */}
         <div className="flex flex-col gap-2 p-5 border-t border-circuit-border">
-          {saveError && (
-            <p className="text-xs text-red-500">{saveError}</p>
-          )}
+          {saveError && <p className="text-xs text-red-500">{saveError}</p>}
+          {propagateMsg && <p className="text-xs text-circuit-muted">{propagateMsg}</p>}
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
-              {saving ? 'Saving…' : 'Save changes'}
+            <button onClick={handleSave} disabled={saving || propagating} className="btn-primary flex-1">
+              {saving ? 'Saving…' : 'Save'}
             </button>
+            {isSeries && (
+              <button
+                onClick={async () => {
+                  setPropagating(true);
+                  setSaveError(null);
+                  setPropagateMsg(null);
+                  try {
+                    if (Object.keys(patch).length > 0) await api.updateTask(task.id, patch);
+                    const { updated } = await api.propagateClassification(task.id);
+                    setPropagateMsg(`Applied to ${updated} other occurrence${updated !== 1 ? 's' : ''}`);
+                  } catch (e) {
+                    setSaveError(e instanceof Error ? e.message : 'Failed');
+                  } finally {
+                    setPropagating(false);
+                  }
+                }}
+                disabled={saving || propagating}
+                className="btn-primary flex-1"
+                title="Save and copy classification to all other occurrences in this series (times unchanged)"
+              >
+                {propagating ? 'Applying…' : 'Apply to series'}
+              </button>
+            )}
             <button onClick={onClose} className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors">
               Cancel
             </button>
