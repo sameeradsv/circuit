@@ -391,7 +391,9 @@ async def import_ics(
 
     events = parse_ics(text)
     cutoff_ms = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp() * 1000)
-    events = [ev for ev in events if ev["scheduled_at"] >= cutoff_ms]
+    # Keep RRULE events regardless of DTSTART — the series may have started long
+    # ago but still has future occurrences. Per-occurrence cutoff is applied below.
+    events = [ev for ev in events if ev.get("rrule") or ev["scheduled_at"] >= cutoff_ms]
     created = 0
     expires_at: Optional[int] = None
 
@@ -423,6 +425,8 @@ async def import_ics(
                 exdate_set = set(ev.get("exdates", []))
                 occurrences = _expand_rrule(ev["scheduled_at"], rrule, exdate_set)
                 for ts_ms in occurrences:
+                    if ts_ms < cutoff_ms:
+                        continue
                     cid = _client_id(uid, f":{ts_ms}") if uid else ""
                     if _seen(cid, ts_ms, ev["summary"]):
                         continue
