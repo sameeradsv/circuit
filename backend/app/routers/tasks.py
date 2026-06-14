@@ -201,22 +201,26 @@ def delete_task(task_id: int, user: User = Depends(require_user), db: Session = 
 
 
 @router.delete("/cleanup", status_code=200)
-def cleanup_old_tasks(
-    before_ms: int,
+def cleanup_tasks(
+    after_ms: Optional[int] = None,
+    before_ms: Optional[int] = None,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Delete all tasks whose scheduled_at is before the given UTC timestamp (ms).
-    Only affects tasks with a scheduled time — floating tasks are untouched."""
-    tasks = (
-        db.query(CircuitTask)
-        .filter(
-            CircuitTask.user_id == user.id,
-            CircuitTask.scheduled_at.isnot(None),
-            CircuitTask.scheduled_at < before_ms,
-        )
-        .all()
+    """Delete scheduled tasks outside a date range.
+    Pass after_ms to remove far-future events, before_ms to remove old past events.
+    Only tasks with a scheduled_at are affected — floating tasks are untouched."""
+    if after_ms is None and before_ms is None:
+        raise HTTPException(400, "Provide after_ms or before_ms")
+    q = db.query(CircuitTask).filter(
+        CircuitTask.user_id == user.id,
+        CircuitTask.scheduled_at.isnot(None),
     )
+    if after_ms is not None:
+        q = q.filter(CircuitTask.scheduled_at > after_ms)
+    if before_ms is not None:
+        q = q.filter(CircuitTask.scheduled_at < before_ms)
+    tasks = q.all()
     count = len(tasks)
     for t in tasks:
         db.delete(t)

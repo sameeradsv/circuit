@@ -148,8 +148,12 @@ export const api = {
   createTask: (payload: TaskIn) => req<ApiTask>("POST", "/api/tasks", payload),
   updateTask: (id: number, patch: TaskPatch) => req<ApiTask>("PATCH", `/api/tasks/${id}`, patch),
   deleteTask: (id: number) => req<void>("DELETE", `/api/tasks/${id}`),
-  cleanupOldTasks: (beforeMs: number) =>
-    req<{ deleted: number }>("DELETE", `/api/tasks/cleanup?before_ms=${beforeMs}`),
+  cleanupTasks: (opts: { afterMs?: number; beforeMs?: number }) => {
+    const params = new URLSearchParams();
+    if (opts.afterMs  != null) params.set("after_ms",  String(opts.afterMs));
+    if (opts.beforeMs != null) params.set("before_ms", String(opts.beforeMs));
+    return req<{ deleted: number }>("DELETE", `/api/tasks/cleanup?${params}`);
+  },
   migrateTasks: (tasks: TaskIn[]) =>
     req<{ created: number; skipped: number }>("POST", "/api/tasks/migrate", tasks),
 

@@ -29,9 +29,9 @@ export default function AccountPage() {
   const [importing, setImporting] = useState(false);
 
   // cleanup state
-  const twoYearsAgo = new Date();
-  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-  const [cleanupDate, setCleanupDate] = useState(twoYearsAgo.toISOString().slice(0, 10));
+  const sixMonthsAhead = new Date();
+  sixMonthsAhead.setMonth(sixMonthsAhead.getMonth() + 6);
+  const [cleanupAfterDate, setCleanupAfterDate] = useState(sixMonthsAhead.toISOString().slice(0, 10));
   const [cleanupConfirm, setCleanupConfirm] = useState(false);
   const [cleaning, setCleaning] = useState(false);
   const [cleanupMsg, setCleanupMsg] = useState<string | null>(null);
@@ -42,9 +42,9 @@ export default function AccountPage() {
     setCleanupErr(null);
     setCleanupMsg(null);
     try {
-      const beforeMs = new Date(cleanupDate).getTime();
-      const { deleted } = await api.cleanupOldTasks(beforeMs);
-      setCleanupMsg(`Deleted ${deleted} past event${deleted !== 1 ? "s" : ""}.`);
+      const afterMs = new Date(cleanupAfterDate).getTime();
+      const { deleted } = await api.cleanupTasks({ afterMs });
+      setCleanupMsg(`Deleted ${deleted} future event${deleted !== 1 ? "s" : ""}.`);
       setCleanupConfirm(false);
     } catch (e) {
       setCleanupErr(e instanceof Error ? e.message : "Cleanup failed");
@@ -324,15 +324,15 @@ export default function AccountPage() {
         <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Data management</h2>
         <div className="panel p-5 space-y-3">
           <p className="text-xs text-circuit-muted">
-            Delete all scheduled tasks (calendar events) with a date before the cutoff.
-            Floating tasks with no date are untouched.
+            Remove far-future recurring events to reduce app load.
+            Only events with a specific scheduled date are affected — tasks with no date are untouched.
           </p>
           <div className="flex items-center gap-3">
-            <label className="text-xs text-circuit-muted shrink-0">Delete everything before</label>
+            <label className="text-xs text-circuit-muted shrink-0">Delete events after</label>
             <input
               type="date"
-              value={cleanupDate}
-              onChange={(e) => { setCleanupDate(e.target.value); setCleanupConfirm(false); setCleanupMsg(null); }}
+              value={cleanupAfterDate}
+              onChange={(e) => { setCleanupAfterDate(e.target.value); setCleanupConfirm(false); setCleanupMsg(null); }}
               className="input-field"
             />
           </div>
@@ -342,7 +342,7 @@ export default function AccountPage() {
               className="text-xs text-circuit-muted hover:text-red-500 transition-colors"
               style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
             >
-              Clean up old data…
+              Clean up future data…
             </button>
           ) : (
             <div className="flex items-center gap-3">
@@ -352,7 +352,7 @@ export default function AccountPage() {
                 className="btn-primary text-xs"
                 style={{ background: "var(--terra)", borderColor: "var(--terra)" }}
               >
-                {cleaning ? "Deleting…" : `Yes, delete events before ${cleanupDate}`}
+                {cleaning ? "Deleting…" : `Yes, delete events after ${cleanupAfterDate}`}
               </button>
               <button
                 onClick={() => setCleanupConfirm(false)}
