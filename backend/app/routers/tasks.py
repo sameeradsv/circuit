@@ -200,7 +200,8 @@ def cleanup_tasks(
 ):
     """Delete scheduled tasks outside a date range.
     Pass after_ms to remove far-future events, before_ms to remove old past events.
-    Only tasks with a scheduled_at are affected — floating tasks are untouched."""
+    Only tasks with a scheduled_at are affected — floating tasks are untouched.
+    Uses bulk delete for performance with large result sets."""
     if after_ms is None and before_ms is None:
         raise HTTPException(400, "Provide after_ms or before_ms")
     q = db.query(CircuitTask).filter(
@@ -211,12 +212,8 @@ def cleanup_tasks(
         q = q.filter(CircuitTask.scheduled_at > after_ms)
     if before_ms is not None:
         q = q.filter(CircuitTask.scheduled_at < before_ms)
-    tasks = q.all()
-    count = len(tasks)
-    for t in tasks:
-        db.delete(t)
-    if count:
-        db.commit()
+    count = q.delete(synchronize_session=False)
+    db.commit()
     return {"deleted": count}
 
 
