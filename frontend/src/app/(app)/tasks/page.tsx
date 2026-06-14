@@ -205,7 +205,7 @@ export default function TasksPage() {
   }
 
   return (
-    <div className="col gap-5">
+    <div className="col gap-5 page-cap">
       {/* Header */}
       <header className="between" style={{ alignItems: "flex-end" }}>
         <div>

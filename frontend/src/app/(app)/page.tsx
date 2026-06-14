@@ -262,7 +262,7 @@ export default function HomePage() {
   const greeting = hour < 12 ? "Good morning," : hour < 17 ? "Good afternoon," : "Good evening,";
 
   return (
-    <div className="col gap-6">
+    <div className="col gap-6 page-cap">
       {/* Header */}
       <header className="between" style={{ alignItems: "flex-start" }}>
         <div>

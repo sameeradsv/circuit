@@ -168,7 +168,7 @@ function DayView({ date, tasks, today }: { date: Date; tasks: ApiTask[]; today: 
   return (
     <div className="col gap-4">
       {/* Scrollable hour grid */}
-      <div style={{ overflowY: "auto", maxHeight: "72vh", border: "1px solid var(--line)", borderRadius: 8 }}>
+      <div style={{ overflowY: "auto", maxHeight: "calc(100dvh - 280px)", border: "1px solid var(--line)", borderRadius: 8 }}>
         <div style={{ position: "relative", height: TOTAL_H, minWidth: 0 }}>
           {/* Hour labels */}
           {HOURS.map((h) => (
@@ -264,7 +264,7 @@ function WeekView({ weekStart, tasks, today }: { weekStart: Date; tasks: ApiTask
       </div>
 
       {/* Scrollable grid */}
-      <div style={{ overflowY: "auto", maxHeight: "68vh" }}>
+      <div style={{ overflowY: "auto", maxHeight: "calc(100dvh - 280px)" }}>
         <div style={{ display: "grid", gridTemplateColumns: `${LABEL_W}px repeat(7, 1fr)`, height: TOTAL_H }}>
           {/* Time labels column */}
           <div style={{ position: "relative", borderRight: "1px solid var(--line)" }}>

@@ -23,6 +23,8 @@ _RRULE_MAX = 3650
 
 
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
+    importance, urgency = _calname_to_priority(ev.get("cal_name", ""))
+    effort = _color_to_effort(ev.get("color", ""))
     return CircuitTask(
         user_id=user_id,
         client_id=client_id,
@@ -32,9 +34,9 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         duration=ev["duration_min"],
         tiny_step=ev["description"],
         location_dependency=ev["location"] or None,
-        effort="medium",
-        urgency=0.5,
-        importance=0.5,
+        effort=effort,
+        urgency=urgency,
+        importance=importance,
         cognitive_load=0.5,
         emotional_resistance=0.5,
         activation_energy=0.5,
@@ -190,6 +192,40 @@ def _expand_rrule(dtstart_ms: int, rrule_str: str, exdate_set: set[int]) -> list
     return results
 
 
+def _calname_to_priority(calname: str) -> tuple[float, float]:
+    """Map calendar name to (importance, urgency). Detects p1/p2/p3 and high/medium/low patterns."""
+    name = calname.lower()
+    if any(k in name for k in ("p1", "high", "critical", "urgent", "must", "top")):
+        return (0.9, 0.9)
+    if any(k in name for k in ("p2", "medium", "important", "should", "moderate", "normal")):
+        return (0.7, 0.6)
+    if any(k in name for k in ("p3", "low", "minor", "could", "nice", "later", "someday")):
+        return (0.4, 0.3)
+    return (0.5, 0.5)
+
+
+def _color_to_effort(color: str) -> str:
+    """Map iCloud event color name or hex to effort level."""
+    color = color.lower().strip()
+    if color in {"red", "tomato", "pink", "flamingo", "coral", "crimson"}:
+        return "high"
+    if color in {"green", "sage", "basil", "teal", "lime", "mint", "emerald"}:
+        return "low"
+    if color.startswith("#") and len(color) in (7, 4):
+        try:
+            if len(color) == 4:
+                r, g, b = int(color[1] * 2, 16), int(color[2] * 2, 16), int(color[3] * 2, 16)
+            else:
+                r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+            if r > g + 50 and r > b + 50 and r > 150:
+                return "high"
+            if g > r + 30 and g > b and g > 120:
+                return "low"
+        except ValueError:
+            pass
+    return "medium"
+
+
 def _client_id(uid: str, suffix: str = "") -> str:
     key = f"{uid}{suffix}"
     if len(key) <= 90:
@@ -220,6 +256,8 @@ def _process_ics_event(ev: dict) -> Optional[dict]:
         "rrule":        ev.get("RRULE"),
         "exdates":      ev.get("EXDATES", []),
         "uid":          ev.get("UID", ""),
+        "cal_name":     ev.get("CAL_NAME", ""),
+        "color":        ev.get("COLOR", ev.get("X_APPLE_EVENT_COLOR", "")),
     }
 
 
@@ -228,6 +266,7 @@ def parse_ics(text: str) -> list[dict]:
     events: list[dict] = []
     in_event = False
     current: dict = {}
+    cal_name: str = ""
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line:
@@ -236,12 +275,11 @@ def parse_ics(text: str) -> list[dict]:
             in_event = True; current = {}; continue
         if line == "END:VEVENT":
             if in_event:
+                current["CAL_NAME"] = cal_name
                 ev = _process_ics_event(current)
                 if ev:
                     events.append(ev)
             in_event = False; current = {}; continue
-        if not in_event:
-            continue
         colon = line.find(":")
         if colon < 0:
             continue
@@ -258,6 +296,11 @@ def parse_ics(text: str) -> list[dict]:
                 tzid = param[5:]
                 break
 
+        if not in_event:
+            if name_base == "X-WR-CALNAME":
+                cal_name = value.strip()
+            continue
+
         if name_base == "DTSTART":
             current["DTSTART"] = value
             current["DTSTART_DATE_ONLY"] = is_date_only
@@ -266,8 +309,10 @@ def parse_ics(text: str) -> list[dict]:
             current["DTEND"] = value
             current["DTEND_DATE_ONLY"] = is_date_only
             current["DTEND_TZID"] = tzid
-        elif name_base in ("SUMMARY", "DESCRIPTION", "DURATION", "LOCATION", "UID", "RRULE"):
+        elif name_base in ("SUMMARY", "DESCRIPTION", "DURATION", "LOCATION", "UID", "RRULE", "COLOR"):
             current[name_base] = value
+        elif name_base == "X-APPLE-EVENT-COLOR":
+            current["X_APPLE_EVENT_COLOR"] = value
         elif name_base == "EXDATE":
             exdates = current.get("EXDATES", [])
             for v in value.split(","):
