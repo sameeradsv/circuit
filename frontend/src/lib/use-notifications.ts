@@ -4,8 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiTask } from "./api";
 
 const STORAGE_KEY = "circuit-notifications";
-const LEAD_MS = 10 * 60 * 1000; // notify 10 min before
+const LEAD_MS = 10 * 60 * 1000;          // notify 10 min before
 const TOGGLE_EVENT = "circuit-notif-toggle";
+// Only schedule timers within this window. Beyond it, setTimeout delay
+// overflows the 32-bit int limit (~24.8 days) and fires immediately.
+const SCHEDULE_HORIZON_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Called once in AppShell. Schedules browser notifications for upcoming tasks. */
 export function useNotificationScheduler(tasks: ApiTask[]) {
@@ -31,6 +34,9 @@ export function useNotificationScheduler(tasks: ApiTask[]) {
       if (task.completed || !task.scheduled_at) continue;
       const delay = task.scheduled_at - LEAD_MS - now;
       if (delay < 0) continue;
+      // Skip tasks beyond the 24-hour scheduling horizon — they'll be picked up
+      // on the next app open when they're within range.
+      if (delay > SCHEDULE_HORIZON_MS) continue;
 
       const id = setTimeout(() => {
         const time = new Date(task.scheduled_at!).toLocaleTimeString("en-IN", {

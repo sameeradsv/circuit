@@ -140,10 +140,18 @@ export default function TasksPage() {
     ? ranked
     : ranked.filter((t) => taskTypeMeta(t).cls === typeFilter);
 
-  // Three groups
-  const nowGroup   = filtered.slice(0, 2);
-  const soonGroup  = filtered.slice(2, 6);
-  const laterGroup = filtered.slice(6);
+  // Tasks with a specific future time > 2h away should never appear in "Right now"
+  // or "Soon" regardless of score — surface them in "Later" sorted by time.
+  const nowMs = Date.now();
+  const NEAR_MS = 2 * 60 * 60 * 1000; // 2 hours
+  const flexible       = filtered.filter((t) => !t.scheduled_at || t.scheduled_at <= nowMs + NEAR_MS);
+  const futureScheduled = filtered
+    .filter((t) => t.scheduled_at && t.scheduled_at > nowMs + NEAR_MS)
+    .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0));
+
+  const nowGroup   = flexible.slice(0, 2);
+  const soonGroup  = flexible.slice(2, 6);
+  const laterGroup = [...flexible.slice(6), ...futureScheduled];
 
   async function handleToggle(t: ApiTask) {
     if (t.completed) {
