@@ -49,11 +49,13 @@ export function TaskDetailModal({
   task,
   mode,
   onSave,
+  onDeleteSeries,
   onClose,
 }: {
   task: ApiTask;
   mode: EnergyMode;
   onSave: (updated: ApiTask) => void;
+  onDeleteSeries?: () => Promise<void>;
   onClose: () => void;
 }) {
   const [patch, setPatch] = useState<TaskPatch>({});
@@ -63,6 +65,8 @@ export function TaskDetailModal({
   const [propagateMsg, setPropagateMsg] = useState<string | null>(null);
   const [showSeriesPanel, setShowSeriesPanel] = useState(false);
   const [seriesOpts, setSeriesOpts] = useState({ classification: true, name: false });
+  const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
+  const [deletingSeries, setDeletingSeries] = useState(false);
 
   const isSeries = /^ics:.+:\d{10,13}$/.test(task.client_id ?? "");
 
@@ -263,6 +267,41 @@ export function TaskDetailModal({
               >
                 {propagating ? 'Applying…' : 'Apply to series'}
               </button>
+
+              {onDeleteSeries && (
+                <div style={{ borderTop: '1px solid var(--circuit-border)', paddingTop: 8, marginTop: 4 }}>
+                  {confirmDeleteSeries ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          setDeletingSeries(true);
+                          try { await onDeleteSeries(); } finally { setDeletingSeries(false); }
+                        }}
+                        disabled={deletingSeries}
+                        className="flex-1 text-xs text-red-500 hover:text-red-600 font-medium transition-colors"
+                        style={{ background: 'none', border: '1px solid currentColor', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}
+                      >
+                        {deletingSeries ? 'Deleting…' : 'Yes, delete all'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteSeries(false)}
+                        className="flex-1 text-xs text-circuit-muted hover:text-circuit-text transition-colors"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteSeries(true)}
+                      className="w-full text-xs text-circuit-muted hover:text-red-500 transition-colors"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: '2px 0' }}
+                    >
+                      Delete entire series…
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

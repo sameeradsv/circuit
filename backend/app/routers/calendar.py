@@ -506,3 +506,34 @@ def propagate_classification(
 
     db.commit()
     return {"updated": len(siblings)}
+
+
+@router.delete("/series/{task_id}")
+def delete_series(
+    task_id: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    source = db.query(CircuitTask).filter_by(id=task_id, user_id=user.id).first()
+    if not source:
+        raise HTTPException(404, "Task not found")
+
+    uid = _extract_series_uid(source.client_id or "")
+    if not uid:
+        raise HTTPException(400, "Task is not part of a recurring series")
+
+    pattern = f"ics:{uid}:%"
+    tasks = (
+        db.query(CircuitTask)
+        .filter(
+            CircuitTask.user_id == user.id,
+            CircuitTask.client_id.like(pattern),
+        )
+        .all()
+    )
+
+    count = len(tasks)
+    for t in tasks:
+        db.delete(t)
+    db.commit()
+    return {"deleted": count}

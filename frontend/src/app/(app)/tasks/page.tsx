@@ -163,6 +163,14 @@ export default function TasksPage() {
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }
 
+  async function deleteSeriesTasks(id: number) {
+    const { deleted } = await api.deleteSeries(id);
+    // Re-fetch rather than filter since we don't know all sibling ids client-side
+    const updated = await api.listTasks();
+    setTasks(updated);
+    return deleted;
+  }
+
   async function skipTask(task: ApiTask) {
     const now = Date.now();
     const { scheduledAt } = suggestSlot(task, tasks, now);
@@ -272,6 +280,7 @@ export default function TasksPage() {
               completing={completingIds.has(t.id)}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
+              onDeleteSeries={() => deleteSeriesTasks(t.id)}
               onSkip={() => skipTask(t)}
               onReschedule={() => setReschedulingTask(t)}
               onDetail={() => setDetailTask(t)}
@@ -296,6 +305,7 @@ export default function TasksPage() {
               completing={completingIds.has(t.id)}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
+              onDeleteSeries={() => deleteSeriesTasks(t.id)}
               onSkip={() => skipTask(t)}
               onReschedule={() => setReschedulingTask(t)}
               onDetail={() => setDetailTask(t)}
@@ -320,6 +330,7 @@ export default function TasksPage() {
               completing={completingIds.has(t.id)}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
+              onDeleteSeries={() => deleteSeriesTasks(t.id)}
               onSkip={() => skipTask(t)}
               onReschedule={() => setReschedulingTask(t)}
               onDetail={() => setDetailTask(t)}
@@ -375,6 +386,10 @@ export default function TasksPage() {
             setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
             setDetailTask(updated);
           }}
+          onDeleteSeries={async () => {
+            await deleteSeriesTasks(detailTask.id);
+            setDetailTask(null);
+          }}
           onClose={() => setDetailTask(null)}
         />
       )}
@@ -419,7 +434,7 @@ function TaskGroup({
 
 function TaskRow({
   task, rank, isNow = false, completing,
-  onToggle, onDelete, onSkip, onReschedule, onDetail, onSplit,
+  onToggle, onDelete, onDeleteSeries, onSkip, onReschedule, onDetail, onSplit,
 }: {
   task: ApiTask & { score?: number; reason?: string };
   rank: number;
@@ -427,6 +442,7 @@ function TaskRow({
   completing: boolean;
   onToggle: () => void;
   onDelete: () => void;
+  onDeleteSeries: () => void;
   onSkip: () => Promise<void>;
   onReschedule: () => void;
   onDetail: () => void;
@@ -435,6 +451,7 @@ function TaskRow({
   const [skipping, setSkipping] = useState(false);
   const type = taskTypeMeta(task);
   const canSplit = (task.effort === "high" || (task.task_decomposition_potential ?? 0) >= 0.5);
+  const isSeries = /^ics:.+:\d{10,13}$/.test(task.client_id ?? "");
 
   return (
     <div
@@ -489,6 +506,13 @@ function TaskRow({
               style={{ fontSize: 12, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
               title="Split"
             >⌥</button>
+          )}
+          {isSeries && (
+            <button
+              onClick={onDeleteSeries}
+              style={{ fontSize: 11, color: "var(--terra)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+              title="Delete all occurrences in this series"
+            >del series</button>
           )}
         </div>
         <button

@@ -189,6 +189,8 @@ export const api = {
     req<ApiAiClassify>("POST", "/api/ai/classify", { text, context }),
 
   // calendar
+  deleteSeries: (taskId: number) =>
+    req<{ deleted: number }>("DELETE", `/api/calendar/series/${taskId}`),
   propagateClassification: (
     taskId: number,
     opts: { include_classification?: boolean; include_text?: boolean } = {},
