@@ -189,8 +189,13 @@ export const api = {
     req<ApiAiClassify>("POST", "/api/ai/classify", { text, context }),
 
   // calendar
-  propagateClassification: (taskId: number) =>
-    req<{ updated: number }>("POST", `/api/calendar/propagate-classification/${taskId}`),
+  propagateClassification: (
+    taskId: number,
+    opts: { include_classification?: boolean; include_text?: boolean } = {},
+  ) => req<{ updated: number }>("POST", `/api/calendar/propagate-classification/${taskId}`, {
+    include_classification: opts.include_classification ?? true,
+    include_text: opts.include_text ?? false,
+  }),
   importCalendar: (file: File) => {
     const token = getAuthToken();
     const form = new FormData();

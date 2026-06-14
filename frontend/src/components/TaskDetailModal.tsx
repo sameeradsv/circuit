@@ -61,8 +61,30 @@ export function TaskDetailModal({
   const [propagating, setPropagating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [propagateMsg, setPropagateMsg] = useState<string | null>(null);
+  const [showSeriesPanel, setShowSeriesPanel] = useState(false);
+  const [seriesOpts, setSeriesOpts] = useState({ classification: true, name: false });
 
   const isSeries = /^ics:.+:\d{10,13}$/.test(task.client_id ?? "");
+
+  async function handleApplyToSeries() {
+    setPropagating(true);
+    setSaveError(null);
+    setPropagateMsg(null);
+    try {
+      if (Object.keys(patch).length > 0) await api.updateTask(task.id, patch);
+      const { updated } = await api.propagateClassification(task.id, {
+        include_classification: seriesOpts.classification,
+        include_text: seriesOpts.name,
+      });
+      const what = [seriesOpts.classification && 'classification', seriesOpts.name && 'name'].filter(Boolean).join(' + ');
+      setPropagateMsg(`${what} applied to ${updated} other occurrence${updated !== 1 ? 's' : ''}`);
+      setShowSeriesPanel(false);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setPropagating(false);
+    }
+  }
 
   const merged = { ...task, ...patch };
 
@@ -211,31 +233,51 @@ export function TaskDetailModal({
         <div className="flex flex-col gap-2 p-5 border-t border-circuit-border">
           {saveError && <p className="text-xs text-red-500">{saveError}</p>}
           {propagateMsg && <p className="text-xs text-circuit-muted">{propagateMsg}</p>}
+
+          {/* Series edit panel */}
+          {isSeries && showSeriesPanel && (
+            <div className="panel p-3 space-y-2" style={{ marginBottom: 4 }}>
+              <p className="text-xs font-medium text-circuit-muted uppercase tracking-wider">Apply to all occurrences</p>
+              <label className="flex items-center gap-2 text-xs text-circuit-text cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={seriesOpts.classification}
+                  onChange={(e) => setSeriesOpts((o) => ({ ...o, classification: e.target.checked }))}
+                  className="accent-circuit-accent"
+                />
+                Classification — mode, effort, priority, cognitive load
+              </label>
+              <label className="flex items-center gap-2 text-xs text-circuit-text cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={seriesOpts.name}
+                  onChange={(e) => setSeriesOpts((o) => ({ ...o, name: e.target.checked }))}
+                  className="accent-circuit-accent"
+                />
+                Name — rename all occurrences to match this one
+              </label>
+              <button
+                onClick={handleApplyToSeries}
+                disabled={propagating || (!seriesOpts.classification && !seriesOpts.name)}
+                className="btn-primary w-full text-xs mt-1"
+              >
+                {propagating ? 'Applying…' : 'Apply to series'}
+              </button>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button onClick={handleSave} disabled={saving || propagating} className="btn-primary flex-1">
               {saving ? 'Saving…' : 'Save'}
             </button>
             {isSeries && (
               <button
-                onClick={async () => {
-                  setPropagating(true);
-                  setSaveError(null);
-                  setPropagateMsg(null);
-                  try {
-                    if (Object.keys(patch).length > 0) await api.updateTask(task.id, patch);
-                    const { updated } = await api.propagateClassification(task.id);
-                    setPropagateMsg(`Applied to ${updated} other occurrence${updated !== 1 ? 's' : ''}`);
-                  } catch (e) {
-                    setSaveError(e instanceof Error ? e.message : 'Failed');
-                  } finally {
-                    setPropagating(false);
-                  }
-                }}
+                onClick={() => { setShowSeriesPanel((v) => !v); setPropagateMsg(null); }}
                 disabled={saving || propagating}
-                className="btn-primary flex-1"
-                title="Save and copy classification to all other occurrences in this series (times unchanged)"
+                className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors"
+                title="Apply changes to all occurrences in this recurring series"
               >
-                {propagating ? 'Applying…' : 'Apply to series'}
+                Edit series {showSeriesPanel ? '▴' : '▾'}
               </button>
             )}
             <button onClick={onClose} className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors">

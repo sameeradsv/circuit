@@ -450,6 +450,14 @@ async def import_ics(
 
 # ── Series propagation ────────────────────────────────────────────────────────
 
+from pydantic import BaseModel as _BaseModel
+
+
+class PropagateSeries(_BaseModel):
+    include_classification: bool = True
+    include_text: bool = False
+
+
 _CLASSIFICATION_FIELDS = (
     "tag", "focus_type", "effort", "importance", "urgency",
     "consequence_of_delay", "momentum_value", "cognitive_load",
@@ -462,6 +470,7 @@ _CLASSIFICATION_FIELDS = (
 @router.post("/propagate-classification/{task_id}")
 def propagate_classification(
     task_id: int,
+    body: PropagateSeries = PropagateSeries(),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -472,6 +481,9 @@ def propagate_classification(
     uid = _extract_series_uid(source.client_id or "")
     if not uid:
         raise HTTPException(400, "Task is not part of a recurring series")
+
+    if not body.include_classification and not body.include_text:
+        raise HTTPException(400, "Nothing to propagate — select at least one option")
 
     pattern = f"ics:{uid}:%"
     siblings = (
@@ -485,8 +497,12 @@ def propagate_classification(
     )
 
     for sibling in siblings:
-        for field in _CLASSIFICATION_FIELDS:
-            setattr(sibling, field, getattr(source, field))
+        if body.include_classification:
+            for field in _CLASSIFICATION_FIELDS:
+                setattr(sibling, field, getattr(source, field))
+        if body.include_text:
+            sibling.text = source.text
+            sibling.tiny_step = source.tiny_step
 
     db.commit()
     return {"updated": len(siblings)}
