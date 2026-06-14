@@ -25,11 +25,12 @@ _RRULE_MAX = 3650
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
     importance, urgency = _calname_to_priority(ev.get("cal_name", ""))
     effort = _color_to_effort(ev.get("color", ""))
+    tag, focus_type = _classify_event(ev.get("summary", ""), ev.get("description", ""))
     return CircuitTask(
         user_id=user_id,
         client_id=client_id,
         text=ev["summary"],
-        tag="general",
+        tag=tag,
         scheduled_at=ev["scheduled_at"],
         duration=ev["duration_min"],
         tiny_step=ev["description"],
@@ -41,7 +42,7 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         emotional_resistance=0.5,
         activation_energy=0.5,
         recovery_cost=0.3,
-        focus_type="shallow",
+        focus_type=focus_type,
         deadline_type="none",
         time_sensitivity=0.5,
         consequence_of_delay=0.3,
@@ -226,6 +227,47 @@ def _color_to_effort(color: str) -> str:
     return "medium"
 
 
+def _classify_event(title: str, description: str) -> tuple[str, str]:
+    """Return (tag, focus_type) by scanning event title and description for keywords."""
+    text = f"{title} {description}".lower()
+
+    social = (
+        "meet", "meeting", "call", "zoom", "teams", "meet", "sync", "stand-up", "standup",
+        "1:1", "one on one", "one-on-one", "interview", "discuss", "discussion",
+        "presentation", "demo", "webinar", "workshop", "lunch", "dinner", "coffee",
+        "social", "party", "celebration", "catch up", "catchup", "check-in", "checkin",
+        "review with", "session with",
+    )
+    deep = (
+        "write", "writing", "code", "coding", "develop", "development", "design",
+        "build", "building", "research", "draft", "drafting", "implement", "create",
+        "focus", "strategy", "architecture", "analysis", "analyse", "analyze",
+        "deep work", "sprint", "feature", "prototype", "brainstorm",
+    )
+    admin = (
+        "email", "emails", "inbox", "admin", "invoice", "invoicing", "expense",
+        "expenses", "report", "filing", "paperwork", "respond", "reply",
+        "follow up", "follow-up", "followup", "planning", "organise", "organize",
+        "schedule", "checklist", "triage", "process",
+    )
+    personal = (
+        "gym", "exercise", "workout", "yoga", "run", "running", "walk", "cycling",
+        "doctor", "dentist", "appointment", "errand", "grocery", "groceries",
+        "shopping", "bank", "pharmacy", "personal", "health", "medical", "haircut",
+        "commute", "travel", "flight", "hotel",
+    )
+
+    if any(k in text for k in social):
+        return ("social", "shallow")
+    if any(k in text for k in deep):
+        return ("work", "deep")
+    if any(k in text for k in admin):
+        return ("work", "admin")
+    if any(k in text for k in personal):
+        return ("personal", "shallow")
+    return ("work", "shallow")
+
+
 def _client_id(uid: str, suffix: str = "") -> str:
     key = f"{uid}{suffix}"
     if len(key) <= 90:
@@ -340,6 +382,8 @@ async def import_ics(
         text = content.decode("latin-1")
 
     events = parse_ics(text)
+    cutoff_ms = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp() * 1000)
+    events = [ev for ev in events if ev["scheduled_at"] >= cutoff_ms]
     created = 0
     expires_at: Optional[int] = None
 
