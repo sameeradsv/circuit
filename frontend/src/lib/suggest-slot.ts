@@ -25,6 +25,18 @@ function istHourOf(ms: number): number {
   return Math.floor(((ms + IST_OFFSET_MS) % 86_400_000) / 3_600_000);
 }
 
+// 0 = Sun, 1 = Mon … 6 = Sat in IST
+function istDayOf(ms: number): number {
+  return new Date(ms + IST_OFFSET_MS).getUTCDay();
+}
+
+function isISTWeekday(ms: number): boolean {
+  const d = istDayOf(ms);
+  return d >= 1 && d <= 5;
+}
+
+const WORKDAY_END_IST = 19; // 7 pm — after this, wrap to next day
+
 type HourBucket = 'morning' | 'afternoon' | 'evening';
 
 const WINDOW_START_HOUR: Record<HourBucket, number> = {
@@ -128,12 +140,24 @@ export function suggestSlot(
     }
   }
 
-  // Nudge past conflicting scheduled tasks (up to 5 iterations)
-  for (let i = 0; i < 5; i++) {
+  // Nudge past conflicting scheduled tasks (up to 8 iterations)
+  for (let i = 0; i < 8; i++) {
     const conflict = findConflict(candidate, durationMs, others);
     if (!conflict) break;
     candidate = conflict.scheduled_at! + (conflict.duration ?? 30) * 60_000 + 5 * 60_000;
     if (i === 0) rationale.push('moved past a conflict');
+  }
+
+  // Workday wrap: on weekdays, don't suggest past 7 pm — jump to next preferred morning
+  if (isISTWeekday(candidate) && istHourOf(candidate) >= WORKDAY_END_IST) {
+    const wrapHour = focusType === 'admin' ? 14 : 9;
+    candidate = nextISTSlot(wrapHour, candidate);
+    rationale.push('busy today after hours — next available morning');
+  }
+
+  // Weekend note: weekdays are typically busy, weekends have open calendar
+  if (!isISTWeekday(candidate)) {
+    rationale.push('weekend — calendar typically free');
   }
 
   if (candidate <= now) {
