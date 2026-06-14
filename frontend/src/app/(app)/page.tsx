@@ -236,11 +236,15 @@ export default function HomePage() {
   const [timeAvail, setTimeAvail] = useState(120);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
+  const [calendarExpiry, setCalendarExpiry] = useState<{ expires_at_ms: number | null; expires_at_iso: string | null; days_until_expiry: number | null } | null>(null);
 
   useEffect(() => {
     if (!user) return;
     setFetching(true);
-    api.listTasks().then(setTasks).catch(() => {}).finally(() => setFetching(false));
+    Promise.all([
+      api.listTasks().then(setTasks).catch(() => {}),
+      api.getCalendarExpiry().then(setCalendarExpiry).catch(() => {}),
+    ]).finally(() => setFetching(false));
   }, [user]);
 
   if (!user) return null;
@@ -329,6 +333,35 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* Calendar expiry alert */}
+      {calendarExpiry?.expires_at_ms && calendarExpiry.days_until_expiry !== null && (
+        <div className="card" style={{
+          padding: 16,
+          background: calendarExpiry.days_until_expiry <= 30 ? "var(--terra)" : "var(--mustard)",
+          color: "white",
+          borderColor: "transparent",
+        }}>
+          <div className="row aic gap-3">
+            <div style={{ flex: 1 }}>
+              <div className="label" style={{ color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>Calendar import expires</div>
+              <div style={{ fontSize: 16, fontWeight: 500 }}>
+                {calendarExpiry.days_until_expiry === 0 ? "Today!" : `in ${calendarExpiry.days_until_expiry} day${calendarExpiry.days_until_expiry !== 1 ? 's' : ''}`}
+              </div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 2 }}>
+                Re-import your .ics file to extend the 2-year window
+              </div>
+            </div>
+            <Link
+              href="/calendar"
+              className="btn"
+              style={{ background: "white", color: "var(--ink)", whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              Go to calendar
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Top pick */}
       {fetching && (

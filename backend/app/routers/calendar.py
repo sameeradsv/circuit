@@ -585,3 +585,35 @@ def delete_series(
         db.delete(t)
     db.commit()
     return {"deleted": count}
+
+
+@router.get("/expiry")
+def get_calendar_expiry(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Return the furthest-out calendar event (when the 2-year window expires).
+    Returns {expires_at_ms, expires_at_iso, days_until_expiry} or null if no calendar events."""
+    latest = (
+        db.query(CircuitTask.scheduled_at)
+        .filter(
+            CircuitTask.user_id == user.id,
+            CircuitTask.client_id.isnot(None),
+            CircuitTask.client_id.like("ics:%"),
+        )
+        .order_by(CircuitTask.scheduled_at.desc())
+        .first()
+    )
+    if not latest or not latest[0]:
+        return {"expires_at_ms": None, "expires_at_iso": None, "days_until_expiry": None}
+
+    expires_ms = latest[0]
+    expires_dt = datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc)
+    now = datetime.now(timezone.utc)
+    days_until = max(0, int((expires_ms - int(now.timestamp() * 1000)) / (86_400_000)))
+
+    return {
+        "expires_at_ms": expires_ms,
+        "expires_at_iso": expires_dt.isoformat(),
+        "days_until_expiry": days_until,
+    }
