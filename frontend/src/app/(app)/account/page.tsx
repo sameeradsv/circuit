@@ -28,6 +28,31 @@ export default function AccountPage() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
 
+  // cleanup state
+  const twoYearsAgo = new Date();
+  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+  const [cleanupDate, setCleanupDate] = useState(twoYearsAgo.toISOString().slice(0, 10));
+  const [cleanupConfirm, setCleanupConfirm] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupMsg, setCleanupMsg] = useState<string | null>(null);
+  const [cleanupErr, setCleanupErr] = useState<string | null>(null);
+
+  async function handleCleanup() {
+    setCleaning(true);
+    setCleanupErr(null);
+    setCleanupMsg(null);
+    try {
+      const beforeMs = new Date(cleanupDate).getTime();
+      const { deleted } = await api.cleanupOldTasks(beforeMs);
+      setCleanupMsg(`Deleted ${deleted} past event${deleted !== 1 ? "s" : ""}.`);
+      setCleanupConfirm(false);
+    } catch (e) {
+      setCleanupErr(e instanceof Error ? e.message : "Cleanup failed");
+    } finally {
+      setCleaning(false);
+    }
+  }
+
   // danger zone
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -292,6 +317,55 @@ export default function AccountPage() {
           </div>
           {importErr && <p className="text-sm text-red-400">{importErr}</p>}
         </form>
+      </section>
+
+      {/* Data management */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Data management</h2>
+        <div className="panel p-5 space-y-3">
+          <p className="text-xs text-circuit-muted">
+            Delete all scheduled tasks (calendar events) with a date before the cutoff.
+            Floating tasks with no date are untouched.
+          </p>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-circuit-muted shrink-0">Delete everything before</label>
+            <input
+              type="date"
+              value={cleanupDate}
+              onChange={(e) => { setCleanupDate(e.target.value); setCleanupConfirm(false); setCleanupMsg(null); }}
+              className="input-field"
+            />
+          </div>
+          {!cleanupConfirm ? (
+            <button
+              onClick={() => setCleanupConfirm(true)}
+              className="text-xs text-circuit-muted hover:text-red-500 transition-colors"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+            >
+              Clean up old data…
+            </button>
+          ) : (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleCleanup}
+                disabled={cleaning}
+                className="btn-primary text-xs"
+                style={{ background: "var(--terra)", borderColor: "var(--terra)" }}
+              >
+                {cleaning ? "Deleting…" : `Yes, delete events before ${cleanupDate}`}
+              </button>
+              <button
+                onClick={() => setCleanupConfirm(false)}
+                className="text-xs text-circuit-muted hover:text-circuit-text transition-colors"
+                style={{ background: "none", border: "none", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {cleanupMsg && <p className="text-xs text-circuit-muted">{cleanupMsg}</p>}
+          {cleanupErr && <p className="text-xs text-red-400">{cleanupErr}</p>}
+        </div>
       </section>
 
       {/* Security */}

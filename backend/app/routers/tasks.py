@@ -200,6 +200,31 @@ def delete_task(task_id: int, user: User = Depends(require_user), db: Session = 
     db.commit()
 
 
+@router.delete("/cleanup", status_code=200)
+def cleanup_old_tasks(
+    before_ms: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Delete all tasks whose scheduled_at is before the given UTC timestamp (ms).
+    Only affects tasks with a scheduled time — floating tasks are untouched."""
+    tasks = (
+        db.query(CircuitTask)
+        .filter(
+            CircuitTask.user_id == user.id,
+            CircuitTask.scheduled_at.isnot(None),
+            CircuitTask.scheduled_at < before_ms,
+        )
+        .all()
+    )
+    count = len(tasks)
+    for t in tasks:
+        db.delete(t)
+    if count:
+        db.commit()
+    return {"deleted": count}
+
+
 @router.post("/migrate", status_code=201)
 def migrate_from_localstorage(
     payload: list[TaskIn],

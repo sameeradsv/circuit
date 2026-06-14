@@ -18,8 +18,8 @@ from app.models import CircuitTask, User
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
-_RRULE_HORIZON_DAYS = 3650  # 10 years
-_RRULE_MAX = 3650
+_RRULE_HORIZON_DAYS = 730  # 2 years
+_RRULE_MAX = 730
 
 
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:

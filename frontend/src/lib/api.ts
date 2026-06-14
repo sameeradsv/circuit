@@ -148,6 +148,8 @@ export const api = {
   createTask: (payload: TaskIn) => req<ApiTask>("POST", "/api/tasks", payload),
   updateTask: (id: number, patch: TaskPatch) => req<ApiTask>("PATCH", `/api/tasks/${id}`, patch),
   deleteTask: (id: number) => req<void>("DELETE", `/api/tasks/${id}`),
+  cleanupOldTasks: (beforeMs: number) =>
+    req<{ deleted: number }>("DELETE", `/api/tasks/cleanup?before_ms=${beforeMs}`),
   migrateTasks: (tasks: TaskIn[]) =>
     req<{ created: number; skipped: number }>("POST", "/api/tasks/migrate", tasks),
 
