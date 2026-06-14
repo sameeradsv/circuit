@@ -24,7 +24,11 @@ _RRULE_MAX = 3650
 
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
     importance, urgency = _calname_to_priority(ev.get("cal_name", ""))
-    effort = _color_to_effort(ev.get("color", ""))
+    # Priority: emoji circle in title > event color property > keyword default
+    effort = (
+        _emoji_to_effort(ev.get("summary", ""))
+        or _color_to_effort(ev.get("color", ""))
+    )
     tag, focus_type = _classify_event(ev.get("summary", ""), ev.get("description", ""))
     return CircuitTask(
         user_id=user_id,
@@ -203,6 +207,27 @@ def _calname_to_priority(calname: str) -> tuple[float, float]:
     if any(k in name for k in ("p3", "low", "minor", "could", "nice", "later", "someday")):
         return (0.4, 0.3)
     return (0.5, 0.5)
+
+
+_CIRCLE_EFFORT: dict[str, str] = {
+    "\U0001F7E2": "low",     # 🟢 green
+    "\U0001F7E1": "medium",  # 🟡 yellow
+    "\U0001F534": "high",    # 🔴 red
+    "\U0001F7E0": "high",    # 🟠 orange
+    "\U0001F535": "medium",  # 🔵 blue
+    "\U0001F7E3": "medium",  # 🟣 purple
+    "\U0001F7E4": "medium",  # 🟤 brown
+    "⚪":     "low",     # ⚪ white
+    "⚫":     "medium",  # ⚫ black
+}
+
+
+def _emoji_to_effort(text: str) -> Optional[str]:
+    """Detect coloured circle emoji anywhere in the event title and map to effort."""
+    for char, effort in _CIRCLE_EFFORT.items():
+        if char in text:
+            return effort
+    return None
 
 
 def _color_to_effort(color: str) -> str:
