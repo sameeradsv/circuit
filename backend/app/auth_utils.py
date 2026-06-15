@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AuthSession, User
 
-PBKDF2_ITERATIONS = 260_000
+PBKDF2_ITERATIONS = 100_000
 SESSION_DAYS = 30
 
 log = logging.getLogger(__name__)
