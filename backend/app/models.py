@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, Boolean, UniqueConstraint
@@ -15,7 +15,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(200), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     # Set when this user was created via a Cortex account login
     cortex_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, unique=True, index=True)
 
@@ -26,7 +26,7 @@ class AuthSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
@@ -89,11 +89,17 @@ class CircuitTask(Base):
     rrule_dtstart_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     is_recurring_template: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Recurrence end date (ms epoch) — no new occurrences created after this
+    recurrence_ends_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # How to handle tasks missed during a blackout: "resume" (skip to next schedule)
+    # or "catch_up" (keep as overdue so user does it on return)
+    post_blackout_behavior: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+
     # Timestamps
     client_created_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     client_updated_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class UserSettings(Base):
@@ -104,7 +110,7 @@ class UserSettings(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     key: Mapped[str] = mapped_column(String(100), nullable=False)
     value: Mapped[str] = mapped_column(Text, default="{}")  # JSON-encoded value
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class UserState(Base):
@@ -116,7 +122,7 @@ class UserState(Base):
     stress_level: Mapped[float] = mapped_column(Float, default=0.3)
     time_available_minutes: Mapped[int] = mapped_column(Integer, default=480)
     focus_mode: Mapped[str] = mapped_column(String(20), default="normal")
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class TaskEvent(Base):
@@ -128,7 +134,7 @@ class TaskEvent(Base):
         Integer, ForeignKey("circuit_tasks.id", ondelete="CASCADE"), nullable=False, index=True
     )
     event_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
 
@@ -140,7 +146,7 @@ class Blackout(Base):
     blackout_type: Mapped[str] = mapped_column(String(30), nullable=False)
     start_date_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
     end_date_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class WebAuthnCredential(Base):
@@ -150,7 +156,7 @@ class WebAuthnCredential(Base):
     public_key: Mapped[str] = mapped_column(Text, nullable=False)
     sign_count: Mapped[int] = mapped_column(Integer, default=0)
     user_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class WebAuthnChallenge(Base):
@@ -160,4 +166,4 @@ class WebAuthnChallenge(Base):
     challenge: Mapped[str] = mapped_column(String(128), nullable=False)
     user_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -32,6 +32,8 @@ class TaskIn(BaseModel):
     time_sensitivity: float = 0.5
     scheduled_at: Optional[int] = None
     recurrence: Optional[str] = None
+    recurrence_ends_at: Optional[int] = None
+    post_blackout_behavior: str = "resume"
     cognitive_load: float = 0.5
     emotional_resistance: float = 0.5
     activation_energy: float = 0.5
@@ -91,6 +93,8 @@ class TaskPatch(BaseModel):
     task_decomposition_potential: Optional[float] = None
     historical_completion_rate: Optional[float] = None
     recurrence: Optional[str] = None
+    recurrence_ends_at: Optional[int] = None
+    post_blackout_behavior: Optional[str] = None
     location_dependency: Optional[str] = None
     required_resources: Optional[list[str]] = None
     dependencies: Optional[list[str]] = None
@@ -143,6 +147,8 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "rrule": t.rrule,
         "rrule_dtstart_ms": t.rrule_dtstart_ms,
         "is_recurring_template": bool(t.is_recurring_template),
+        "recurrence_ends_at": t.recurrence_ends_at,
+        "post_blackout_behavior": t.post_blackout_behavior or "resume",
     }
 
 
@@ -188,7 +194,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
         else:
             setattr(task, field, value)
 
-    task.updated_at = datetime.utcnow()
+    task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Auto-log completion/uncompletion event
     if payload.completed is not None and payload.completed != was_completed:
@@ -197,7 +203,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             user_id=user.id,
             task_id=task_id,
             event_type=event_type,
-            occurred_at=datetime.utcnow(),
+            occurred_at=datetime.now(timezone.utc).replace(tzinfo=None),
             metadata_json="{}",
         ))
 
@@ -208,13 +214,17 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                 next_ms: Optional[int] = None
 
                 if task.rrule and task.is_recurring_template:
-                    # RRULE-based calendar template: use RRULE parser for next occurrence
+                    # RRULE-based calendar template: use RRULE parser for next occurrence.
+                    # cutoff_ms=task.scheduled_at (not +1): the expander includes the current
+                    # occurrence as the first result; the filter ts > task.scheduled_at skips it,
+                    # and the next element is the true next occurrence. Adding +1 caused the
+                    # first generated ms to round back to task.scheduled_at after time-preservation.
                     from app.routers.calendar import _expand_rrule
                     candidates = _expand_rrule(
                         task.rrule_dtstart_ms or task.scheduled_at,
                         task.rrule,
                         set(),
-                        cutoff_ms=task.scheduled_at + 1,
+                        cutoff_ms=task.scheduled_at,
                     )
                     raw_next = next((ts for ts in candidates if ts > task.scheduled_at), None)
                     if raw_next:
@@ -227,6 +237,10 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                     if next_dt:
                         next_dt = next_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
                         next_ms = int(next_dt.timestamp() * 1000)
+
+                # Respect recurrence end date — don't create occurrences past it
+                if next_ms and task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
+                    next_ms = None
 
                 if next_ms:
                     next_task = CircuitTask(
@@ -258,6 +272,8 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                         tiny_step=task.tiny_step,
                         preferred_execution_window=task.preferred_execution_window,
                         blackout_skip_flags=task.blackout_skip_flags,
+                        recurrence_ends_at=task.recurrence_ends_at,
+                        post_blackout_behavior=task.post_blackout_behavior,
                     )
                     db.add(next_task)
             except Exception:
@@ -385,7 +401,7 @@ def energy_summary(
     - drain_ahead:  load still coming today (scheduled future + unscheduled backlog fraction)
     All values are 0–1 floats; 1.0 = completely drained by tasks alone.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
     now_ms = int(now.timestamp() * 1000)

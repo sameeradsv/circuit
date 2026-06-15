@@ -208,6 +208,30 @@ export function TaskDetailModal({
                 className="input-field flex-1 py-1 text-xs"
               />
             </label>
+            {(merged.recurrence || merged.rrule) && (
+              <>
+                <label className="flex items-center gap-3">
+                  <span className="w-44 shrink-0 text-xs text-circuit-muted">Repeat until</span>
+                  <input
+                    type="date"
+                    value={merged.recurrence_ends_at ? new Date(merged.recurrence_ends_at).toISOString().slice(0, 10) : ''}
+                    onChange={(e) => set('recurrence_ends_at', e.target.value ? new Date(e.target.value).getTime() : null as unknown as number)}
+                    className="input-field flex-1 py-1 text-xs"
+                  />
+                </label>
+                <label className="flex items-center gap-3">
+                  <span className="w-44 shrink-0 text-xs text-circuit-muted">After blackout</span>
+                  <select
+                    value={merged.post_blackout_behavior ?? 'resume'}
+                    onChange={(e) => set('post_blackout_behavior', e.target.value as 'resume' | 'catch_up')}
+                    className="input-field flex-1 py-1 text-xs"
+                  >
+                    <option value="resume">Resume on next schedule</option>
+                    <option value="catch_up">Catch up immediately</option>
+                  </select>
+                </label>
+              </>
+            )}
             <Select
               label="Preferred window"
               value={merged.preferred_execution_window ?? ''}

@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, _migrate_sqlite, _migrate_postgres, _migrate_webauthn_tables, _migrate_blackout_and_rrule, engine
+from app.database import Base, _migrate_sqlite, _migrate_postgres, _migrate_webauthn_tables, _migrate_blackout_and_rrule, _migrate_recurrence_extra, engine
 from app.routers.auth import router as auth_router
 from app.routers.tasks import router as tasks_router
 from app.routers import settings as settings_router
@@ -55,6 +55,7 @@ def on_startup():
     _migrate_postgres()
     _migrate_webauthn_tables()
     _migrate_blackout_and_rrule()
+    _migrate_recurrence_extra()
 
 
 @app.get("/health")

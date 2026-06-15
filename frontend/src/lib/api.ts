@@ -68,12 +68,15 @@ export interface ApiTask {
   rrule: string | null;
   rrule_dtstart_ms: number | null;
   is_recurring_template: boolean;
+  recurrence_ends_at: number | null;
+  post_blackout_behavior: "resume" | "catch_up";
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
 export type TaskPatch = Partial<Pick<ApiTask,
   | "text" | "completed" | "tag" | "tiny_step" | "effort" | "duration"
   | "deadline_type" | "time_sensitivity" | "scheduled_at" | "recurrence"
+  | "recurrence_ends_at" | "post_blackout_behavior"
   | "urgency" | "importance" | "consequence_of_delay" | "momentum_value"
   | "compound_benefit" | "identity_alignment" | "energy_to_reward_ratio"
   | "task_decomposition_potential" | "historical_completion_rate"
