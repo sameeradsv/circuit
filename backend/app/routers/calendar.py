@@ -107,6 +107,27 @@ def _detect_recurrence(title: str, description: str) -> Optional[str]:
     return None
 
 
+def _first_future_ms(dtstart_ms: int, rrule_str: str, exdate_set: set) -> Optional[int]:
+    """Return the first RRULE occurrence on or after today (IST), preserving the original time-of-day.
+    Returns None if the series has no future occurrences."""
+    orig_dt = datetime.fromtimestamp(dtstart_ms / 1000, tz=_IST)
+    today_ist = datetime.now(_IST).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_ms = int(today_ist.astimezone(timezone.utc).timestamp() * 1000)
+
+    candidates = _expand_rrule(dtstart_ms, rrule_str, exdate_set, cutoff_ms=today_ms)
+    for raw_ts in candidates:
+        raw_dt = datetime.fromtimestamp(raw_ts / 1000, tz=_IST)
+        # Check that this day (IST) is >= today
+        if raw_dt.date() >= today_ist.date():
+            # Apply original time-of-day (IST) so the template reflects the real event time
+            corrected = raw_dt.replace(
+                hour=orig_dt.hour, minute=orig_dt.minute,
+                second=orig_dt.second, microsecond=0,
+            )
+            return int(corrected.timestamp() * 1000)
+    return None
+
+
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
     importance, urgency = _calname_to_priority(ev.get("cal_name", ""))
     # Priority: emoji circle in title > event color property > keyword default
@@ -120,6 +141,9 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         (_rrule_to_recurrence(rrule) if rrule else None)
         or _detect_recurrence(ev.get("summary", ""), ev.get("description", ""))
     )
+    # rrule_dtstart_ms may be pre-set to the original DTSTART by the importer
+    # (when scheduled_at has been advanced to the first future occurrence)
+    rrule_dtstart = ev.get("rrule_dtstart_ms", ev["scheduled_at"]) if rrule else None
     return CircuitTask(
         user_id=user_id,
         client_id=client_id,
@@ -152,7 +176,7 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         metadata_json=json.dumps({}),
         recurrence=recurrence,
         rrule=rrule,
-        rrule_dtstart_ms=ev["scheduled_at"] if rrule else None,
+        rrule_dtstart_ms=rrule_dtstart,
         is_recurring_template=bool(rrule),
     )
 
@@ -527,10 +551,9 @@ async def import_ics(
         text = content.decode("latin-1")
 
     events = parse_ics(text)
-    cutoff_ms = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp() * 1000)
-    # Keep RRULE events regardless of DTSTART — the series may have started long
-    # ago but still has future occurrences. Per-occurrence cutoff is applied below.
-    events = [ev for ev in events if ev.get("rrule") or ev["scheduled_at"] >= cutoff_ms]
+    # Only import one-off events scheduled today or later (RRULE series are handled per-occurrence below)
+    today_ms = int(datetime.now(_IST).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).timestamp() * 1000)
+    events = [ev for ev in events if ev.get("rrule") or ev["scheduled_at"] >= today_ms]
     created = 0
     expires_at: Optional[int] = None
 
@@ -560,16 +583,27 @@ async def import_ics(
             rrule = ev.get("rrule")
             if rrule:
                 # Lazy-load: store one template task per series instead of expanding 730 days.
-                # The template holds rrule + rrule_dtstart_ms; next occurrences are generated
-                # on completion (same as user-created recurring tasks).
+                # scheduled_at is set to the FIRST FUTURE occurrence (on or after today) so
+                # the user never sees a backlog of past occurrences on initial import.
+                # rrule_dtstart_ms retains the original DTSTART for correct pattern expansion.
+                exdate_set = set(ev.get("exdates", []))
+                first_future = _first_future_ms(ev["scheduled_at"], rrule, exdate_set)
+                if not first_future:
+                    continue  # series has no future occurrences; skip
+
+                ev = {
+                    **ev,
+                    "rrule_dtstart_ms": ev["scheduled_at"],  # preserve original DTSTART
+                    "scheduled_at": first_future,            # show at first future occurrence
+                }
                 cid = _client_id(uid) if uid else ""
                 if _seen(cid, ev["scheduled_at"], ev["summary"]):
                     continue
                 db.add(_make_task(user.id, ev, client_id=cid))
                 existing_cids.add(cid)
                 created += 1
-                # Template expiry = dtstart + 730 days (the full intended horizon)
-                template_expiry = ev["scheduled_at"] + _RRULE_HORIZON_DAYS * 86_400_000
+                # Template expiry = original dtstart + 730 days (the full intended horizon)
+                template_expiry = ev["rrule_dtstart_ms"] + _RRULE_HORIZON_DAYS * 86_400_000
                 if expires_at is None or template_expiry > expires_at:
                     expires_at = template_expiry
             else:

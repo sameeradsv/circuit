@@ -103,6 +103,84 @@ class TaskPatch(BaseModel):
     blackout_skip_flags: Optional[list[str]] = None
 
 
+def _adjust_for_blackouts(
+    next_ms: int,
+    task: CircuitTask,
+    user_id: int,
+    db: Session,
+    from_dt: datetime,
+) -> int:
+    """Advance next_ms past any relevant blackout periods per task.post_blackout_behavior.
+    catch_up → first slot after the blackout ends, recurrence anchors from there.
+    resume   → keep advancing through the recurrence pattern until clear of all blackouts.
+    """
+    from app.models import Blackout
+    blackouts = db.query(Blackout).filter(Blackout.user_id == user_id).all()
+    if not blackouts:
+        return next_ms
+
+    flags: set[str] = set(json.loads(task.blackout_skip_flags) if task.blackout_skip_flags else [])
+    is_work = task.tag == "work"
+
+    def overlapping(ms: int) -> list:
+        return [
+            b for b in blackouts
+            if (b.blackout_type in flags or (b.blackout_type == "leave" and is_work))
+            and b.start_date_ms <= ms <= b.end_date_ms
+        ]
+
+    behavior = task.post_blackout_behavior or "resume"
+    current_ms = next_ms
+
+    for _ in range(365):
+        hits = overlapping(current_ms)
+        if not hits:
+            return current_ms
+
+        if behavior == "catch_up":
+            # Move to the morning of the first day after the latest overlapping blackout
+            latest_end = max(b.end_date_ms for b in hits)
+            next_day = datetime.fromtimestamp((latest_end + 1) / 1000, tz=_IST)
+            next_day = next_day.replace(
+                hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second, microsecond=0
+            )
+            current_ms = int(next_day.timestamp() * 1000)
+            # Loop continues in case this day also hits another blackout
+
+        else:  # resume: advance one recurrence period at a time
+            if task.rrule and task.is_recurring_template:
+                from app.routers.calendar import _expand_rrule
+                candidates = _expand_rrule(
+                    task.rrule_dtstart_ms or task.scheduled_at,
+                    task.rrule,
+                    set(),
+                    cutoff_ms=current_ms,
+                )
+                raw = next((ts for ts in candidates if ts > current_ms), None)
+                if not raw:
+                    return current_ms
+                raw_dt = datetime.fromtimestamp(raw / 1000, tz=_IST)
+                raw_dt = raw_dt.replace(
+                    hour=from_dt.hour, minute=from_dt.minute,
+                    second=from_dt.second, microsecond=0,
+                )
+                current_ms = int(raw_dt.timestamp() * 1000)
+            elif task.recurrence:
+                iter_dt = datetime.fromtimestamp(current_ms / 1000, tz=_IST)
+                nd = next_occurrence(task.recurrence, iter_dt)
+                if not nd:
+                    return current_ms
+                nd = nd.replace(
+                    hour=from_dt.hour, minute=from_dt.minute,
+                    second=from_dt.second, microsecond=0,
+                )
+                current_ms = int(nd.timestamp() * 1000)
+            else:
+                return current_ms
+
+    return current_ms
+
+
 def _task_to_dict(t: CircuitTask) -> dict:
     return {
         "id": t.id,
@@ -242,6 +320,12 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                 if next_ms and task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
                     next_ms = None
 
+                # Skip over blackout periods per task's post_blackout_behavior
+                if next_ms:
+                    next_ms = _adjust_for_blackouts(next_ms, task, user.id, db, from_dt)
+                    if task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
+                        next_ms = None
+
                 if next_ms:
                     next_task = CircuitTask(
                         user_id=user.id,
@@ -283,6 +367,39 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
     db.commit()
     db.refresh(task)
     return _task_to_dict(task)
+
+
+class BatchUpdatePayload(BaseModel):
+    ids: list[int]
+    patch: TaskPatch
+
+
+@router.post("/batch-update")
+def batch_update_tasks(
+    payload: BatchUpdatePayload,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Apply the same patch to multiple tasks at once. Only updates tasks owned by the user."""
+    tasks = (
+        db.query(CircuitTask)
+        .filter(CircuitTask.id.in_(payload.ids), CircuitTask.user_id == user.id)
+        .all()
+    )
+    _JSON_FIELDS = {"required_resources", "dependencies"}
+    for task in tasks:
+        for field, value in payload.patch.model_dump(exclude_unset=True).items():
+            if field == "metadata":
+                task.metadata_json = json.dumps(value)
+            elif field in _JSON_FIELDS:
+                setattr(task, field, json.dumps(value))
+            elif field == "blackout_skip_flags":
+                task.blackout_skip_flags = json.dumps(value) if value is not None else None
+            else:
+                setattr(task, field, value)
+        task.updated_at = datetime.utcnow()
+    db.commit()
+    return {"updated": len(tasks), "ids": [t.id for t in tasks]}
 
 
 @router.delete("/cleanup", status_code=200)

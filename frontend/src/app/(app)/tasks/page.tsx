@@ -147,8 +147,11 @@ export default function TasksPage() {
   const open = tasks.filter((t) => !t.completed);
   const done = tasks.filter((t) => t.completed);
 
-  // Score and rank open tasks
-  const ranked = [...open]
+  // Score and rank open tasks — blacked-out tasks are separated into "On hold"
+  const onHold = open.filter(isBlackedOut);
+  const active = open.filter((t) => !isBlackedOut(t));
+
+  const ranked = [...active]
     .map((t) => { const { score, reason } = scoreForRank(t, energy, timeAvail); return { ...t, score, reason }; })
     .sort((a, b) => b.score - a.score);
 
@@ -265,7 +268,7 @@ export default function TasksPage() {
       {/* Type filter pills */}
       <div className="row gap-2 wrap">
         {TYPE_FILTERS.map((f) => {
-          const count = f.value === "all" ? ranked.length : open.filter((t) => taskTypeMeta(t).cls === f.value).length;
+          const count = f.value === "all" ? ranked.length : active.filter((t) => taskTypeMeta(t).cls === f.value).length;
           return (
             <button
               key={f.value}
@@ -292,9 +295,11 @@ export default function TasksPage() {
               : b.blackout_type === "sickness" ? "Sick"
               : "Travelling";
             const until = new Date(b.end_date_ms).toLocaleDateString("en-IN", { month: "short", day: "numeric", timeZone: "Asia/Kolkata" });
-            const note = b.blackout_type === "leave" ? " · work tasks are dimmed" : "";
-            return <span key={b.id} style={{ marginRight: 12 }}>{label} until {until}{note}</span>;
+            return <span key={b.id} style={{ marginRight: 12 }}>{label} until {until}</span>;
           })}
+          {onHold.length > 0 && (
+            <span style={{ color: "var(--ink-3)" }}>· {onHold.length} task{onHold.length !== 1 ? "s" : ""} on hold</span>
+          )}
         </div>
       )}
 
@@ -316,7 +321,7 @@ export default function TasksPage() {
               rank={i + 1}
               isNow
               completing={completingIds.has(t.id)}
-              blackedOut={isBlackedOut(t)}
+              blackedOut={false}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
               onDeleteSeries={() => deleteSeriesTasks(t.id)}
@@ -342,7 +347,7 @@ export default function TasksPage() {
               task={t}
               rank={i + 1 + nowGroup.length}
               completing={completingIds.has(t.id)}
-              blackedOut={isBlackedOut(t)}
+              blackedOut={false}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
               onDeleteSeries={() => deleteSeriesTasks(t.id)}
@@ -368,7 +373,7 @@ export default function TasksPage() {
               task={t}
               rank={i + 1 + nowGroup.length + soonGroup.length}
               completing={completingIds.has(t.id)}
-              blackedOut={isBlackedOut(t)}
+              blackedOut={false}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
               onDeleteSeries={() => deleteSeriesTasks(t.id)}
@@ -380,6 +385,9 @@ export default function TasksPage() {
           ))}
         </TaskGroup>
       )}
+
+      {/* On hold — tasks skipped due to active blackouts */}
+      {onHold.length > 0 && <OnHoldSection tasks={onHold} onDetail={setDetailTask} />}
 
       {!fetching && ranked.length === 0 && (
         <div className="card col" style={{ padding: 40, alignItems: "center", gap: 12, textAlign: "center" }}>
@@ -435,6 +443,50 @@ export default function TasksPage() {
         />
       )}
     </div>
+  );
+}
+
+// ── OnHoldSection ─────────────────────────────────────────────────────────────
+
+function OnHoldSection({ tasks, onDetail }: { tasks: ApiTask[]; onDetail: (t: ApiTask) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <section>
+      <button
+        className="row aic gap-2"
+        style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 10 }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <h3 className="display" style={{ margin: 0, fontSize: 22, color: "var(--ink-3)" }}>On hold</h3>
+        <span className="serif" style={{ color: "var(--ink-3)", fontSize: 14 }}>
+          {tasks.length} task{tasks.length !== 1 ? "s" : ""} skipped during blackout
+        </span>
+        <span style={{ color: "var(--ink-3)", fontSize: 13 }}>{expanded ? "▲" : "▼"}</span>
+      </button>
+      {expanded && (
+        <div className="card" style={{ padding: 6 }}>
+          {tasks.map((t) => (
+            <div key={t.id} className="task" style={{ opacity: 0.5, cursor: "default" }}>
+              <div className="rank" style={{ fontSize: 12 }}>–</div>
+              <div>
+                <div className="row aic gap-2">
+                  <span className={`type-dot type-${taskTypeMeta(t).cls}`} />
+                  <span className="title" style={{ cursor: "pointer" }} onClick={() => onDetail(t)}>{t.text}</span>
+                  {t.recurrence && (
+                    <span style={{ fontSize: 11, color: "var(--ink-3)" }} title={`Repeats: ${t.recurrence}`}>↻</span>
+                  )}
+                </div>
+                <div className="meta">
+                  <span><b>{fmtDue(t)}</b></span>
+                  <span>· {fmtTime(t.duration ?? 30)}</span>
+                  <span style={{ color: "var(--ink-3)" }}>· on hold</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

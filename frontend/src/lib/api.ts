@@ -163,6 +163,8 @@ export const api = {
   listTasks: () => req<ApiTask[]>("GET", "/api/tasks"),
   createTask: (payload: TaskIn) => req<ApiTask>("POST", "/api/tasks", payload),
   updateTask: (id: number, patch: TaskPatch) => req<ApiTask>("PATCH", `/api/tasks/${id}`, patch),
+  batchUpdate: (ids: number[], patch: TaskPatch) =>
+    req<{ updated: number; ids: number[] }>("POST", "/api/tasks/batch-update", { ids, patch }),
   deleteTask: (id: number) => req<void>("DELETE", `/api/tasks/${id}`),
   cleanupTasks: (opts: { afterMs?: number; beforeMs?: number }) => {
     const params = new URLSearchParams();
