@@ -62,34 +62,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <Sidebar />
       <main className="app-content">
-        {banner && (
+        {banner && (() => {
+          const expired = banner.daysLeft <= 0;
+          const fg = expired ? "white" : "rgba(0,0,0,0.85)";
+          return (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             gap: 12, padding: "10px 16px", marginBottom: 16,
-            background: banner.daysLeft <= 0 ? "var(--terra)" : "var(--mustard)",
+            background: expired ? "var(--terra)" : "var(--mustard)",
             borderRadius: 8, fontSize: 13, flexWrap: "wrap",
           }}>
-            <span style={{ color: "var(--ink)", flex: 1 }}>
-              {banner.daysLeft <= 0
+            <span style={{ color: fg, flex: 1 }}>
+              {expired
                 ? `Your imported recurring calendar events have expired (${banner.expiry}). Re-import your .ics file to continue.`
                 : `Recurring calendar events expire ${banner.daysLeft === 1 ? "tomorrow" : `in ${banner.daysLeft} days`} (${banner.expiry}). Re-import your .ics file on the Calendar page to extend.`}
             </span>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
               <button
                 onClick={() => router.push("/calendar")}
-                style={{ fontSize: 12, padding: "4px 10px", background: "var(--ink)", color: "var(--paper)", border: "none", borderRadius: 6, cursor: "pointer" }}
+                style={{ fontSize: 12, padding: "4px 10px", background: "rgba(0,0,0,0.15)", color: fg, border: "1px solid rgba(0,0,0,0.15)", borderRadius: 6, cursor: "pointer" }}
               >
                 Go to Calendar
               </button>
               <button
                 onClick={dismiss}
-                style={{ fontSize: 12, background: "none", border: "none", cursor: "pointer", color: "var(--ink)", opacity: 0.6, padding: "4px 6px" }}
+                style={{ fontSize: 12, background: "none", border: "none", cursor: "pointer", color: fg, opacity: 0.6, padding: "4px 6px" }}
               >
                 ✕
               </button>
             </div>
           </div>
-        )}
+          );
+        })()}
         {children}
       </main>
       <TabBar />

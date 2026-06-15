@@ -335,33 +335,38 @@ export default function HomePage() {
       </div>
 
       {/* Calendar expiry alert */}
-      {calendarExpiry?.expires_at_ms && calendarExpiry.days_until_expiry !== null && (
-        <div className="card" style={{
-          padding: 16,
-          background: calendarExpiry.days_until_expiry <= 30 ? "var(--terra)" : "var(--mustard)",
-          color: "white",
-          borderColor: "transparent",
-        }}>
-          <div className="row aic gap-3">
-            <div style={{ flex: 1 }}>
-              <div className="label" style={{ color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>Calendar import expires</div>
-              <div style={{ fontSize: 16, fontWeight: 500 }}>
-                {calendarExpiry.days_until_expiry === 0 ? "Today!" : `in ${calendarExpiry.days_until_expiry} day${calendarExpiry.days_until_expiry !== 1 ? 's' : ''}`}
+      {calendarExpiry?.expires_at_ms && calendarExpiry.days_until_expiry !== null && (() => {
+        const urgent = calendarExpiry.days_until_expiry <= 30;
+        const fg     = urgent ? "white"              : "rgba(0,0,0,0.85)";
+        const fgMid  = urgent ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.55)";
+        const fgSub  = urgent ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.5)";
+        return (
+          <div className="card" style={{
+            padding: 16,
+            background: urgent ? "var(--terra)" : "var(--mustard)",
+            borderColor: "transparent",
+          }}>
+            <div className="row aic gap-3">
+              <div style={{ flex: 1 }}>
+                <div className="label" style={{ color: fgMid, marginBottom: 2 }}>Calendar import expires</div>
+                <div style={{ fontSize: 16, fontWeight: 500, color: fg }}>
+                  {calendarExpiry.days_until_expiry === 0 ? "Today!" : `in ${calendarExpiry.days_until_expiry} day${calendarExpiry.days_until_expiry !== 1 ? 's' : ''}`}
+                </div>
+                <div style={{ fontSize: 12, color: fgSub, marginTop: 2 }}>
+                  Re-import your .ics file to extend the 2-year window
+                </div>
               </div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 2 }}>
-                Re-import your .ics file to extend the 2-year window
-              </div>
+              <Link
+                href="/calendar"
+                className="btn"
+                style={{ background: "rgba(0,0,0,0.15)", color: fg, border: "1px solid rgba(0,0,0,0.15)", whiteSpace: "nowrap", flexShrink: 0 }}
+              >
+                Go to calendar
+              </Link>
             </div>
-            <Link
-              href="/calendar"
-              className="btn"
-              style={{ background: "white", color: "var(--ink)", whiteSpace: "nowrap", flexShrink: 0 }}
-            >
-              Go to calendar
-            </Link>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Top pick */}
       {fetching && (
