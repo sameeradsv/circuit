@@ -8,6 +8,7 @@ import { parseTaskText } from "@/lib/parse-task";
 import { useVoiceInput } from "@/lib/use-voice-input";
 import { suggestSlot, formatSlot } from "@/lib/suggest-slot";
 import { useCombinedEnergy } from "@/lib/use-combined-energy";
+import { QUICK_PATTERNS, formatRecurrence } from "@/lib/recurrence";
 
 // ── NL parser (adapted from design reference) ─────────────────────────────────
 
@@ -90,6 +91,7 @@ export default function AddPage() {
   const router = useRouter();
   const [text, setText] = useState("");
   const [scheduledAt, setScheduledAt] = useState<number | null>(null);
+  const [recurrence, setRecurrence] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<{ label: string; rationale: string[] } | null>(null);
@@ -163,6 +165,7 @@ export default function AddPage() {
         tiny_step: "",
         effort: "medium",
         ...(finalScheduledAt ? { scheduled_at: finalScheduledAt } : {}),
+        ...(recurrence ? { recurrence } : {}),
         ...((taskParsed as { text: string; duration?: number }).duration ? { duration: (taskParsed as { text: string; duration?: number }).duration } : {}),
       });
       router.push("/tasks");
@@ -260,6 +263,33 @@ export default function AddPage() {
           )}
           </div>
         </div>
+
+        {/* Recurrence row */}
+        {finalScheduledAt && (
+          <div className="col gap-2" style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+            <div className="row gap-3 aic">
+              <span className="tiny muted" style={{ whiteSpace: "nowrap" }}>Repeats</span>
+              {recurrence && (
+                <span className="parse-chip" style={{ background: "var(--sage)", color: "var(--paper)" }}>
+                  {formatRecurrence(recurrence)}
+                </span>
+              )}
+              <select
+                value={recurrence || ""}
+                onChange={(e) => setRecurrence(e.target.value || null)}
+                className="input-field"
+                style={{ fontSize: 12, padding: "4px 8px", flex: 1 }}
+              >
+                <option value="">No recurrence</option>
+                {QUICK_PATTERNS.map((p) => (
+                  <option key={p.pattern} value={p.pattern}>
+                    {p.label} — {p.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
 
         <div className="row gap-2 aic" style={{ marginTop: 10 }}>
           {voice.supported && (

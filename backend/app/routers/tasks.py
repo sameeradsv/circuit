@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -12,6 +13,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, TaskEvent, User
+from app.engines.recurrence import next_occurrence
+
+_IST = ZoneInfo("Asia/Kolkata")
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -185,6 +189,41 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             occurred_at=datetime.utcnow(),
             metadata_json="{}",
         ))
+
+        # If task is being completed and has a recurrence pattern, create next occurrence
+        if payload.completed and task.recurrence:
+            from_dt = datetime.now(_IST)
+            if task.scheduled_at:
+                from_dt = datetime.fromtimestamp(task.scheduled_at / 1000, tz=_IST)
+
+            next_dt = next_occurrence(task.recurrence, from_dt)
+            if next_dt:
+                next_task = CircuitTask(
+                    user_id=user.id,
+                    text=task.text,
+                    tag=task.tag,
+                    scheduled_at=int(next_dt.timestamp() * 1000),
+                    recurrence=task.recurrence,
+                    effort=task.effort,
+                    duration=task.duration,
+                    cognitive_load=task.cognitive_load,
+                    emotional_resistance=task.emotional_resistance,
+                    activation_energy=task.activation_energy,
+                    recovery_cost=task.recovery_cost,
+                    focus_type=task.focus_type,
+                    importance=task.importance,
+                    urgency=task.urgency,
+                    consequence_of_delay=task.consequence_of_delay,
+                    momentum_value=task.momentum_value,
+                    compound_benefit=task.compound_benefit,
+                    identity_alignment=task.identity_alignment,
+                    historical_completion_rate=task.historical_completion_rate,
+                    energy_to_reward_ratio=task.energy_to_reward_ratio,
+                    task_decomposition_potential=task.task_decomposition_potential,
+                    tiny_step=task.tiny_step,
+                    preferred_execution_window=task.preferred_execution_window,
+                )
+                db.add(next_task)
 
     db.commit()
     db.refresh(task)
