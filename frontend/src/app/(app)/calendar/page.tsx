@@ -7,12 +7,13 @@ import { useCircuitAuth } from "@/lib/use-circuit-auth";
 
 // ── Constants & helpers ───────────────────────────────────────────────────────
 
-const HOUR_H  = 64;   // px per hour
-const START_H = 6;    // 6 AM
-const END_H   = 23;   // 11 PM
-const LABEL_W = 52;   // px for time label gutter
-const TOTAL_H = (END_H - START_H) * HOUR_H;
-const HOURS   = Array.from({ length: END_H - START_H }, (_, i) => START_H + i);
+const HOUR_H        = 64;   // px per hour
+const START_H       = 0;    // midnight
+const END_H         = 24;   // midnight (full 24 h)
+const LABEL_W       = 52;   // px for time label gutter
+const TOTAL_H       = (END_H - START_H) * HOUR_H;
+const HOURS         = Array.from({ length: END_H - START_H }, (_, i) => START_H + i);
+const SCROLL_TO_7AM = 7 * HOUR_H;  // default scroll position on open
 
 function fmtHour(h: number): string {
   if (h === 0)  return "12am";
@@ -151,6 +152,9 @@ function TaskBlock({ task, compact = false }: { task: ApiTask; compact?: boolean
 // ── Day view ──────────────────────────────────────────────────────────────────
 
 function DayView({ date, tasks, today }: { date: Date; tasks: ApiTask[]; today: Date }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = SCROLL_TO_7AM; }, []);
+
   const start = startOfDay(date).getTime();
   const end   = start + 86_400_000;
 
@@ -168,7 +172,7 @@ function DayView({ date, tasks, today }: { date: Date; tasks: ApiTask[]; today: 
   return (
     <div className="col gap-4">
       {/* Scrollable hour grid */}
-      <div style={{ overflowY: "auto", maxHeight: "calc(100dvh - 280px)", border: "1px solid var(--line)", borderRadius: 8 }}>
+      <div ref={scrollRef} style={{ overflowY: "auto", maxHeight: "calc(100dvh - 280px)", border: "1px solid var(--line)", borderRadius: 8 }}>
         <div style={{ position: "relative", height: TOTAL_H, minWidth: 0 }}>
           {/* Hour labels */}
           {HOURS.map((h) => (
@@ -234,6 +238,9 @@ function DayView({ date, tasks, today }: { date: Date; tasks: ApiTask[]; today: 
 // ── Week view ─────────────────────────────────────────────────────────────────
 
 function WeekView({ weekStart, tasks, today }: { weekStart: Date; tasks: ApiTask[]; today: Date }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = SCROLL_TO_7AM; }, []);
+
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);
@@ -264,7 +271,7 @@ function WeekView({ weekStart, tasks, today }: { weekStart: Date; tasks: ApiTask
       </div>
 
       {/* Scrollable grid */}
-      <div style={{ overflowY: "auto", maxHeight: "calc(100dvh - 280px)" }}>
+      <div ref={scrollRef} style={{ overflowY: "auto", maxHeight: "calc(100dvh - 280px)" }}>
         <div style={{ display: "grid", gridTemplateColumns: `${LABEL_W}px repeat(7, 1fr)`, height: TOTAL_H }}>
           {/* Time labels column */}
           <div style={{ position: "relative", borderRight: "1px solid var(--line)" }}>
