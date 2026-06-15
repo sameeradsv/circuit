@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiBlackout, ApiSettings, ApiUserState } from "@/lib/api";
+import { api, ApiBlackout, ApiSettings, ApiSleepLog, ApiUserState } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { usePasskey } from "@/lib/usePasskey";
 import { fmtDateIST } from "@/lib/tz";
@@ -28,6 +28,17 @@ export default function AccountPage() {
   const [importErr, setImportErr] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+
+  // sleep state
+  const [sleepLogs, setSleepLogs] = useState<ApiSleepLog[]>([]);
+  const [sleepBedtime, setSleepBedtime] = useState("");
+  const [sleepWake, setSleepWake] = useState("");
+  const [sleepQuality, setSleepQuality] = useState<number | "">("");
+  const [sleepDisturbed, setSleepDisturbed] = useState(false);
+  const [sleepNotes, setSleepNotes] = useState("");
+  const [sleepSaving, setSleepSaving] = useState(false);
+  const [sleepMsg, setSleepMsg] = useState<string | null>(null);
+  const [sleepErr, setSleepErr] = useState<string | null>(null);
 
   // blackout state
   const [blackouts, setBlackouts] = useState<ApiBlackout[]>([]);
@@ -90,8 +101,8 @@ export default function AccountPage() {
 
   useEffect(() => {
     if (!user) return;
-    Promise.all([api.getSettings(), api.getUserState(), api.listBlackouts()])
-      .then(([s, st, bl]) => { setSettings(s); setState(st); setBlackouts(bl); })
+    Promise.all([api.getSettings(), api.getUserState(), api.listBlackouts(), api.listSleepLogs(7)])
+      .then(([s, st, bl, sl]) => { setSettings(s); setState(st); setBlackouts(bl); setSleepLogs(sl); })
       .catch(() => {});
   }, [user]);
 
@@ -189,6 +200,30 @@ export default function AccountPage() {
       setImportErr(err instanceof Error ? err.message : "Import failed. Check passphrase and file.");
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleLogSleep() {
+    setSleepSaving(true);
+    setSleepErr(null);
+    setSleepMsg(null);
+    try {
+      const bedtime_ms = sleepBedtime ? new Date(sleepBedtime).getTime() : undefined;
+      const wake_ms    = sleepWake    ? new Date(sleepWake).getTime()    : undefined;
+      const log = await api.logSleep({
+        bedtime_ms: bedtime_ms ?? null,
+        wake_ms:    wake_ms    ?? null,
+        quality:    sleepQuality !== "" ? sleepQuality : null,
+        disturbed:  sleepDisturbed || null,
+        notes:      sleepNotes.trim() || null,
+      });
+      setSleepLogs((prev) => [log, ...prev.filter((l) => l.date !== log.date)]);
+      const durLabel = log.duration_h ? ` (${log.duration_h.toFixed(1)}h)` : "";
+      setSleepMsg(`Logged${durLabel}.`);
+    } catch (e) {
+      setSleepErr(e instanceof Error ? e.message : "Failed to log sleep");
+    } finally {
+      setSleepSaving(false);
     }
   }
 
@@ -380,6 +415,86 @@ export default function AccountPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Sleep log */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Sleep &amp; recovery</h2>
+        <div className="panel p-5 space-y-4">
+          <p className="text-xs text-circuit-muted">
+            Log today's sleep to adjust your energy baseline. Late bedtimes, short sleep, poor quality, and yesterday's late work are all factored in automatically.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Went to bed</span>
+              <input
+                type="datetime-local"
+                value={sleepBedtime}
+                onChange={(e) => setSleepBedtime(e.target.value)}
+                className="input-field"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Woke up</span>
+              <input
+                type="datetime-local"
+                value={sleepWake}
+                onChange={(e) => setSleepWake(e.target.value)}
+                className="input-field"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Sleep quality (0–10)</span>
+              <input
+                type="number" min={0} max={10} step={1}
+                value={sleepQuality}
+                onChange={(e) => setSleepQuality(e.target.value === "" ? "" : Number(e.target.value))}
+                placeholder="optional"
+                className="input-field"
+              />
+            </label>
+            <label className="flex items-center gap-3 pt-5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sleepDisturbed}
+                onChange={(e) => setSleepDisturbed(e.target.checked)}
+                className="accent-circuit-accent"
+              />
+              <span className="text-xs text-circuit-muted">Disturbed / fragmented sleep</span>
+            </label>
+          </div>
+          <input
+            type="text"
+            value={sleepNotes}
+            onChange={(e) => setSleepNotes(e.target.value)}
+            placeholder="Notes (optional — e.g. sick, loud night)"
+            className="input-field w-full"
+            maxLength={500}
+          />
+          <div className="flex items-center gap-4">
+            <button onClick={handleLogSleep} disabled={sleepSaving} className="btn-primary">
+              {sleepSaving ? "Saving…" : "Log sleep"}
+            </button>
+            {sleepMsg && <span className="text-xs text-circuit-muted">{sleepMsg}</span>}
+            {sleepErr && <span className="text-xs text-red-400">{sleepErr}</span>}
+          </div>
+
+          {sleepLogs.length > 0 && (
+            <div className="space-y-1 pt-1 border-t border-circuit-border">
+              <p className="text-xs text-circuit-muted pt-2">Recent</p>
+              {sleepLogs.slice(0, 5).map((l) => (
+                <div key={l.id} className="flex items-center justify-between text-xs py-1.5 border-b border-circuit-border last:border-0">
+                  <span className="text-circuit-text font-medium">{l.date}</span>
+                  <span className="text-circuit-muted">
+                    {l.duration_h != null ? `${l.duration_h.toFixed(1)}h` : "—"}
+                    {l.quality != null ? ` · ${l.quality}/10` : ""}
+                    {l.disturbed ? " · disturbed" : ""}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>

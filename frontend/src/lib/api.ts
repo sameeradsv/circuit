@@ -88,6 +88,32 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "blackout_skip_flags"
 >>;
 
+export interface ApiSleepLog {
+  id: number;
+  date: string;
+  bedtime_ms: number | null;
+  wake_ms: number | null;
+  quality: number | null;       // 0–10
+  disturbed: boolean | null;
+  notes: string | null;
+  duration_h: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiSleepFactor {
+  date: string;
+  sleep_factor: number;         // 0–1
+  notes: string[];
+  has_sleep_log: boolean;
+  sleep_log: ApiSleepLog | null;
+  work_signals: {
+    work_end_hour_yesterday: number | null;
+    work_span_hours_yesterday: number | null;
+    first_event_hour_today: number | null;
+  };
+}
+
 export interface ApiBlackout {
   id: number;
   blackout_type: string;
@@ -248,6 +274,18 @@ export const api = {
       return res.json() as Promise<{ imported: number; total: number; expires_at: number | null }>;
     });
   },
+
+  // sleep
+  logSleep: (payload: {
+    date?: string;
+    bedtime_ms?: number | null;
+    wake_ms?: number | null;
+    quality?: number | null;
+    disturbed?: boolean | null;
+    notes?: string | null;
+  }) => req<ApiSleepLog>("POST", "/api/sleep", payload),
+  listSleepLogs: (days = 7) => req<ApiSleepLog[]>("GET", `/api/sleep?days=${days}`),
+  getSleepFactor: () => req<ApiSleepFactor>("GET", "/api/sleep/factor"),
 
   // blackouts
   listBlackouts: () => req<ApiBlackout[]>("GET", "/api/blackouts"),

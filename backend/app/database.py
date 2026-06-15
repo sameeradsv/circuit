@@ -160,6 +160,48 @@ def _migrate_blackout_and_rrule() -> None:
         conn.commit()
 
 
+def _migrate_sleep_log() -> None:
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    if "sleep_logs" in existing_tables:
+        return
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        if is_sqlite:
+            conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS sleep_logs ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "user_id INTEGER NOT NULL REFERENCES users(id), "
+                "date VARCHAR(10) NOT NULL, "
+                "bedtime_ms INTEGER, "
+                "wake_ms INTEGER, "
+                "quality REAL, "
+                "disturbed BOOLEAN, "
+                "notes TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "UNIQUE(user_id, date))"
+            ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sleep_logs_user ON sleep_logs (user_id)"))
+        else:
+            conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS sleep_logs ("
+                "id SERIAL PRIMARY KEY, "
+                "user_id INTEGER NOT NULL REFERENCES users(id), "
+                "date VARCHAR(10) NOT NULL, "
+                "bedtime_ms BIGINT, "
+                "wake_ms BIGINT, "
+                "quality REAL, "
+                "disturbed BOOLEAN, "
+                "notes TEXT, "
+                "created_at TIMESTAMP DEFAULT NOW(), "
+                "updated_at TIMESTAMP DEFAULT NOW(), "
+                "UNIQUE(user_id, date))"
+            ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sleep_logs_user ON sleep_logs (user_id)"))
+        conn.commit()
+
+
 def _migrate_recurrence_extra() -> None:
     inspector = inspect(engine)
     existing_cols = {c["name"] for c in inspector.get_columns("circuit_tasks")}

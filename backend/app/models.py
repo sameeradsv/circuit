@@ -149,6 +149,24 @@ class Blackout(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
+class SleepLog(Base):
+    """Daily sleep context — bedtime, wake time, quality, disturbances.
+    Keyed by (user_id, date) where date is the IST calendar date the user woke up on."""
+    __tablename__ = "sleep_logs"
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_sleep_logs_user_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    date: Mapped[str] = mapped_column(String(10), nullable=False)          # "YYYY-MM-DD" IST (wake-up date)
+    bedtime_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)   # when they went to bed
+    wake_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)      # when they woke up
+    quality: Mapped[Optional[float]] = mapped_column(Float, nullable=True)         # 0–10 user rating
+    disturbed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)      # fragmented/interrupted
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
 class WebAuthnCredential(Base):
     __tablename__ = "webauthn_credentials"
 

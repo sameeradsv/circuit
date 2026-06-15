@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import require_user
-from app.models import CircuitTask, TaskEvent, User, UserState
+from app.models import CircuitTask, SleepLog, TaskEvent, User, UserState
 
 _IST = ZoneInfo("Asia/Kolkata")
 
@@ -152,6 +152,17 @@ def energy_sync(
 
     state = db.query(UserState).filter_by(user_id=user.id).first()
 
+    # Sleep factor — derived from today's sleep log + task event work signals
+    from app.routers.sleep import compute_sleep_factor, _get_work_signals
+    today_str = now_ist.strftime("%Y-%m-%d")
+    yesterday_str = (now_ist - timedelta(days=1)).strftime("%Y-%m-%d")
+    sleep_log = (
+        db.query(SleepLog).filter_by(user_id=user.id, date=today_str).first()
+        or db.query(SleepLog).filter_by(user_id=user.id, date=yesterday_str).first()
+    )
+    work_end_h, work_span_h, first_today_h = _get_work_signals(user.id, db)
+    sleep_factor, sleep_notes = compute_sleep_factor(sleep_log, work_end_h, work_span_h, first_today_h)
+
     return {
         "as_of": now_ist.isoformat(),
         "source": "circuit",
@@ -163,4 +174,6 @@ def energy_sync(
         "events_ahead": len(future_tasks),
         "manual_energy": round(state.energy_level, 3) if state else 0.7,
         "stress_level": round(state.stress_level, 3) if state else 0.3,
+        "sleep_factor": sleep_factor,
+        "sleep_notes": sleep_notes,
     }
