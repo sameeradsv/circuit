@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiSettings, ApiUserState } from "@/lib/api";
+import { api, ApiBlackout, ApiSettings, ApiUserState } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { usePasskey } from "@/lib/usePasskey";
 
@@ -27,6 +27,16 @@ export default function AccountPage() {
   const [importErr, setImportErr] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+
+  // blackout state
+  const [blackouts, setBlackouts] = useState<ApiBlackout[]>([]);
+  const [newBlackoutType, setNewBlackoutType] = useState("travelling");
+  const today = new Date().toISOString().slice(0, 10);
+  const [newBlackoutStart, setNewBlackoutStart] = useState(today);
+  const [newBlackoutEnd, setNewBlackoutEnd] = useState(today);
+  const [addingBlackout, setAddingBlackout] = useState(false);
+  const [blackoutMsg, setBlackoutMsg] = useState<string | null>(null);
+  const [blackoutErr, setBlackoutErr] = useState<string | null>(null);
 
   // cleanup state
   const sixMonthsAhead = new Date();
@@ -79,10 +89,37 @@ export default function AccountPage() {
 
   useEffect(() => {
     if (!user) return;
-    Promise.all([api.getSettings(), api.getUserState()])
-      .then(([s, st]) => { setSettings(s); setState(st); })
+    Promise.all([api.getSettings(), api.getUserState(), api.listBlackouts()])
+      .then(([s, st, bl]) => { setSettings(s); setState(st); setBlackouts(bl); })
       .catch(() => {});
   }, [user]);
+
+  async function handleAddBlackout() {
+    if (!newBlackoutStart || !newBlackoutEnd) return;
+    setAddingBlackout(true);
+    setBlackoutErr(null);
+    setBlackoutMsg(null);
+    try {
+      const startMs = new Date(newBlackoutStart).getTime();
+      const endMs = new Date(newBlackoutEnd).getTime() + 86_399_999; // end of day
+      const b = await api.createBlackout({ blackout_type: newBlackoutType, start_date_ms: startMs, end_date_ms: endMs });
+      setBlackouts((prev) => [...prev, b].sort((a, b) => a.start_date_ms - b.start_date_ms));
+      setBlackoutMsg("Blackout added.");
+    } catch (e) {
+      setBlackoutErr(e instanceof Error ? e.message : "Failed to add blackout");
+    } finally {
+      setAddingBlackout(false);
+    }
+  }
+
+  async function handleDeleteBlackout(id: number) {
+    try {
+      await api.deleteBlackout(id);
+      setBlackouts((prev) => prev.filter((b) => b.id !== id));
+    } catch (e) {
+      setBlackoutErr(e instanceof Error ? e.message : "Failed to remove blackout");
+    }
+  }
 
   if (loading || !user) return null;
 
@@ -267,6 +304,83 @@ export default function AccountPage() {
             {saveMsg && <span className="text-xs text-circuit-muted">{saveMsg}</span>}
           </div>
         </form>
+      </section>
+
+      {/* Blackouts */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Blackouts</h2>
+        <div className="panel p-5 space-y-4">
+          <p className="text-xs text-circuit-muted">
+            Mark dates when you're unavailable. Tasks flagged to skip during these times will be grayed out in your task list.
+          </p>
+
+          <div className="flex flex-wrap gap-3 items-end">
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Type</span>
+              <select
+                value={newBlackoutType}
+                onChange={(e) => setNewBlackoutType(e.target.value)}
+                className="input-field"
+              >
+                <option value="travelling">Travelling</option>
+                <option value="period">Period</option>
+                <option value="sickness">Sickness</option>
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">From</span>
+              <input
+                type="date"
+                value={newBlackoutStart}
+                onChange={(e) => { setNewBlackoutStart(e.target.value); setBlackoutMsg(null); }}
+                className="input-field"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">To</span>
+              <input
+                type="date"
+                value={newBlackoutEnd}
+                onChange={(e) => { setNewBlackoutEnd(e.target.value); setBlackoutMsg(null); }}
+                className="input-field"
+              />
+            </label>
+            <button
+              onClick={handleAddBlackout}
+              disabled={addingBlackout || !newBlackoutStart || !newBlackoutEnd}
+              className="btn-primary"
+            >
+              {addingBlackout ? "Adding…" : "Add"}
+            </button>
+          </div>
+
+          {blackoutErr && <p className="text-sm text-red-400">{blackoutErr}</p>}
+          {blackoutMsg && <p className="text-xs text-circuit-muted">{blackoutMsg}</p>}
+
+          {blackouts.length > 0 && (
+            <div className="space-y-1 pt-1">
+              {blackouts.map((b) => {
+                const start = new Date(b.start_date_ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                const end = new Date(b.end_date_ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                const label = b.blackout_type.charAt(0).toUpperCase() + b.blackout_type.slice(1);
+                return (
+                  <div key={b.id} className="flex items-center justify-between text-xs py-2 border-b border-circuit-border last:border-0">
+                    <span className="text-circuit-text">
+                      <span className="font-medium">{label}</span>
+                      <span className="text-circuit-muted ml-2">{start} — {end}</span>
+                    </span>
+                    <button
+                      onClick={() => handleDeleteBlackout(b.id)}
+                      className="text-circuit-muted hover:text-red-400 transition-colors ml-4 shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Export */}

@@ -64,6 +64,10 @@ export interface ApiTask {
   client_updated_at: number | null;
   created_at: string;
   updated_at: string;
+  blackout_skip_flags: string[];
+  rrule: string | null;
+  rrule_dtstart_ms: number | null;
+  is_recurring_template: boolean;
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
@@ -78,7 +82,16 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "skipped_count" | "last_skipped_at"
   | "preferred_execution_window" | "delay_pattern"
   | "required_resources" | "dependencies" | "metadata" | "location_dependency"
+  | "blackout_skip_flags"
 >>;
+
+export interface ApiBlackout {
+  id: number;
+  blackout_type: string;
+  start_date_ms: number;
+  end_date_ms: number;
+  created_at: string;
+}
 
 export interface ApiSettings {
   values: Record<string, unknown>;
@@ -230,6 +243,12 @@ export const api = {
       return res.json() as Promise<{ imported: number; total: number; expires_at: number | null }>;
     });
   },
+
+  // blackouts
+  listBlackouts: () => req<ApiBlackout[]>("GET", "/api/blackouts"),
+  createBlackout: (payload: { blackout_type: string; start_date_ms: number; end_date_ms: number }) =>
+    req<ApiBlackout>("POST", "/api/blackouts", payload),
+  deleteBlackout: (id: number) => req<void>("DELETE", `/api/blackouts/${id}`),
 
   // history events
   logEvent: (taskId: number, eventType: string, metadata: Record<string, unknown> = {}) =>

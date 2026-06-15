@@ -81,6 +81,14 @@ class CircuitTask(Base):
     delay_pattern: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     location_dependency: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
+    # Blackout skip flags
+    blackout_skip_flags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array: ["travelling", "period", "sickness"]
+
+    # Lazy-load RRULE (calendar imports)
+    rrule: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rrule_dtstart_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    is_recurring_template: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Timestamps
     client_created_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     client_updated_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
@@ -122,6 +130,17 @@ class TaskEvent(Base):
     event_type: Mapped[str] = mapped_column(String(30), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class Blackout(Base):
+    __tablename__ = "blackouts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    blackout_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    start_date_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    end_date_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class WebAuthnCredential(Base):

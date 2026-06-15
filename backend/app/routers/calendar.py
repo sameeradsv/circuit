@@ -22,6 +22,50 @@ _RRULE_HORIZON_DAYS = 730  # 2 years
 _RRULE_MAX = 730
 
 
+def _detect_recurrence(title: str, description: str) -> Optional[str]:
+    """Detect recurrence pattern from keywords in the event title/description."""
+    text = f"{title} {description}".lower()
+
+    # Nth weekday of month (e.g. "1st Monday", "last Friday")
+    _day_codes = {"monday": "MO", "tuesday": "TU", "wednesday": "WE", "thursday": "TH",
+                  "friday": "FR", "saturday": "SA", "sunday": "SU"}
+    _nth = [
+        (r"\b(?:1st|first)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", "1"),
+        (r"\b(?:2nd|second)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", "2"),
+        (r"\b(?:3rd|third)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", "3"),
+        (r"\b(?:4th|fourth)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", "4"),
+        (r"\blast\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", "L"),
+    ]
+    for pattern_re, n in _nth:
+        m = re.search(pattern_re, text)
+        if m:
+            return f"monthly:{n}{_day_codes[m.group(1)]}"
+
+    if any(k in text for k in ("monthly", "every month", "each month")):
+        return "monthly:1"
+
+    if any(k in text for k in ("daily", "every day", "each day")):
+        return "daily"
+
+    if any(k in text for k in ("weekday", "work day", "working day")):
+        return "weekday"
+
+    if "weekend" in text:
+        return "weekend"
+
+    # Detect specific days mentioned (supports multi-day: "monday & thursday")
+    _day_order = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+    found = [code for name, code in _day_codes.items() if name in text]
+    found_sorted = [d for d in _day_order if d in found]
+    if found_sorted:
+        return f"weekly:{','.join(found_sorted)}"
+
+    if any(k in text for k in ("weekly", "every week", "each week")):
+        return "weekly:MO"
+
+    return None
+
+
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
     importance, urgency = _calname_to_priority(ev.get("cal_name", ""))
     # Priority: emoji circle in title > event color property > keyword default
@@ -30,6 +74,8 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         or _color_to_effort(ev.get("color", ""))
     )
     tag, focus_type = _classify_event(ev.get("summary", ""), ev.get("description", ""))
+    recurrence = _detect_recurrence(ev.get("summary", ""), ev.get("description", ""))
+    rrule = ev.get("rrule")
     return CircuitTask(
         user_id=user_id,
         client_id=client_id,
@@ -60,6 +106,10 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         required_resources=json.dumps([]),
         dependencies=json.dumps([]),
         metadata_json=json.dumps({}),
+        recurrence=recurrence,
+        rrule=rrule,
+        rrule_dtstart_ms=ev["scheduled_at"] if rrule else None,
+        is_recurring_template=bool(rrule),
     )
 
 
@@ -465,22 +515,19 @@ async def import_ics(
             uid = ev["uid"]
             rrule = ev.get("rrule")
             if rrule:
-                exdate_set = set(ev.get("exdates", []))
-                occurrences = _expand_rrule(ev["scheduled_at"], rrule, exdate_set, cutoff_ms)
-                for ts_ms in occurrences:
-                    # Safety filter: ensure occurrence is within [cutoff, horizon]
-                    if cutoff_ms and ts_ms < cutoff_ms:
-                        continue
-                    cid = _client_id(uid, f":{ts_ms}") if uid else ""
-                    if _seen(cid, ts_ms, ev["summary"]):
-                        continue
-                    db.add(_make_task(user.id, {**ev, "scheduled_at": ts_ms}, client_id=cid))
-                    existing_cids.add(cid)
-                    created += 1
-                if occurrences:
-                    last = max(occurrences)
-                    if expires_at is None or last > expires_at:
-                        expires_at = last
+                # Lazy-load: store one template task per series instead of expanding 730 days.
+                # The template holds rrule + rrule_dtstart_ms; next occurrences are generated
+                # on completion (same as user-created recurring tasks).
+                cid = _client_id(uid) if uid else ""
+                if _seen(cid, ev["scheduled_at"], ev["summary"]):
+                    continue
+                db.add(_make_task(user.id, ev, client_id=cid))
+                existing_cids.add(cid)
+                created += 1
+                # Template expiry = dtstart + 730 days (the full intended horizon)
+                template_expiry = ev["scheduled_at"] + _RRULE_HORIZON_DAYS * 86_400_000
+                if expires_at is None or template_expiry > expires_at:
+                    expires_at = template_expiry
             else:
                 cid = _client_id(uid) if uid else ""
                 if _seen(cid, ev["scheduled_at"], ev["summary"]):
@@ -592,25 +639,48 @@ def get_calendar_expiry(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Return the furthest-out calendar event (when the 2-year window expires).
-    Returns {expires_at_ms, expires_at_iso, days_until_expiry} or null if no calendar events."""
-    latest = (
+    """Return when the calendar window expires.
+    For old-style expanded tasks: max(scheduled_at).
+    For RRULE templates: max(rrule_dtstart_ms + 730 days)."""
+    candidates: list[int] = []
+
+    # Old-style expanded tasks (non-template ics: entries)
+    latest_scheduled = (
         db.query(CircuitTask.scheduled_at)
         .filter(
             CircuitTask.user_id == user.id,
             CircuitTask.client_id.isnot(None),
             CircuitTask.client_id.like("ics:%"),
+            CircuitTask.scheduled_at.isnot(None),
+            CircuitTask.is_recurring_template.isnot(True),
         )
         .order_by(CircuitTask.scheduled_at.desc())
         .first()
     )
-    if not latest or not latest[0]:
+    if latest_scheduled and latest_scheduled[0]:
+        candidates.append(latest_scheduled[0])
+
+    # RRULE templates: their horizon is dtstart + 730 days
+    latest_template = (
+        db.query(CircuitTask.rrule_dtstart_ms)
+        .filter(
+            CircuitTask.user_id == user.id,
+            CircuitTask.is_recurring_template == True,
+            CircuitTask.rrule_dtstart_ms.isnot(None),
+        )
+        .order_by(CircuitTask.rrule_dtstart_ms.desc())
+        .first()
+    )
+    if latest_template and latest_template[0]:
+        candidates.append(latest_template[0] + _RRULE_HORIZON_DAYS * 86_400_000)
+
+    if not candidates:
         return {"expires_at_ms": None, "expires_at_iso": None, "days_until_expiry": None}
 
-    expires_ms = latest[0]
+    expires_ms = max(candidates)
     expires_dt = datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc)
     now = datetime.now(timezone.utc)
-    days_until = max(0, int((expires_ms - int(now.timestamp() * 1000)) / (86_400_000)))
+    days_until = max(0, int((expires_ms - int(now.timestamp() * 1000)) / 86_400_000))
 
     return {
         "expires_at_ms": expires_ms,

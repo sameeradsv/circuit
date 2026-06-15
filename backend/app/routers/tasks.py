@@ -56,6 +56,10 @@ class TaskIn(BaseModel):
     location_dependency: Optional[str] = None
     client_created_at: Optional[int] = None
     client_updated_at: Optional[int] = None
+    blackout_skip_flags: list[str] = []
+    rrule: Optional[str] = None
+    rrule_dtstart_ms: Optional[int] = None
+    is_recurring_template: bool = False
 
 
 class TaskPatch(BaseModel):
@@ -92,6 +96,7 @@ class TaskPatch(BaseModel):
     dependencies: Optional[list[str]] = None
     metadata: Optional[dict[str, Any]] = None
     client_updated_at: Optional[int] = None
+    blackout_skip_flags: Optional[list[str]] = None
 
 
 def _task_to_dict(t: CircuitTask) -> dict:
@@ -134,6 +139,10 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "client_updated_at": t.client_updated_at,
         "created_at": t.created_at.isoformat(),
         "updated_at": t.updated_at.isoformat(),
+        "blackout_skip_flags": json.loads(t.blackout_skip_flags) if t.blackout_skip_flags else [],
+        "rrule": t.rrule,
+        "rrule_dtstart_ms": t.rrule_dtstart_ms,
+        "is_recurring_template": bool(t.is_recurring_template),
     }
 
 
@@ -145,14 +154,14 @@ def list_tasks(user: User = Depends(require_user), db: Session = Depends(get_db)
 
 @router.post("", status_code=201)
 def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    _exclude = {"metadata", "required_resources", "dependencies", "blackout_skip_flags"}
     task = CircuitTask(
         user_id=user.id,
-        **{k: json.dumps(v) if k in ("required_resources", "dependencies") else
-           json.dumps(v) if k == "metadata" else v
-           for k, v in payload.model_dump(exclude={"metadata", "required_resources", "dependencies"}).items()},
+        **{k: v for k, v in payload.model_dump(exclude=_exclude).items()},
         required_resources=json.dumps(payload.required_resources),
         dependencies=json.dumps(payload.dependencies),
         metadata_json=json.dumps(payload.metadata),
+        blackout_skip_flags=json.dumps(payload.blackout_skip_flags) if payload.blackout_skip_flags else None,
     )
     db.add(task)
     db.commit()
@@ -174,6 +183,8 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             task.metadata_json = json.dumps(value)
         elif field in _JSON_FIELDS:
             setattr(task, field, json.dumps(value))
+        elif field == "blackout_skip_flags":
+            task.blackout_skip_flags = json.dumps(value) if value is not None else None
         else:
             setattr(task, field, value)
 
@@ -190,20 +201,44 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             metadata_json="{}",
         ))
 
-        # If task is being completed and has a recurrence pattern, create next occurrence
-        if payload.completed and task.recurrence and task.scheduled_at:
+        # If task is being completed, create next occurrence if recurring
+        if payload.completed and task.scheduled_at:
             try:
                 from_dt = datetime.fromtimestamp(task.scheduled_at / 1000, tz=_IST)
-                next_dt = next_occurrence(task.recurrence, from_dt)
-                if next_dt:
-                    # Preserve time from original task
-                    next_dt = next_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
+                next_ms: Optional[int] = None
+
+                if task.rrule and task.is_recurring_template:
+                    # RRULE-based calendar template: use RRULE parser for next occurrence
+                    from app.routers.calendar import _expand_rrule
+                    candidates = _expand_rrule(
+                        task.rrule_dtstart_ms or task.scheduled_at,
+                        task.rrule,
+                        set(),
+                        cutoff_ms=task.scheduled_at + 1,
+                    )
+                    raw_next = next((ts for ts in candidates if ts > task.scheduled_at), None)
+                    if raw_next:
+                        raw_dt = datetime.fromtimestamp(raw_next / 1000, tz=_IST)
+                        raw_dt = raw_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
+                        next_ms = int(raw_dt.timestamp() * 1000)
+                elif task.recurrence:
+                    # Simple pattern (user-created tasks)
+                    next_dt = next_occurrence(task.recurrence, from_dt)
+                    if next_dt:
+                        next_dt = next_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
+                        next_ms = int(next_dt.timestamp() * 1000)
+
+                if next_ms:
                     next_task = CircuitTask(
                         user_id=user.id,
+                        client_id=task.client_id if task.is_recurring_template else None,
                         text=task.text,
                         tag=task.tag,
-                        scheduled_at=int(next_dt.timestamp() * 1000),
+                        scheduled_at=next_ms,
                         recurrence=task.recurrence,
+                        rrule=task.rrule,
+                        rrule_dtstart_ms=task.rrule_dtstart_ms,
+                        is_recurring_template=task.is_recurring_template,
                         effort=task.effort,
                         duration=task.duration,
                         cognitive_load=task.cognitive_load,
@@ -222,6 +257,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                         task_decomposition_potential=task.task_decomposition_potential,
                         tiny_step=task.tiny_step,
                         preferred_execution_window=task.preferred_execution_window,
+                        blackout_skip_flags=task.blackout_skip_flags,
                     )
                     db.add(next_task)
             except Exception:
@@ -301,10 +337,11 @@ def migrate_from_localstorage(
                 continue
         task = CircuitTask(
             user_id=user.id,
-            **{k: v for k, v in item.model_dump(exclude={"metadata", "required_resources", "dependencies"}).items()},
+            **{k: v for k, v in item.model_dump(exclude={"metadata", "required_resources", "dependencies", "blackout_skip_flags"}).items()},
             required_resources=json.dumps(item.required_resources),
             dependencies=json.dumps(item.dependencies),
             metadata_json=json.dumps(item.metadata),
+            blackout_skip_flags=json.dumps(item.blackout_skip_flags) if item.blackout_skip_flags else None,
         )
         db.add(task)
         created += 1
@@ -371,10 +408,17 @@ def energy_summary(
         drain = _task_drain(t)
 
         if t.completed:
-            # Count completed tasks updated today as sunk cost
-            if t.updated_at >= today_start:
-                past_drain += drain
-                past_count += 1
+            # Attribute drain to the task's scheduled day, not the day it was marked done.
+            # Completing a last-week event today shouldn't inflate today's energy cost.
+            if sched is not None:
+                if today_start <= sched < today_end:
+                    past_drain += drain
+                    past_count += 1
+            else:
+                # Floating task (no date): attribute to the day it was completed
+                if t.updated_at >= today_start:
+                    past_drain += drain
+                    past_count += 1
         elif sched is not None and today_start <= sched < today_end:
             # Scheduled today: split by now
             if sched <= now:
