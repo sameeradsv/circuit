@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -22,7 +22,7 @@ def get_user_state(user: User = Depends(require_user), db: Session = Depends(get
             stress_level=0.3,
             time_available_minutes=480,
             focus_mode="normal",
-            updated_at=datetime.utcnow().isoformat() + "Z",
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
         )
     return UserStateRead(
         energy_level=row.energy_level,
@@ -47,7 +47,7 @@ def set_user_state(
     row.stress_level = payload.stress_level
     row.time_available_minutes = payload.time_available_minutes
     row.focus_mode = payload.focus_mode
-    row.updated_at = datetime.utcnow()
+    row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
     db.refresh(row)
     return UserStateRead(

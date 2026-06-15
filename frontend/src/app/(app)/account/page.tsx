@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiBlackout, ApiSettings, ApiUserState } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { usePasskey } from "@/lib/usePasskey";
+import { fmtDateIST } from "@/lib/tz";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
 
@@ -361,8 +362,8 @@ export default function AccountPage() {
           {blackouts.length > 0 && (
             <div className="space-y-1 pt-1">
               {blackouts.map((b) => {
-                const start = new Date(b.start_date_ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-                const end = new Date(b.end_date_ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                const start = fmtDateIST(b.start_date_ms, { month: "short", day: "numeric", year: "numeric" });
+                const end = fmtDateIST(b.end_date_ms, { month: "short", day: "numeric", year: "numeric" });
                 const label = b.blackout_type.charAt(0).toUpperCase() + b.blackout_type.slice(1);
                 return (
                   <div key={b.id} className="flex items-center justify-between text-xs py-2 border-b border-circuit-border last:border-0">

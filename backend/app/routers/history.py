@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -40,7 +40,7 @@ def log_event(
     occurred = (
         datetime.utcfromtimestamp(payload.occurred_at / 1000)
         if payload.occurred_at
-        else datetime.utcnow()
+        else datetime.now(timezone.utc).replace(tzinfo=None)
     )
     event = TaskEvent(
         user_id=user.id,

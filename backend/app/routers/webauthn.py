@@ -4,7 +4,7 @@ import base64
 import json
 import os
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -42,7 +42,7 @@ def _unb64u(s: str) -> bytes:
 
 
 def _store(db: Session, challenge: bytes, user_id=None) -> str:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     db.query(WebAuthnChallenge).filter(WebAuthnChallenge.expires_at < now).delete()
     entry = WebAuthnChallenge(
         id=secrets.token_hex(32),
@@ -57,7 +57,7 @@ def _store(db: Session, challenge: bytes, user_id=None) -> str:
 
 
 def _pop(db: Session, cid: str) -> bytes:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     e = db.get(WebAuthnChallenge, cid)
     if not e or e.expires_at < now:
         db.query(WebAuthnChallenge).filter(WebAuthnChallenge.expires_at < now).delete()

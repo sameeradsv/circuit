@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -98,7 +98,7 @@ def debug_auth(authorization: Optional[str] = Header(None), db: Session = Depend
     session = db.scalar(
         select(AuthSession).where(
             AuthSession.token == token,
-            AuthSession.expires_at > datetime.utcnow(),
+            AuthSession.expires_at > datetime.now(timezone.utc).replace(tzinfo=None),
         )
     )
     if session:
