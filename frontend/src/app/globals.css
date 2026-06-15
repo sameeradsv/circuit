@@ -310,6 +310,16 @@ body {
   flex: 1; min-width: 0;
   padding: var(--pad-page);
   margin-left: 220px;
+  display: flex; flex-direction: column;
+}
+
+/* Calendar grid fills whatever height is left after the page header */
+.cal-scroll-grid {
+  overflow-y: auto;
+  height: calc(100dvh - 200px);
+}
+@media (max-width: 768px) {
+  .cal-scroll-grid { height: calc(100dvh - 260px); }
 }
 
 /* ── Sidebar ── */

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiTask } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { TaskDetailModal } from "@/components/TaskDetailModal";
+import { useEnergyMode } from "@/lib/use-energy-mode";
 
 // ── Constants & helpers ───────────────────────────────────────────────────────
 
@@ -104,12 +106,13 @@ function HourLines() {
 
 // ── Task block ────────────────────────────────────────────────────────────────
 
-function TaskBlock({ task, compact = false }: { task: ApiTask; compact?: boolean }) {
+function TaskBlock({ task, compact = false, onClick }: { task: ApiTask; compact?: boolean; onClick?: () => void }) {
   const top    = taskTop(task.scheduled_at!);
   const height = taskHeight(task.duration ?? 30);
   return (
     <div
       title={`${task.text} · ${fmtTime(task.scheduled_at!)} · ${task.duration ?? 30}m`}
+      onClick={onClick}
       style={{
         position: "absolute",
         top,
@@ -126,7 +129,7 @@ function TaskBlock({ task, compact = false }: { task: ApiTask; compact?: boolean
         justifyContent: "center",
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         zIndex: 1,
-        cursor: "default",
+        cursor: onClick ? "pointer" : "default",
       }}
     >
       <span style={{
@@ -151,7 +154,7 @@ function TaskBlock({ task, compact = false }: { task: ApiTask; compact?: boolean
 
 // ── Day view ──────────────────────────────────────────────────────────────────
 
-function DayView({ date, tasks, today }: { date: Date; tasks: ApiTask[]; today: Date }) {
+function DayView({ date, tasks, today, onTaskClick }: { date: Date; tasks: ApiTask[]; today: Date; onTaskClick: (t: ApiTask) => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = SCROLL_TO_7AM; }, []);
 
@@ -172,7 +175,7 @@ function DayView({ date, tasks, today }: { date: Date; tasks: ApiTask[]; today: 
   return (
     <div className="col gap-4">
       {/* Scrollable hour grid */}
-      <div ref={scrollRef} style={{ overflowY: "auto", maxHeight: "calc(100dvh - 280px)", border: "1px solid var(--line)", borderRadius: 8 }}>
+      <div ref={scrollRef} className="cal-scroll-grid" style={{ border: "1px solid var(--line)", borderRadius: 8 }}>
         <div style={{ position: "relative", height: TOTAL_H, minWidth: 0 }}>
           {/* Hour labels */}
           {HOURS.map((h) => (
@@ -196,7 +199,7 @@ function DayView({ date, tasks, today }: { date: Date; tasks: ApiTask[]; today: 
             )}
 
             {/* Task blocks */}
-            {visible.map((t) => <TaskBlock key={t.id} task={t} />)}
+            {visible.map((t) => <TaskBlock key={t.id} task={t} onClick={() => onTaskClick(t)} />)}
           </div>
         </div>
       </div>
@@ -237,7 +240,7 @@ function DayView({ date, tasks, today }: { date: Date; tasks: ApiTask[]; today: 
 
 // ── Week view ─────────────────────────────────────────────────────────────────
 
-function WeekView({ weekStart, tasks, today }: { weekStart: Date; tasks: ApiTask[]; today: Date }) {
+function WeekView({ weekStart, tasks, today, onTaskClick }: { weekStart: Date; tasks: ApiTask[]; today: Date; onTaskClick: (t: ApiTask) => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = SCROLL_TO_7AM; }, []);
 
@@ -271,7 +274,7 @@ function WeekView({ weekStart, tasks, today }: { weekStart: Date; tasks: ApiTask
       </div>
 
       {/* Scrollable grid */}
-      <div ref={scrollRef} style={{ overflowY: "auto", maxHeight: "calc(100dvh - 280px)" }}>
+      <div ref={scrollRef} className="cal-scroll-grid">
         <div style={{ display: "grid", gridTemplateColumns: `${LABEL_W}px repeat(7, 1fr)`, height: TOTAL_H }}>
           {/* Time labels column */}
           <div style={{ position: "relative", borderRight: "1px solid var(--line)" }}>
@@ -300,7 +303,7 @@ function WeekView({ weekStart, tasks, today }: { weekStart: Date; tasks: ApiTask
                   <div style={{ position: "absolute", top: nowMins / 60 * HOUR_H, left: 0, right: 0, height: 2, background: "var(--terra)", zIndex: 5 }} />
                 )}
 
-                {dayTasks.map((t) => <TaskBlock key={t.id} task={t} compact />)}
+                {dayTasks.map((t) => <TaskBlock key={t.id} task={t} compact onClick={() => onTaskClick(t)} />)}
               </div>
             );
           })}
@@ -378,9 +381,11 @@ export default function CalendarPage() {
   const [view, setView]     = useState<CalView>("month");
   const today = useMemo(() => startOfDay(new Date()), []);
   const [focusDate, setFocusDate] = useState<Date>(() => startOfDay(new Date()));
+  const [energyMode] = useEnergyMode();
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<ApiTask | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -530,9 +535,18 @@ export default function CalendarPage() {
       {fetching && <p className="serif" style={{ color: "var(--ink-3)" }}>Loading…</p>}
 
       {/* View content */}
-      {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} />}
-      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} />}
+      {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} onTaskClick={setSelectedTask} />}
+      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} onTaskClick={setSelectedTask} />}
       {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} />}
+
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          mode={energyMode}
+          onSave={(updated) => setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t))}
+          onClose={() => setSelectedTask(null)}
+        />
+      )}
 
       {/* Export */}
       {view === "month" && (
