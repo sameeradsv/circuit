@@ -13,7 +13,7 @@ from app.models import Blackout, User
 
 router = APIRouter(prefix="/api/blackouts", tags=["blackouts"])
 
-_VALID_TYPES = {"travelling", "period", "sickness"}
+_VALID_TYPES = {"travelling", "period", "sickness", "leave"}
 
 
 class BlackoutIn(BaseModel):

@@ -22,6 +22,47 @@ _RRULE_HORIZON_DAYS = 730  # 2 years
 _RRULE_MAX = 730
 
 
+def _rrule_to_recurrence(rrule_str: str) -> Optional[str]:
+    """Convert a raw RRULE string to Circuit's internal recurrence pattern."""
+    parts: dict[str, str] = {}
+    for seg in rrule_str.upper().split(";"):
+        if "=" in seg:
+            k, v = seg.split("=", 1)
+            parts[k] = v
+
+    freq     = parts.get("FREQ", "")
+    interval = int(parts.get("INTERVAL", "1"))
+    byday    = parts.get("BYDAY", "")
+
+    if freq == "DAILY" and interval == 1:
+        return "daily"
+
+    if freq == "WEEKLY":
+        day_order = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+        if byday:
+            days = {d.strip()[-2:] for d in byday.split(",")}
+            days_sorted = [d for d in day_order if d in days]
+            if days == {"MO", "TU", "WE", "TH", "FR"}:
+                return "weekday"
+            if days == {"SA", "SU"}:
+                return "weekend"
+            return f"weekly:{','.join(days_sorted)}"
+        return "weekly:MO"
+
+    if freq == "MONTHLY":
+        if byday:
+            token = byday.split(",")[0].strip()
+            m = re.match(r"^(-?\d+|L)([A-Z]{2})$", token)
+            if m:
+                n, wd = m.group(1), m.group(2)
+                if n == "-1":
+                    n = "L"
+                return f"monthly:{n}{wd}"
+        return "monthly:1"
+
+    return None
+
+
 def _detect_recurrence(title: str, description: str) -> Optional[str]:
     """Detect recurrence pattern from keywords in the event title/description."""
     text = f"{title} {description}".lower()
@@ -74,8 +115,11 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         or _color_to_effort(ev.get("color", ""))
     )
     tag, focus_type = _classify_event(ev.get("summary", ""), ev.get("description", ""))
-    recurrence = _detect_recurrence(ev.get("summary", ""), ev.get("description", ""))
     rrule = ev.get("rrule")
+    recurrence = (
+        (_rrule_to_recurrence(rrule) if rrule else None)
+        or _detect_recurrence(ev.get("summary", ""), ev.get("description", ""))
+    )
     return CircuitTask(
         user_id=user_id,
         client_id=client_id,

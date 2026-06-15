@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiTask } from "@/lib/api";
+import { api, ApiTask, ApiBlackout } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { useEnergyLevel } from "@/lib/use-energy-level";
 import { parseTaskText } from "@/lib/parse-task";
@@ -113,6 +113,7 @@ export default function TasksPage() {
   const [reschedulingTask, setReschedulingTask] = useState<ApiTask | null>(null);
   const [completingIds, setCompletingIds] = useState<Set<number>>(new Set());
   const [showDone, setShowDone] = useState(false);
+  const [activeBlackouts, setActiveBlackouts] = useState<ApiBlackout[]>([]);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -121,10 +122,26 @@ export default function TasksPage() {
   useEffect(() => {
     if (!user) return;
     setFetching(true);
-    api.listTasks().then(setTasks).catch(() => {}).finally(() => setFetching(false));
+    const nowMs = Date.now();
+    Promise.all([
+      api.listTasks(),
+      api.listBlackouts(),
+    ]).then(([taskList, blackouts]) => {
+      setTasks(taskList);
+      setActiveBlackouts(blackouts.filter(b => b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
+    }).catch(() => {}).finally(() => setFetching(false));
   }, [user]);
 
   if (loading || !user) return null;
+
+  const activeTypes = new Set(activeBlackouts.map(b => b.blackout_type));
+
+  function isBlackedOut(task: ApiTask): boolean {
+    const flags = task.blackout_skip_flags ?? [];
+    if (flags.some(f => activeTypes.has(f))) return true;
+    if (activeTypes.has("leave") && task.tag === "work") return true;
+    return false;
+  }
 
   const timeAvail = 120;
   const open = tasks.filter((t) => !t.completed);
@@ -267,6 +284,20 @@ export default function TasksPage() {
         })}
       </div>
 
+      {activeBlackouts.length > 0 && (
+        <div style={{ padding: "8px 14px", background: "var(--paper-2)", borderRadius: 6, fontSize: 13, color: "var(--ink-2)", border: "1px solid var(--line)" }}>
+          {activeBlackouts.map(b => {
+            const label = b.blackout_type === "leave" ? "On leave"
+              : b.blackout_type === "period" ? "On period"
+              : b.blackout_type === "sickness" ? "Sick"
+              : "Travelling";
+            const until = new Date(b.end_date_ms).toLocaleDateString("en-IN", { month: "short", day: "numeric", timeZone: "Asia/Kolkata" });
+            const note = b.blackout_type === "leave" ? " · work tasks are dimmed" : "";
+            return <span key={b.id} style={{ marginRight: 12 }}>{label} until {until}{note}</span>;
+          })}
+        </div>
+      )}
+
       {fetching && (
         <p className="serif" style={{ color: "var(--ink-3)", fontSize: 15 }}>Loading…</p>
       )}
@@ -285,6 +316,7 @@ export default function TasksPage() {
               rank={i + 1}
               isNow
               completing={completingIds.has(t.id)}
+              blackedOut={isBlackedOut(t)}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
               onDeleteSeries={() => deleteSeriesTasks(t.id)}
@@ -310,6 +342,7 @@ export default function TasksPage() {
               task={t}
               rank={i + 1 + nowGroup.length}
               completing={completingIds.has(t.id)}
+              blackedOut={isBlackedOut(t)}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
               onDeleteSeries={() => deleteSeriesTasks(t.id)}
@@ -335,6 +368,7 @@ export default function TasksPage() {
               task={t}
               rank={i + 1 + nowGroup.length + soonGroup.length}
               completing={completingIds.has(t.id)}
+              blackedOut={isBlackedOut(t)}
               onToggle={() => handleToggle(t)}
               onDelete={() => deleteTask(t.id)}
               onDeleteSeries={() => deleteSeriesTasks(t.id)}
@@ -440,13 +474,14 @@ function TaskGroup({
 // ── TaskRow ───────────────────────────────────────────────────────────────────
 
 function TaskRow({
-  task, rank, isNow = false, completing,
+  task, rank, isNow = false, completing, blackedOut = false,
   onToggle, onDelete, onDeleteSeries, onSkip, onReschedule, onDetail, onSplit,
 }: {
   task: ApiTask & { score?: number; reason?: string };
   rank: number;
   isNow?: boolean;
   completing: boolean;
+  blackedOut?: boolean;
   onToggle: () => void;
   onDelete: () => void;
   onDeleteSeries: () => void;
@@ -463,7 +498,8 @@ function TaskRow({
   return (
     <div
       className={`task${isNow ? " is-now" : ""} ${completing ? "task-completing" : ""}`}
-      style={{ cursor: "default" }}
+      style={{ cursor: "default", opacity: blackedOut ? 0.35 : undefined }}
+      title={blackedOut ? "Skipped during active blackout" : undefined}
     >
       <div className="rank">{String(rank).padStart(2, "0")}</div>
 

@@ -219,8 +219,14 @@ export function TaskDetailModal({
           {/* Blackout skip flags */}
           <section className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Skip this task when</p>
-            {(["travelling", "period", "sickness"] as const).map((flag) => {
+            {(["travelling", "period", "sickness", "leave"] as const).map((flag) => {
               const flags = merged.blackout_skip_flags ?? [];
+              const labels: Record<string, string> = {
+                travelling: "Travelling",
+                period: "On period",
+                sickness: "Sick",
+                leave: "On leave",
+              };
               return (
                 <label key={flag} className="flex items-center gap-3 cursor-pointer select-none">
                   <input
@@ -235,7 +241,7 @@ export function TaskDetailModal({
                     }}
                     className="accent-circuit-accent"
                   />
-                  <span className="text-xs text-circuit-text capitalize">{flag === "period" ? "On period" : flag === "sickness" ? "Sick" : "Travelling"}</span>
+                  <span className="text-xs text-circuit-text">{labels[flag]}</span>
                 </label>
               );
             })}
