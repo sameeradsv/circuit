@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
+from datetime import datetime
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth_utils import create_session, hash_password, verify_password
@@ -78,3 +82,45 @@ def me(user: User = Depends(require_user)):
 def auth_status(db: Session = Depends(get_db)):
     has_users = db.query(User).first() is not None
     return {"has_users": has_users, "sync_ready": True}
+
+
+@router.get("/debug")
+def debug_auth(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """Diagnose why a bearer token is being rejected. Never use in prod — remove once fixed."""
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+
+    if not token:
+        return {"error": "no bearer token in Authorization header"}
+
+    # 1. Local session check
+    session = db.scalar(
+        select(AuthSession).where(
+            AuthSession.token == token,
+            AuthSession.expires_at > datetime.utcnow(),
+        )
+    )
+    if session:
+        user = db.get(User, session.user_id)
+        return {"source": "local_session", "user_id": user.id if user else None, "username": user.username if user else None}
+
+    # 2. Cortex probe — run the HTTP call manually and return raw details
+    cortex_url = os.getenv("CORTEX_AUTH_URL", "").rstrip("/")
+    if not cortex_url:
+        return {"error": "CORTEX_AUTH_URL is not set", "local_session": False}
+
+    target = f"{cortex_url}/auth/me"
+    try:
+        resp = httpx.get(target, headers={"Authorization": f"Bearer {token}"}, timeout=5)
+        return {
+            "local_session": False,
+            "cortex_url": cortex_url,
+            "cortex_endpoint": target,
+            "cortex_status": resp.status_code,
+            "cortex_body": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:300],
+        }
+    except httpx.ConnectError as e:
+        return {"local_session": False, "cortex_url": cortex_url, "error": f"ConnectError: {e}"}
+    except Exception as e:
+        return {"local_session": False, "cortex_url": cortex_url, "error": str(e)}
