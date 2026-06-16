@@ -109,46 +109,74 @@ function HourLines() {
 function TaskBlock({ task, compact = false, onClick }: { task: ApiTask; compact?: boolean; onClick?: () => void }) {
   const top    = taskTop(task.scheduled_at!);
   const height = taskHeight(task.duration ?? 30);
+  const bufBefore = task.travel_buffer_before_mins ?? 0;
+  const bufAfter  = task.travel_buffer_after_mins  ?? 0;
+  const bufBeforeH = bufBefore / 60 * HOUR_H;
+  const bufAfterH  = bufAfter  / 60 * HOUR_H;
+  const bufferStyle = {
+    position: "absolute" as const,
+    left: compact ? 2 : 4,
+    right: compact ? 2 : 4,
+    background: "repeating-linear-gradient(45deg, var(--line) 0px, var(--line) 1px, transparent 1px, transparent 6px)",
+    opacity: 0.5,
+    borderRadius: 3,
+    pointerEvents: "none" as const,
+    zIndex: 0,
+  };
   return (
-    <div
-      title={`${task.text} · ${fmtTime(task.scheduled_at!)} · ${task.duration ?? 30}m`}
-      onClick={onClick}
-      style={{
-        position: "absolute",
-        top,
-        left: compact ? 2 : 4,
-        right: compact ? 2 : 4,
-        height,
-        background: "var(--paper)",
-        borderLeft: `3px solid ${taskAccent(task)}`,
-        borderRadius: "0 4px 4px 0",
-        padding: compact ? "2px 4px" : "3px 8px",
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-        zIndex: 1,
-        cursor: onClick ? "pointer" : "default",
-      }}
-    >
-      <span style={{
-        fontSize: compact ? 11 : 12,
-        fontWeight: 500,
-        lineHeight: 1.3,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        color: "var(--ink)",
-      }}>
-        {task.text}
-      </span>
-      {height > 38 && (
-        <span style={{ fontSize: compact ? 9 : 10, color: "var(--ink-3)", fontFamily: "var(--font-mono)", marginTop: 1 }}>
-          {fmtTime(task.scheduled_at!)} · {task.duration ?? 30}m
-        </span>
+    <>
+      {bufBefore > 0 && (
+        <div
+          title={`${bufBefore}m travel before ${task.text}`}
+          style={{ ...bufferStyle, top: top - bufBeforeH, height: bufBeforeH }}
+        />
       )}
-    </div>
+      <div
+        title={`${task.text} · ${fmtTime(task.scheduled_at!)} · ${task.duration ?? 30}m`}
+        onClick={onClick}
+        style={{
+          position: "absolute",
+          top,
+          left: compact ? 2 : 4,
+          right: compact ? 2 : 4,
+          height,
+          background: "var(--paper)",
+          borderLeft: `3px solid ${taskAccent(task)}`,
+          borderRadius: "0 4px 4px 0",
+          padding: compact ? "2px 4px" : "3px 8px",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          zIndex: 1,
+          cursor: onClick ? "pointer" : "default",
+        }}
+      >
+        <span style={{
+          fontSize: compact ? 11 : 12,
+          fontWeight: 500,
+          lineHeight: 1.3,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          color: "var(--ink)",
+        }}>
+          {task.text}
+        </span>
+        {height > 38 && (
+          <span style={{ fontSize: compact ? 9 : 10, color: "var(--ink-3)", fontFamily: "var(--font-mono)", marginTop: 1 }}>
+            {fmtTime(task.scheduled_at!)} · {task.duration ?? 30}m
+          </span>
+        )}
+      </div>
+      {bufAfter > 0 && (
+        <div
+          title={`${bufAfter}m travel after ${task.text}`}
+          style={{ ...bufferStyle, top: top + height + 2, height: bufAfterH }}
+        />
+      )}
+    </>
   );
 }
 

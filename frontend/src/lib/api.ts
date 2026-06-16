@@ -71,7 +71,9 @@ export interface ApiTask {
   recurrence_ends_at: number | null;
   post_blackout_behavior: "resume" | "catch_up";
   group_id: string | null;
-  day_time_overrides: Record<string, string>;  // {"MO": "08:00", "SA": "10:00", …}
+  day_time_overrides: Record<string, string>;  // {"SA": "10:00", "SU": "10:00"}
+  travel_buffer_before_mins: number | null;
+  travel_buffer_after_mins: number | null;
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
@@ -89,6 +91,7 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "required_resources" | "dependencies" | "metadata" | "location_dependency"
   | "blackout_skip_flags"
   | "group_id" | "day_time_overrides"
+  | "travel_buffer_before_mins" | "travel_buffer_after_mins"
 >>;
 
 export interface ApiSleepLog {
@@ -229,6 +232,8 @@ export const api = {
     drain_ahead: number; energy_ahead: number;
     manual_energy: number; stress_level: number;
     events_so_far: number; events_ahead: number;
+    running_energy: number; start_energy: number;
+    sleep_factor: number; sleep_notes: string[];
   }>("GET", "/api/energy/sync"),
   getUserState: () => req<ApiUserState>("GET", "/api/user/state"),
   setUserState: (state: Partial<Omit<ApiUserState, "updated_at">>) =>

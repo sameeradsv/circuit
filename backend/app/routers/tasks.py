@@ -78,6 +78,8 @@ class TaskIn(BaseModel):
     is_recurring_template: bool = False
     group_id: Optional[str] = None
     day_time_overrides: Optional[dict] = None  # {"SA": "10:00", "SU": "10:00"}
+    travel_buffer_before_mins: Optional[int] = None
+    travel_buffer_after_mins: Optional[int] = None
 
 
 class TaskPatch(BaseModel):
@@ -119,6 +121,8 @@ class TaskPatch(BaseModel):
     blackout_skip_flags: Optional[list[str]] = None
     group_id: Optional[str] = None
     day_time_overrides: Optional[dict] = None  # {"SA": "10:00", "SU": "10:00"}
+    travel_buffer_before_mins: Optional[int] = None
+    travel_buffer_after_mins: Optional[int] = None
 
 
 def _adjust_for_blackouts(
@@ -247,6 +251,8 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "post_blackout_behavior": t.post_blackout_behavior or "resume",
         "group_id": t.group_id,
         "day_time_overrides": json.loads(t.day_time_overrides) if t.day_time_overrides else {},
+        "travel_buffer_before_mins": t.travel_buffer_before_mins,
+        "travel_buffer_after_mins": t.travel_buffer_after_mins,
     }
 
 
@@ -267,6 +273,7 @@ def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session
         metadata_json=json.dumps(payload.metadata),
         blackout_skip_flags=json.dumps(payload.blackout_skip_flags) if payload.blackout_skip_flags else None,
         day_time_overrides=json.dumps(payload.day_time_overrides) if payload.day_time_overrides else None,
+        # travel buffers come through via the ** spread (int fields, not JSON)
     )
     db.add(task)
     db.commit()
@@ -415,6 +422,8 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                         post_blackout_behavior=task.post_blackout_behavior,
                         group_id=task.group_id,
                         day_time_overrides=task.day_time_overrides,
+                        travel_buffer_before_mins=task.travel_buffer_before_mins,
+                        travel_buffer_after_mins=task.travel_buffer_after_mins,
                     )
                     db.add(next_task)
             except Exception:
@@ -533,6 +542,7 @@ def migrate_from_localstorage(
             metadata_json=json.dumps(item.metadata),
             blackout_skip_flags=json.dumps(item.blackout_skip_flags) if item.blackout_skip_flags else None,
             day_time_overrides=json.dumps(item.day_time_overrides) if item.day_time_overrides else None,
+            # travel buffer ints pass through via ** spread
         )
         db.add(task)
         created += 1

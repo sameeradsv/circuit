@@ -97,9 +97,13 @@ class CircuitTask(Base):
 
     # Task group: tasks sharing the same group_id shift together when rescheduled
     group_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
-    # Day-of-week time overrides: JSON {"SA": "10:00", "SU": "10:00"} — overrides
-    # the default recurrence time for specific weekdays (keys: MO TU WE TH FR SA SU)
+    # Weekend time override: JSON {"SA": "10:00", "SU": "10:00"} — overrides the
+    # default recurrence time on Sat/Sun (keys: SA, SU only)
     day_time_overrides: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Travel buffers: blocked time before/after this task for travel/transit
+    travel_buffer_before_mins: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    travel_buffer_after_mins: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Timestamps
     client_created_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

@@ -362,6 +362,7 @@ export default function AccountPage() {
                 <option value="period">Period</option>
                 <option value="sickness">Sickness</option>
                 <option value="leave">On leave</option>
+                <option value="wfh">Working from home</option>
               </select>
             </label>
             <label className="space-y-1">

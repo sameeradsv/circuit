@@ -73,7 +73,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 | `sleep.py` | `/api/sleep` | Sleep log CRUD + energy factor computation |
 | `settings.py` | `/api/settings` | Per-user key-value settings |
 | `user.py` | `/api/user` | User state (energy/stress/focus mode), delete account |
-| `energy.py` | `/api/energy` | Task-event drain + sleep factor sync |
+| `energy.py` | `/api/energy` | Cumulative energy timeline (signed deltas, running balance, cross-day carry-over) + real-time sync |
 | `history.py` | `/api/history` | Task event log |
 | `search.py` | `/api/search` | Full-text task search |
 | `ai.py` | `/api/ai` | Task classification heuristics |
@@ -86,22 +86,29 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 - Scheduling: `scheduled_at` (ms epoch), `recurrence` (pattern string), `duration`, `effort`
 - Recurrence/calendar: `rrule` (raw RRULE string), `rrule_dtstart_ms`, `is_recurring_template` — calendar imports store one template task per series; next occurrences are generated on completion
 - Recurrence control: `recurrence_ends_at` (ms epoch, optional cutoff), `post_blackout_behavior` (`"resume"` | `"catch_up"`)
-- Blackouts: `blackout_skip_flags` (JSON array: `["travelling", "period", "sickness", "leave"]`)
+- Blackouts: `blackout_skip_flags` (JSON array of types that cause this task to be skipped)
 - Cognitive: `cognitive_load`, `emotional_resistance`, `activation_energy`, `recovery_cost`
 - Priority: `importance`, `urgency`, `consequence_of_delay`, `momentum_value`
 - Behavioral: `historical_completion_rate`, `skipped_count`, `delay_pattern`
+- Grouping: `group_id` (String, nullable, indexed) — tasks sharing the same label shift together when any one is rescheduled
+- Weekend override: `day_time_overrides` (JSON `{"SA": "10:00", "SU": "10:00"}`) — overrides recurrence time on Sat/Sun only
+- Travel: `travel_buffer_before_mins`, `travel_buffer_after_mins` (Integer, nullable) — travel/transit time blocked before/after; shown as hatched buffer zones in calendar
 
-**`Blackout`** — date ranges when user is unavailable (`blackout_type`: `travelling` / `period` / `sickness` / `leave`)
+**`Blackout`** — date ranges when user is unavailable (`blackout_type`: `travelling` / `period` / `sickness` / `leave` / `wfh`)
 
 **`SleepLog`** — daily sleep context keyed by `(user_id, date)` IST wake-up date:
 - `bedtime_ms`, `wake_ms` (epoch ms), `quality` (0–10 float), `disturbed` (bool), `notes` (text)
 - Used by `GET /api/sleep/factor` and `GET /api/energy/sync` to compute `sleep_factor` (0–1)
 
-**`User`**, **`AuthSession`**, **`WebAuthnCredential`**, **`WebAuthnChallenge`**, **`UserSettings`**, **`UserState`**, **`TaskEvent`**
+**`UserState`** — `energy_level` (manual 0–1 slider), `stress_level`, `focus_mode`, `energy_eod` (nullable float — closing energy balance of the previous day, used for cross-day carry-over in `_start_energy()`).
+
+**`User`**, **`AuthSession`**, **`WebAuthnCredential`**, **`WebAuthnChallenge`**, **`UserSettings`**, **`TaskEvent`**
 
 ### Database migration pattern
 
 Schema changes are additive — never destructive. Add a `_migrate_*()` function in `database.py` that uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (Postgres) or inspector-checked `ALTER TABLE` (SQLite), then call it from `on_startup` in `main.py`. Do not use Alembic.
+
+Current migrations in startup order: `_migrate_sqlite`, `_migrate_postgres`, `_migrate_webauthn_tables`, `_migrate_blackout_and_rrule`, `_migrate_recurrence_extra`, `_migrate_sleep_log`, `_migrate_energy_eod` (adds `user_state.energy_eod`), `_migrate_task_groups` (adds `group_id`, `day_time_overrides`, `travel_buffer_before_mins`, `travel_buffer_after_mins`).
 
 ### Frontend (`frontend/src/`)
 
@@ -116,14 +123,19 @@ app/(app)/          # Authenticated routes
   chat/page.tsx     # TerminalChat — command parser + Conduit Q&A fallback
 app/(auth)/login/   # Login page
 components/
-  TaskDetailModal.tsx   # Edit task — priority, cognitive, time, recurrence end date, blackout skip flags, post-blackout behavior
+  TaskDetailModal.tsx   # Edit task — priority, cognitive, time, recurrence end/weekend-override, blackout skip flags (incl. wfh), travel buffers, group_id
   TerminalChat.tsx      # Command parsing + ActionPreview + Conduit agent fallback
   AppShell.tsx / TabBar.tsx / Sidebar.tsx / Nav.tsx
 lib/
-  api.ts            # Typed fetch wrapper for all backend endpoints (includes sleep, batchUpdate)
-  recurrence.ts     # formatRecurrence(), QUICK_PATTERNS
+  api.ts                  # Typed fetch wrapper for all backend endpoints (includes sleep, batchUpdate)
+  recurrence.ts           # formatRecurrence(), QUICK_PATTERNS
   use-circuit-auth.ts
-  engine-adapter.ts # Converts ApiTask → engine Task type
+  engine-adapter.ts       # Converts ApiTask → engine Task type
+  use-combined-energy.ts  # Cross-app energy hook. Fetches Circuit /api/energy/sync, Canopy /api/sync/energy, Chef /sync/energy.
+                          # Returns composite (weighted blend) + per-source breakdown + startEnergy (sleep-derived opening balance).
+                          # Circuit energy = running_energy (start_energy + today's task deltas); falls back to manual_energy×0.7 + energy_so_far×0.3.
+  use-energy-level.ts     # Manual energy slider (1–10 localStorage, mapped to 0–1)
+  use-energy-mode.ts      # Energy mode (normal/deep/low/social) localStorage
 ```
 
 ### Recurrence system
@@ -138,9 +150,9 @@ lib/
 
 ### Blackout system
 
-Users mark date ranges in Account → Blackouts. Types: `travelling`, `period`, `sickness`, `leave`.
+Users mark date ranges in Account → Blackouts. Types: `travelling`, `period`, `sickness`, `leave`, `wfh`.
 
-Tasks carry `blackout_skip_flags` specifying which types cause them to be skipped. `leave` is special: it auto-applies to any task with `tag === "work"` without needing per-task flagging.
+Tasks carry `blackout_skip_flags` specifying which types cause them to be skipped. `leave` is special: it auto-applies to any task with `tag === "work"` without needing per-task flagging. All other types (including `wfh`) require explicit per-task opt-in via the skip flags.
 
 **During an active blackout**: blacked-out tasks are **hidden** from the Right now / Soon / Later sections and shown in a collapsed **"On hold"** section at the bottom of the task list.
 
@@ -166,15 +178,33 @@ Each `ScoredTask` carries an `explanation` string so the UI can show *why* a tas
 
 ### Energy system
 
-Three layers that together describe the user's energy state:
+Energy is modelled as a **running balance** (0–1) that accumulates through the day and carries over across days — not as isolated per-event snapshots.
+
+**Three layers:**
 
 1. **Manual energy** — `UserState.energy_level` (0–1) + `UserState.stress_level`, set in Account → Today's context.
 
-2. **Task-drain** — `GET /api/energy/sync` computes `drain_so_far` / `drain_ahead` from today's task events and scheduled tasks. Each task has a drain cost based on `cognitive_load`, `emotional_resistance`, `activation_energy`, `recovery_cost`, `effort`, and `duration`.
+2. **Cumulative task-event balance** — `GET /api/energy/timeline` returns a day's events each with:
+   - `delta` — signed energy change (positive = restores, negative = drains)
+   - `running_energy` — cumulative balance after this event (0–1)
+   - `start_energy` / `end_energy` — opening and closing balance for the day
+   
+   Task deltas: completing a high `energy_to_reward_ratio` task can be net-positive; skipping costs willpower (−0.05 to −0.20); uncompleting costs recovery (−0.05 to −0.25); heavy cognitive-load completions drain even if "done".
+
+   `GET /api/energy/sync` also returns `start_energy` and `running_energy` (real-time balance for Circuit's task events only), plus legacy `drain_so_far` / `drain_ahead` for backward compat.
 
 3. **Sleep + work-session factor** — `GET /api/sleep/factor` (also embedded in `/api/energy/sync` as `sleep_factor`) computes a 0–1 multiplier from:
    - **Sleep log** (logged via Account → Sleep & recovery): duration penalty (<7 h), late bedtime penalty (midnight–6 AM), early wake penalty (<6 AM), quality blend (0–10), disturbance penalty
    - **Work signals derived automatically from task events** (no user input needed): yesterday's last task event hour (late-night work penalty), yesterday's work span (>8 h penalty), today's first task event hour (early-start penalty)
+
+**Cross-day carry-over:**
+
+`start_energy = sleep_factor × 0.70 + energy_eod × 0.30`
+
+- `energy_eod` (stored in `UserState.energy_eod`, nullable float) = closing balance of the previous day.
+- Written automatically when yesterday's timeline is fetched (the energy page does this on load).
+- Sleep is the primary restorer: perfect sleep (factor 1.0) after a bad day (eod 0.3) → start at ~79%.
+- Consistently draining weeks lower eod, compounding into lower starts even with adequate sleep.
 
 `sleep_factor = 1.0` means fully rested; lower values indicate impairment. The frontend can use this alongside `manual_energy` to surface warnings like "you've been flagged as tired — high cognitive-load tasks are deprioritized".
 
@@ -197,6 +227,8 @@ Quick-command chips in the chat UI provide one-click access to common operations
 ### Calendar view (`frontend/src/app/(app)/calendar/page.tsx`)
 
 Day and week views show a full 24-hour grid (midnight to midnight, 64 px/hour) and auto-scroll to 7 AM on open. Month view shows task dots with overflow counts. Clicking any event opens `TaskDetailModal` for inline editing.
+
+Tasks with `travel_buffer_before_mins` / `travel_buffer_after_mins` render hatched gray blocks before/after the task block in day and week views, indicating blocked transit time.
 
 ### Energy modes
 

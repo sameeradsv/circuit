@@ -224,6 +224,8 @@ def _migrate_task_groups() -> None:
         for col_name, col_def in [
             ("group_id", "VARCHAR(100)"),
             ("day_time_overrides", "TEXT"),
+            ("travel_buffer_before_mins", "INTEGER"),
+            ("travel_buffer_after_mins", "INTEGER"),
         ]:
             if col_name not in existing_cols:
                 if is_sqlite:

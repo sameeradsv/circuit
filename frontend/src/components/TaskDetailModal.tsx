@@ -61,23 +61,14 @@ export function TaskDetailModal({
   const [patch, setPatch] = useState<TaskPatch>({});
   const [saving, setSaving] = useState(false);
 
-  // Day-time override state: weekday (MO–FR) and weekend (SA–SU) time strings
+  // Weekend time override: single time applied to SA + SU recurrences
   const initDto = task.day_time_overrides ?? {};
-  const [weekdayTime, setWeekdayTime] = useState(
-    initDto.MO ?? initDto.TU ?? initDto.WE ?? initDto.TH ?? initDto.FR ?? ''
-  );
   const [weekendTime, setWeekendTime] = useState(initDto.SA ?? initDto.SU ?? '');
 
-  function buildDayTimeOverrides(wd: string, we: string): Record<string, string> | null {
-    const result: Record<string, string> = {};
-    if (wd) (['MO', 'TU', 'WE', 'TH', 'FR'] as const).forEach(d => { result[d] = wd; });
-    if (we) (['SA', 'SU'] as const).forEach(d => { result[d] = we; });
-    return Object.keys(result).length > 0 ? result : null;
-  }
-
-  function setDayTimeOverride(wd: string, we: string) {
-    const dto = buildDayTimeOverrides(wd, we);
-    setPatch(p => ({ ...p, day_time_overrides: dto ?? {} }));
+  function applyWeekendTime(we: string) {
+    const dto: Record<string, string> = {};
+    if (we) { dto.SA = we; dto.SU = we; }
+    setPatch(p => ({ ...p, day_time_overrides: dto }));
   }
   const [propagating, setPropagating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -214,6 +205,26 @@ export function TaskDetailModal({
                 className="input-field flex-1 py-1 text-xs"
               />
             </label>
+            <label className="flex items-center gap-3">
+              <span className="w-44 shrink-0 text-xs text-circuit-muted">Travel before (min)</span>
+              <input
+                type="number" min={0} max={120} step={5}
+                value={merged.travel_buffer_before_mins ?? ''}
+                placeholder="0"
+                onChange={(e) => set('travel_buffer_before_mins', e.target.value ? Number(e.target.value) : null as unknown as number)}
+                className="input-field flex-1 py-1 text-xs"
+              />
+            </label>
+            <label className="flex items-center gap-3">
+              <span className="w-44 shrink-0 text-xs text-circuit-muted">Travel after (min)</span>
+              <input
+                type="number" min={0} max={120} step={5}
+                value={merged.travel_buffer_after_mins ?? ''}
+                placeholder="0"
+                onChange={(e) => set('travel_buffer_after_mins', e.target.value ? Number(e.target.value) : null as unknown as number)}
+                className="input-field flex-1 py-1 text-xs"
+              />
+            </label>
             <Select label="Effort" value={merged.effort ?? 'medium'} options={['low', 'medium', 'high']} onChange={(v) => set('effort', v as ApiTask['effort'])} />
             <Select label="Focus type" value={merged.focus_type ?? 'shallow'} options={['shallow', 'deep', 'admin', 'creative']} onChange={(v) => set('focus_type', v)} />
             <Select label="Deadline" value={merged.deadline_type ?? 'none'} options={['none', 'soft', 'hard']} onChange={(v) => set('deadline_type', v as ApiTask['deadline_type'])} />
@@ -249,33 +260,16 @@ export function TaskDetailModal({
                     <option value="catch_up">Catch up immediately</option>
                   </select>
                 </label>
-                <div className="space-y-2 pt-1">
-                  <p className="text-xs text-circuit-muted" style={{ paddingLeft: 0 }}>Time overrides by day (leave blank to use scheduled time)</p>
-                  <label className="flex items-center gap-3">
-                    <span className="w-44 shrink-0 text-xs text-circuit-muted">Weekday time (M–F)</span>
-                    <input
-                      type="time"
-                      value={weekdayTime}
-                      onChange={(e) => {
-                        setWeekdayTime(e.target.value);
-                        setDayTimeOverride(e.target.value, weekendTime);
-                      }}
-                      className="input-field flex-1 py-1 text-xs"
-                    />
-                  </label>
-                  <label className="flex items-center gap-3">
-                    <span className="w-44 shrink-0 text-xs text-circuit-muted">Weekend time (Sa–Su)</span>
-                    <input
-                      type="time"
-                      value={weekendTime}
-                      onChange={(e) => {
-                        setWeekendTime(e.target.value);
-                        setDayTimeOverride(weekdayTime, e.target.value);
-                      }}
-                      className="input-field flex-1 py-1 text-xs"
-                    />
-                  </label>
-                </div>
+                <label className="flex items-center gap-3">
+                  <span className="w-44 shrink-0 text-xs text-circuit-muted">Weekend time (Sa–Su)</span>
+                  <input
+                    type="time"
+                    value={weekendTime}
+                    onChange={(e) => { setWeekendTime(e.target.value); applyWeekendTime(e.target.value); }}
+                    className="input-field flex-1 py-1 text-xs"
+                    title="Override the recurrence time on Sat & Sun (leave blank to use default time)"
+                  />
+                </label>
               </>
             )}
             <Select
@@ -289,13 +283,14 @@ export function TaskDetailModal({
           {/* Blackout skip flags */}
           <section className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Skip this task when</p>
-            {(["travelling", "period", "sickness", "leave"] as const).map((flag) => {
+            {(["travelling", "period", "sickness", "leave", "wfh"] as const).map((flag) => {
               const flags = merged.blackout_skip_flags ?? [];
               const labels: Record<string, string> = {
                 travelling: "Travelling",
                 period: "On period",
                 sickness: "Sick",
                 leave: "On leave",
+                wfh: "Working from home",
               };
               return (
                 <label key={flag} className="flex items-center gap-3 cursor-pointer select-none">
