@@ -361,14 +361,17 @@ The edit modal also has a quick-pick dropdown with the most common options.
       setMsgs((prev) => prev.map((m) => m.id === aiId ? { ...m, streaming: false } : m));
     } catch (err: unknown) {
       const isAbort = err instanceof Error && err.name === "AbortError";
+      const errMsg  = !isAbort && err instanceof Error ? err.message : null;
       setMsgs((prev) => prev.map((m) =>
         m.id === aiId ? {
           ...m,
           content: isAbort
             ? (full || "(cancelled)")
-            : (full
-              ? full + "\n\n_(Note: agent error — task commands still work)_"
-              : "Agent unavailable. Try a task command instead, e.g. \"push work tasks to tomorrow\"."),
+            : full
+            ? full + "\n\n_(Agent error — task commands still work)_"
+            : errMsg
+            ? `Agent error: ${errMsg}`
+            : "Agent unavailable. Try a task command instead, e.g. \"push work tasks to tomorrow\".",
           streaming: false,
         } : m,
       ));
