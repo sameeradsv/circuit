@@ -35,10 +35,19 @@ def _rrule_to_recurrence(rrule_str: str) -> Optional[str]:
     interval = int(parts.get("INTERVAL", "1"))
     byday    = parts.get("BYDAY", "")
 
-    if freq == "DAILY" and interval == 1:
-        return "daily"
+    if freq == "HOURLY":
+        if interval == 1:
+            return "every:1h"
+        return f"every:{interval}h"
+
+    if freq == "DAILY":
+        if interval == 1:
+            return "daily"
+        return f"every:{interval}d"
 
     if freq == "WEEKLY":
+        if interval > 1 and not byday:
+            return f"every:{interval}w"
         day_order = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
         if byday:
             days = {d.strip()[-2:] for d in byday.split(",")}
@@ -88,6 +97,18 @@ def _detect_recurrence(title: str, description: str) -> Optional[str]:
 
     if any(k in text for k in ("daily", "every day", "each day")):
         return "daily"
+
+    every_days = re.search(r"\bevery\s+(\d+)\s+days?\b", text)
+    if every_days:
+        return f"every:{every_days.group(1)}d"
+
+    every_weeks = re.search(r"\bevery\s+(\d+)\s+weeks?\b", text)
+    if every_weeks:
+        return f"every:{every_weeks.group(1)}w"
+
+    every_hours = re.search(r"\bevery\s+(\d+)\s+hours?\b", text)
+    if every_hours:
+        return f"every:{every_hours.group(1)}h"
 
     if any(k in text for k in ("weekday", "work day", "working day")):
         return "weekday"

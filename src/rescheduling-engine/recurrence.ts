@@ -1,13 +1,15 @@
 import type { RescheduleEntry, Task } from '../types';
 
-// Supported formats: "daily" | "weekly" | "weekdays" | "every:Nd" | "every:Nw"
+// Supported formats: "daily" | "weekly" | "weekdays" | "every:Nd" | "every:Nw" | "every:Nh"
 function parseIntervalMs(recurrence: string): number | null {
   if (recurrence === 'daily') return 24 * 60 * 60 * 1000;
   if (recurrence === 'weekly') return 7 * 24 * 60 * 60 * 1000;
-  const m = recurrence.match(/^every:(\d+)(d|w)$/);
+  const m = recurrence.match(/^every:(\d+)(d|w|h)$/);
   if (!m) return null;
   const n = parseInt(m[1]!, 10);
-  return m[2] === 'w' ? n * 7 * 24 * 60 * 60 * 1000 : n * 24 * 60 * 60 * 1000;
+  if (m[2] === 'w') return n * 7 * 24 * 60 * 60 * 1000;
+  if (m[2] === 'h') return n * 60 * 60 * 1000;
+  return n * 24 * 60 * 60 * 1000;
 }
 
 function nextWeekday(from: number): number {

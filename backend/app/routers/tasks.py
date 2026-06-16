@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, TaskEvent, User
-from app.engines.recurrence import next_occurrence
+from app.engines.recurrence import is_hourly_recurrence, next_occurrence, skip_occurrences_too_close_after_catchup
 from app.services.blackout import adjust_for_blackouts
 from app.task_event_time import task_event_occurred_at
 
@@ -274,8 +274,8 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             try:
                 from app.models import Blackout
                 user_blackouts = db.query(Blackout).filter(Blackout.user_id == user.id).all()
-                # catch_up_once: use the stored anchor (original pre-blackout scheduled_at)
-                # so subsequent occurrences compute from the original series schedule.
+                # catch_up_once / catch_up_immediate: use stored anchor (original pre-blackout
+                # scheduled_at) so subsequent occurrences compute from the original series.
                 anchor_ms = task.recurrence_anchor_ms or task.scheduled_at
                 from_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
                 next_ms: Optional[int] = None
@@ -303,8 +303,10 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                     # Simple pattern (user-created tasks)
                     next_dt = next_occurrence(task.recurrence, from_dt)
                     if next_dt:
-                        next_dt = next_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
-                        next_dt = _apply_day_time_override(next_dt, task.day_time_overrides)
+                        hourly = is_hourly_recurrence(task.recurrence)
+                        if not hourly:
+                            next_dt = next_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
+                            next_dt = _apply_day_time_override(next_dt, task.day_time_overrides)
                         next_ms = int(next_dt.timestamp() * 1000)
 
                 # Respect recurrence end date — don't create occurrences past it
@@ -319,16 +321,29 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                     # catch_up_once: if the date was moved by blackout adjustment, store the
                     # original pre-adjustment scheduled_at as recurrence_anchor_ms so the
                     # next completion computes from that anchor (series stays on schedule).
-                    if (task.post_blackout_behavior == "catch_up_once"
+                    if (task.post_blackout_behavior in ("catch_up_once", "catch_up_immediate")
                             and next_ms != pre_adjust_ms):
                         next_anchor_ms = pre_adjust_ms
                     if task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
                         next_ms = None
                     # Re-apply day-time override after blackout may have shifted the date
-                    if next_ms and task.day_time_overrides:
+                    if next_ms and task.day_time_overrides and not is_hourly_recurrence(task.recurrence):
                         adj_dt = datetime.fromtimestamp(next_ms / 1000, tz=_IST)
                         adj_dt = _apply_day_time_override(adj_dt, task.day_time_overrides)
                         next_ms = int(adj_dt.timestamp() * 1000)
+                    # catch_up_once: drop anchor-based slots too close to the catch-up date
+                    if (next_ms
+                            and task.post_blackout_behavior == "catch_up_once"
+                            and task.recurrence
+                            and task.recurrence_anchor_ms):
+                        next_ms = skip_occurrences_too_close_after_catchup(
+                            task.recurrence,
+                            next_ms,
+                            task.scheduled_at,
+                            task.recurrence_anchor_ms,
+                        )
+                        if task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
+                            next_ms = None
 
                 if next_ms:
                     next_task = CircuitTask(

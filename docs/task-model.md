@@ -12,10 +12,10 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `scheduled_at` (ms epoch), `duration` (minutes)
 - `effort` (`low` / `medium` / `high`), `deadline_type` (`none` / `soft` / `hard`)
 - `time_sensitivity`, `preferred_execution_window` (`morning` / `afternoon` / `evening`)
-- `recurrence` — user patterns: `daily`, `weekly:MO,WE`, `monthly:1MO`, `monthly:LWD`, …
+- `recurrence` — user patterns: `daily`, `every:4d`, `every:2w`, `every:4h`, `weekly:MO,WE`, `monthly:1MO`, `monthly:LWD`, …
 - `recurrence_ends_at` — optional cutoff (ms); null = indefinite
-- `post_blackout_behavior` — `resume` | `catch_up` | `catch_up_once`
-- `recurrence_anchor_ms` — for `catch_up_once`: preserves pre-blackout anchor
+- `post_blackout_behavior` — `resume` | `catch_up` | `catch_up_once` | `catch_up_immediate`
+- `recurrence_anchor_ms` — for `catch_up_once` / `catch_up_immediate`: preserves pre-blackout anchor (`catch_up_once` also skips too-close anchor slots on completion)
 - `rrule`, `rrule_dtstart_ms`, `is_recurring_template` — calendar ICS imports
 - `day_time_overrides` — JSON `{"SA": "10:00", "SU": "10:00"}` (morning tasks only)
 - `travel_buffer_before_mins`, `travel_buffer_after_mins`

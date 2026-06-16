@@ -86,7 +86,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 **`CircuitTask`** — core task record (~47 columns):
 - Scheduling: `scheduled_at` (ms epoch), `recurrence` (pattern string), `duration`, `effort`
 - Recurrence/calendar: `rrule` (raw RRULE string), `rrule_dtstart_ms`, `is_recurring_template` — calendar imports store one template task per series; next occurrences are generated on completion
-- Recurrence control: `recurrence_ends_at` (ms epoch, optional cutoff; null = indefinite), `post_blackout_behavior` (`"resume"` | `"catch_up"` | `"catch_up_once"`), `recurrence_anchor_ms` (ms epoch, nullable — set by completion handler on catch_up_once tasks to preserve the pre-blackout series anchor)
+- Recurrence control: `recurrence_ends_at` (ms epoch, optional cutoff; null = indefinite), `post_blackout_behavior` (`"resume"` | `"catch_up"` | `"catch_up_once"` | `"catch_up_immediate"`), `recurrence_anchor_ms` (ms epoch, nullable — set on anchor-preserving catch-up modes to preserve the pre-blackout series anchor)
 - Blackouts: `blackout_skip_flags` (JSON array of types that cause this task to be skipped)
 - Cognitive: `cognitive_load`, `emotional_resistance`, `activation_energy`, `recovery_cost`
 - Priority: `importance`, `urgency`, `consequence_of_delay`, `momentum_value`
@@ -149,6 +149,7 @@ lib/
 
 Supported recurrence patterns:
 - `daily` — every day
+- `every:4d`, `every:2w`, `every:4h` — every N days / N weeks / N hours (e.g. `every:4d` = every 4 days)
 - `weekday` — Mon–Fri
 - `weekend` — Sat & Sun
 - `monday` … `sunday` — every specific weekday
@@ -185,10 +186,11 @@ Tasks carry `blackout_skip_flags` specifying which types cause them to be skippe
 
 **Post-blackout behavior** (per task, set in TaskDetailModal → task-detail sections):
 - `"resume"` — skips ahead through the recurrence pattern until an occurrence falls after all blackouts; the series continues from that occurrence on the original schedule (no catch-up)
-- `"catch_up"` — moves to the first day after the blackout ends and anchors the **entire series** from that new date
-- `"catch_up_once"` — moves to the first day after the blackout ends for this one occurrence, then resumes the original schedule unchanged. Implemented via `recurrence_anchor_ms`: the completion handler stores the original pre-blackout `scheduled_at` on the new task; when that task is completed, its `recurrence_anchor_ms` is used as `from_dt` for computing the next occurrence, after which the anchor is cleared.
+- `"catch_up"` — moves to the **next valid recurrence slot** after the blackout and anchors the **entire series** from that new date
+- `"catch_up_once"` — next valid slot once, then resumes the original schedule via `recurrence_anchor_ms`; anchor-based occurrences within **2 days** of the catch-up date are skipped
+- `"catch_up_immediate"` — moves to the **first day after the blackout ends**, preserves the original series anchor, and does **not** skip the next anchor slot (even if close)
 
-Backend: `services/blackout.py → adjust_for_blackouts()` runs after `next_ms` is computed at task completion (and on blackout create). Both `catch_up` and `catch_up_once` produce the same immediate date; the series-anchor difference is resolved in the completion handler. One-off tasks on `resume` move to the first day after the blackout ends.
+Backend: `services/blackout.py → adjust_for_blackouts()` runs after `next_ms` is computed at task completion (and on blackout create). `catch_up` / `catch_up_once` use the next pattern slot; `catch_up_immediate` uses the day after blackout. One-off tasks on `resume` move to the first day after the blackout ends.
 
 ### Scheduling algorithm (`src/scheduling-engine/scoring.ts`)
 

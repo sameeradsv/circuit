@@ -91,10 +91,11 @@ class CircuitTask(Base):
 
     # Recurrence end date (ms epoch) — no new occurrences created after this
     recurrence_ends_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    # How to handle tasks missed during a blackout: "resume" | "catch_up" | "catch_up_once"
+    # How to handle tasks missed during a blackout:
+    # "resume" | "catch_up" | "catch_up_once" | "catch_up_immediate"
     post_blackout_behavior: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    # For catch_up_once: stores the original pre-blackout scheduled_at so the completion
-    # handler computes the next occurrence from that anchor, keeping later events on schedule.
+    # For catch_up_once / catch_up_immediate: original pre-blackout scheduled_at;
+    # completion computes the next occurrence from that anchor.
     recurrence_anchor_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
 
     # Task group: tasks sharing the same group_id shift together when rescheduled

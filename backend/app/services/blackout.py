@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Optional
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
-from app.engines.recurrence import next_occurrence
+from app.engines.recurrence import first_catch_up_slot_after, is_hourly_recurrence, next_occurrence
 from app.models import Blackout, CircuitTask, TaskEvent
 
 if TYPE_CHECKING:
@@ -16,6 +16,10 @@ if TYPE_CHECKING:
 
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
+
+# catch_up / catch_up_once → next pattern slot; catch_up_immediate → day after blackout
+_SUITABLE_SLOT_CATCHUP = frozenset({"catch_up", "catch_up_once"})
+_ANCHOR_PRESERVING_CATCHUP = frozenset({"catch_up_once", "catch_up_immediate"})
 
 
 def task_affected_by(task: CircuitTask, blackout_type: str) -> bool:
@@ -44,6 +48,45 @@ def _catch_up_after_ms(ms: int, hits: list, from_dt: datetime) -> int:
     return int(next_day.timestamp() * 1000)
 
 
+def _catch_up_suitable_ms(
+    hits: list,
+    task: CircuitTask,
+    from_dt: datetime,
+) -> int:
+    """Next valid recurrence slot on or after blackout ends (not the first calendar day)."""
+    after_ms = max(b.end_date_ms for b in hits) + 1
+    after_dt = datetime.fromtimestamp(after_ms / 1000, tz=_IST)
+
+    if task.rrule and task.is_recurring_template:
+        from app.routers.calendar import _expand_rrule
+        candidates = _expand_rrule(
+            task.rrule_dtstart_ms or task.scheduled_at,
+            task.rrule,
+            set(),
+            cutoff_ms=after_ms,
+        )
+        raw = next((ts for ts in candidates if ts >= after_ms), None)
+        if raw:
+            raw_dt = datetime.fromtimestamp(raw / 1000, tz=_IST)
+            raw_dt = raw_dt.replace(
+                hour=from_dt.hour, minute=from_dt.minute,
+                second=from_dt.second, microsecond=0,
+            )
+            return int(raw_dt.timestamp() * 1000)
+
+    if task.recurrence:
+        slot = first_catch_up_slot_after(task.recurrence, after_dt, from_dt)
+        if slot:
+            if not is_hourly_recurrence(task.recurrence):
+                slot = slot.replace(
+                    hour=from_dt.hour, minute=from_dt.minute,
+                    second=from_dt.second, microsecond=0,
+                )
+            return int(slot.timestamp() * 1000)
+
+    return _catch_up_after_ms(task.scheduled_at or after_ms, hits, from_dt)
+
+
 def adjust_for_blackouts(
     next_ms: int,
     task: CircuitTask,
@@ -62,7 +105,14 @@ def adjust_for_blackouts(
         if not hits:
             return current_ms
 
-        if behavior in ("catch_up", "catch_up_once"):
+        if behavior in _SUITABLE_SLOT_CATCHUP:
+            if task.recurrence or (task.rrule and task.is_recurring_template):
+                current_ms = _catch_up_suitable_ms(hits, task, from_dt)
+            else:
+                current_ms = _catch_up_after_ms(current_ms, hits, from_dt)
+            continue
+
+        if behavior == "catch_up_immediate":
             current_ms = _catch_up_after_ms(current_ms, hits, from_dt)
             continue
 
@@ -153,6 +203,8 @@ def reschedule_tasks_for_blackout(user_id: int, blackout: Blackout, db: Session)
 
         old_ms = task.scheduled_at
         task.scheduled_at = new_ms
+        if task.post_blackout_behavior in _ANCHOR_PRESERVING_CATCHUP and new_ms != old_ms:
+            task.recurrence_anchor_ms = task.recurrence_anchor_ms or old_ms
         db.add(TaskEvent(
             user_id=user_id,
             task_id=task.id,

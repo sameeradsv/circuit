@@ -3,6 +3,7 @@
  *
  * Supported patterns:
  * - daily
+ * - every:4d, every:2w, every:4h — every N days, weeks, or hours
  * - weekend
  * - weekday
  * - monday, tuesday, wednesday, thursday, friday, saturday, sunday
@@ -41,6 +42,19 @@ export function formatRecurrence(pattern: string | null): string {
   // Check quick patterns
   const found = QUICK_PATTERNS.find((p) => p.pattern === pattern);
   if (found) return found.label;
+
+  // Interval patterns: every:4d, every:2w, every:4h
+  const interval = pattern.match(/^every:(\d+)([dwh])$/i);
+  if (interval) {
+    const n = parseInt(interval[1], 10);
+    const unit =
+      interval[2].toLowerCase() === "w"
+        ? "week"
+        : interval[2].toLowerCase() === "h"
+          ? "hour"
+          : "day";
+    return `Every ${n} ${unit}${n === 1 ? "" : "s"}`;
+  }
 
   // Try to format custom patterns
   if (pattern.startsWith("weekly:")) {

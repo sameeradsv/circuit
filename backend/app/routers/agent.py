@@ -223,6 +223,9 @@ Today is {now.strftime("%A, %d %B %Y")}, {now.strftime("%H:%M")} IST.
 | Pattern | Meaning |
 |---------|---------|
 | `daily` | Every day |
+| `every:4d` | Every 4 days (`every:Nd`) |
+| `every:2w` | Every 2 weeks (`every:Nw`) |
+| `every:4h` | Every 4 hours (`every:Nh`) |
 | `weekday` | Mon–Fri |
 | `weekend` | Sat & Sun |
 | `monday` … `sunday` | Every specific weekday |
@@ -233,13 +236,16 @@ Today is {now.strftime("%A, %d %B %Y")}, {now.strftime("%H:%M")} IST.
 | `monthly:LFR` | Last Friday of the month |
 | `monthly:LWD` | Last working day (last Mon–Fri) of the month |
 
+Use `every:Nd` / `every:Nw` / `every:Nh` for intervals — e.g. every 4 days → `every:4d`, not `FREQ=DAILY;INTERVAL=4` in the Recurrence field (RRULE is for calendar imports only).
+
 ## After-blackout behavior options
 
 | Option | Meaning |
 |--------|---------|
-| `resume` | Skip to next natural schedule occurrence after blackout — series unchanged |
-| `catch_up` | Do task on first day after blackout, anchor whole series from that date |
-| `catch_up_once` | Do task on first day after blackout, then revert to original schedule |
+| `resume` | Skip to next natural schedule occurrence after blackout — series unchanged (missed instance dropped) |
+| `catch_up` | Catch up on the next valid pattern slot after blackout; anchor whole series from that date |
+| `catch_up_once` | Next valid slot once, then resume original series; anchor slots within 2 days of catch-up are skipped |
+| `catch_up_immediate` | First day after blackout ends; original series preserved; next anchor slot kept even if close |
 
 ## Response style
 

@@ -230,13 +230,55 @@ interface Msg {
 let _n = 0;
 const uid = () => `m${++_n}`;
 
+const RECURRENCE_HELP = `**Recurrence patterns**
+
+Type the pattern exactly into the **Recurrence** field when editing a task (not raw ICS/RRULE strings):
+
+| Pattern | Meaning |
+|---|---|
+| \`daily\` | Every day |
+| \`every:4d\` | Every 4 days (\`every:Nd\` — N = day count) |
+| \`every:2w\` | Every 2 weeks (\`every:Nw\` — N = week count) |
+| \`every:4h\` | Every 4 hours (\`every:Nh\` — N = hour count) |
+| \`weekday\` | Mon – Fri |
+| \`weekend\` | Sat & Sun |
+| \`monday\` … \`sunday\` | Every specific weekday |
+| \`weekly:MO,WE,FR\` | Specific days (MO TU WE TH FR SA SU) |
+| \`monthly:15\` | 15th of each month |
+| \`monthly:1MO\` | 1st Monday of the month |
+| \`monthly:3FR\` | 3rd Friday of the month |
+| \`monthly:LFR\` | **Last Friday** of the month |
+| \`monthly:LWD\` | **Last working day** (last Mon–Fri) |
+| \`monthly:LMO\` | Last Monday of the month |
+
+**Interval examples:** every 4 days → \`every:4d\`; every 2 weeks → \`every:2w\`; every 3 hours → \`every:3h\`.
+
+Do **not** paste \`FREQ=DAILY;INTERVAL=4\` into Recurrence — that is calendar RRULE syntax. Use \`every:4d\` instead (ICS imports map RRULE automatically).
+
+The edit modal also has a quick-pick dropdown with the most common options.
+
+**After-blackout behavior** (set per task in the edit modal):
+
+| Option | Meaning |
+|---|---|
+| Resume on next schedule | Skip to the next natural occurrence after the blackout — series unchanged |
+| Catch up next slot, shift series | Next valid pattern slot after the blackout (e.g. next Saturday); anchors the series from there |
+| Catch up next slot, keep schedule | Next valid slot once, original series preserved; anchor slots within 2 days of catch-up are skipped |
+| Catch up immediately, keep schedule | First day after blackout ends; original series preserved; next anchor slot kept even if close |`;
+
+function wantsRecurrenceHelp(text: string): boolean {
+  return /recur|repeat|pattern|format|weekly|daily|monthly|hourly|\bhours?\b|interval|blackout|catch.?up|after.*blackout|every:\d+[dwh]|FREQ=|RRULE|friday|monday|working day|weekday|how.*set.*recur|\bevery\s+\d+\s+(day|days|week|weeks|hour|hours)\b/i.test(
+    text,
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function TerminalChat() {
   const [msgs, setMsgs] = useState<Msg[]>([
     {
       id: uid(), role: "system",
-      content: "Ask about your day, tasks, or energy — or give a command like \"push high cognitive-load tasks to tomorrow\".",
+      content: "Ask about your day, tasks, or energy — or give a command like \"push high cognitive-load tasks to tomorrow\". Type /recurrence for recurrence format reference.",
     },
   ]);
   const [value, setValue]     = useState("");
@@ -288,6 +330,12 @@ export function TerminalChat() {
       return;
     }
 
+    if (t === "/recurrence" || t === "/help") {
+      push({ role: "user", content: t });
+      push({ role: "assistant", content: RECURRENCE_HELP });
+      return;
+    }
+
     push({ role: "user", content: t });
 
     // Try command parsing first
@@ -302,42 +350,16 @@ export function TerminalChat() {
       return;
     }
 
-    // Client-side recurrence format help (Conduit has no Circuit-specific knowledge)
-    if (/recur|repeat|pattern|format|weekly|daily|monthly|friday|monday|working day|weekday|how.*set.*recur|blackout|catch.?up|after.*blackout/i.test(t)) {
+    // Client-side recurrence format help — instant, no API call
+    if (wantsRecurrenceHelp(t)) {
       push({
         role: "assistant",
-        content: `**Recurrence patterns**
-
-Type the pattern exactly into the Recurrence field when editing a task:
-
-| Pattern | Meaning |
-|---|---|
-| \`daily\` | Every day |
-| \`weekday\` | Mon – Fri |
-| \`weekend\` | Sat & Sun |
-| \`monday\` … \`sunday\` | Every specific weekday |
-| \`weekly:MO,WE,FR\` | Specific days (MO TU WE TH FR SA SU) |
-| \`monthly:15\` | 15th of each month |
-| \`monthly:1MO\` | 1st Monday of the month |
-| \`monthly:3FR\` | 3rd Friday of the month |
-| \`monthly:LFR\` | **Last Friday** of the month |
-| \`monthly:LWD\` | **Last working day** (last Mon–Fri) |
-| \`monthly:LMO\` | Last Monday of the month |
-
-The edit modal also has a quick-pick dropdown with the most common options.
-
-**After-blackout behavior** (set per task in the edit modal):
-
-| Option | Meaning |
-|---|---|
-| Resume on next schedule | Skip to the next natural occurrence after the blackout — series unchanged |
-| Catch up, shift series | Do the task on the first day after the blackout; anchor the whole series from that date |
-| Catch up, keep schedule | Do the task on the first day after the blackout; subsequent occurrences revert to the original schedule |`,
+        content: RECURRENCE_HELP,
       });
       return;
     }
 
-    // Fall through to Conduit agent for Q&A
+    // Fall through to Circuit native agent for Q&A
     setStreaming(true);
     const history = [
       ...msgs
@@ -471,7 +493,7 @@ The edit modal also has a quick-pick dropdown with the most common options.
       <div className="px-4 pb-2 flex gap-2 flex-wrap border-t border-circuit-border pt-2 bg-circuit-surface">
         {[
           "How busy is today?",
-          "What are my deep work tasks this week?",
+          "What recurrence formats are supported?",
           "Push high cognitive-load tasks to tomorrow",
           "Reschedule overdue tasks to tomorrow",
         ].map((cmd) => (

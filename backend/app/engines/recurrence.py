@@ -2,6 +2,9 @@
 
 Supported patterns:
 - daily: next day
+- every:Nd: every N days (e.g. every:4d)
+- every:Nw: every N weeks (e.g. every:2w)
+- every:Nh: every N hours (e.g. every:4h)
 - weekly:MO,WE,FR: specific weekdays (MO=Mon, TU=Tue, WE=Wed, TH=Thu, FR=Fri, SA=Sat, SU=Sun)
 - weekend: Saturday and Sunday
 - weekday: Monday through Friday
@@ -12,11 +15,140 @@ Supported patterns:
 - monthly:3FR: 3rd Friday of month (use L for last, e.g., LMO = last Monday)
 """
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 _IST = ZoneInfo("Asia/Kolkata")
+_INTERVAL_RE = re.compile(r"^every:(\d+)([dwh])$")
+
+
+def is_hourly_recurrence(pattern: str | None) -> bool:
+    """True for every:Nh — next slot advances by hours, not wall-clock realignment."""
+    if not pattern:
+        return False
+    m = _INTERVAL_RE.match(pattern.strip().lower())
+    return bool(m and m.group(2) == "h")
+
+
+def _with_wall_time(time_ref: datetime, dt: datetime) -> datetime:
+    return dt.replace(
+        hour=time_ref.hour,
+        minute=time_ref.minute,
+        second=time_ref.second,
+        microsecond=0,
+    )
+
+
+def _weekly_day_set(days_str: str) -> set[int]:
+    day_map = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+    out: set[int] = set()
+    for token in days_str.split(","):
+        wd = day_map.get(token.strip()[-2:].upper(), -1)
+        if wd >= 0:
+            out.add(wd)
+    return out
+
+
+def _next_weekdays_on_or_after(
+    after_dt: datetime,
+    weekdays: set[int],
+    time_ref: datetime,
+) -> Optional[datetime]:
+    """Earliest matching weekday on or after after_dt (same clock time as time_ref)."""
+    if not weekdays:
+        return None
+    day_start = after_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    best: Optional[datetime] = None
+    for off in range(8):
+        cand = _with_wall_time(time_ref, day_start + timedelta(days=off))
+        if cand >= after_dt and cand.weekday() in weekdays:
+            if best is None or cand < best:
+                best = cand
+    return best
+
+
+def next_occurrence_strictly_after(
+    pattern: str,
+    after_dt: datetime,
+    anchor_dt: datetime,
+) -> Optional[datetime]:
+    """First pattern tick strictly after after_dt, walking forward from anchor_dt."""
+    cur = anchor_dt
+    for _ in range(400):
+        nxt = next_occurrence(pattern, cur)
+        if not nxt:
+            return None
+        if nxt > after_dt:
+            return nxt
+        cur = nxt
+    return None
+
+
+def first_catch_up_slot_after(
+    pattern: str,
+    after_dt: datetime,
+    anchor_dt: datetime,
+) -> Optional[datetime]:
+    """Next suitable recurrence slot on or after after_dt (not merely the day after blackout)."""
+    pattern = pattern.strip().lower()
+
+    if pattern.startswith("weekly:"):
+        return _next_weekdays_on_or_after(
+            after_dt, _weekly_day_set(pattern[7:]), anchor_dt,
+        )
+
+    if pattern == "weekend":
+        return _next_weekdays_on_or_after(after_dt, {5, 6}, anchor_dt)
+
+    if pattern == "weekday":
+        return _next_weekdays_on_or_after(after_dt, {0, 1, 2, 3, 4}, anchor_dt)
+
+    day_names = {
+        "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+        "friday": 4, "saturday": 5, "sunday": 6,
+    }
+    if pattern in day_names:
+        return _next_weekdays_on_or_after(after_dt, {day_names[pattern]}, anchor_dt)
+
+    m = _INTERVAL_RE.match(pattern)
+    if m and m.group(2) == "w":
+        return _next_weekdays_on_or_after(after_dt, {anchor_dt.weekday()}, anchor_dt)
+
+    return next_occurrence_strictly_after(pattern, after_dt, anchor_dt)
+
+
+# Min gap after a catch_up_once slot before the next anchor-based occurrence is kept.
+_CATCH_UP_MIN_GAP_DAYS = 2
+
+
+def skip_occurrences_too_close_after_catchup(
+    pattern: str | None,
+    next_ms: int,
+    catch_up_ms: int,
+    anchor_ms: int,
+    *,
+    min_gap_days: int = _CATCH_UP_MIN_GAP_DAYS,
+) -> int:
+    """Skip anchor-based occurrences that land too soon after a catch-up completion."""
+    if not pattern or not pattern.strip():
+        return next_ms
+
+    min_gap = timedelta(days=min_gap_days)
+    anchor_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
+    catch_up_dt = datetime.fromtimestamp(catch_up_ms / 1000, tz=_IST)
+    current = datetime.fromtimestamp(next_ms / 1000, tz=_IST)
+
+    for _ in range(30):
+        if current - catch_up_dt >= min_gap:
+            return int(current.timestamp() * 1000)
+        nxt = next_occurrence_strictly_after(pattern, current, anchor_dt)
+        if not nxt:
+            break
+        current = nxt
+
+    return int(current.timestamp() * 1000)
 
 
 def next_occurrence(pattern: str, from_dt: datetime) -> Optional[datetime]:
@@ -28,6 +160,10 @@ def next_occurrence(pattern: str, from_dt: datetime) -> Optional[datetime]:
 
     if pattern == "daily":
         return from_dt + timedelta(days=1)
+
+    interval_next = _next_interval(pattern, from_dt)
+    if interval_next is not None:
+        return interval_next
 
     if pattern == "weekend":
         return _next_weekend(from_dt)
@@ -47,6 +183,20 @@ def next_occurrence(pattern: str, from_dt: datetime) -> Optional[datetime]:
         return _next_monthly(spec, from_dt)
 
     return None
+
+
+def _next_interval(pattern: str, dt: datetime) -> Optional[datetime]:
+    m = _INTERVAL_RE.match(pattern)
+    if not m:
+        return None
+    n = int(m.group(1))
+    if n < 1:
+        return None
+    if m.group(2) == "w":
+        return dt + timedelta(weeks=n)
+    if m.group(2) == "h":
+        return dt + timedelta(hours=n)
+    return dt + timedelta(days=n)
 
 
 def _next_weekend(dt: datetime) -> datetime:
