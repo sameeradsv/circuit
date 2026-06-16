@@ -564,9 +564,9 @@ function ActionPreview({
 
   return (
     <div className="rounded-lg border border-circuit-border bg-circuit-bg overflow-hidden text-xs">
-      <div className="px-3 py-2 border-b border-circuit-border flex items-center justify-between gap-2 bg-circuit-surface">
-        <span className="font-medium text-circuit-text">{action.tasks.length} task{action.tasks.length !== 1 ? "s" : ""} will change</span>
-        <span className="text-circuit-muted font-mono">{action.changeLabel}</span>
+      <div className="px-3 py-2 border-b border-circuit-border flex items-center justify-between gap-2 flex-wrap bg-circuit-surface">
+        <span className="font-medium text-circuit-text min-w-0 truncate">{action.tasks.length} task{action.tasks.length !== 1 ? "s" : ""} will change</span>
+        <span className="text-circuit-muted font-mono min-w-0 truncate">{action.changeLabel}</span>
       </div>
 
       <div className="divide-y divide-circuit-border">

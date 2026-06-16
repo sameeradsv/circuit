@@ -76,7 +76,7 @@
 /* ── Base ── */
 * { box-sizing: border-box; }
 
-html { color-scheme: light; }
+html { color-scheme: light; overflow-x: clip; }
 [data-palette="ink"] { color-scheme: dark; }
 
 body {
@@ -86,6 +86,8 @@ body {
   font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+  min-width: 0;
   background-image:
     radial-gradient(circle at 12px 12px, rgba(0,0,0,0.018) 1px, transparent 1.5px),
     radial-gradient(circle at 24px 36px, rgba(0,0,0,0.012) 1px, transparent 1.5px);
@@ -111,7 +113,7 @@ body {
 /* ── Layout primitives ── */
 .row { display: flex; flex-direction: row; }
 .col { display: flex; flex-direction: column; }
-.between { display: flex; align-items: center; justify-content: space-between; }
+.between { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .aic  { align-items: center; }
 .aib  { align-items: baseline; }
 .aie  { align-items: flex-end; }
@@ -326,6 +328,7 @@ body {
 }
 .app-content {
   flex: 1; min-width: 0;
+  overflow-x: clip;
   padding: var(--pad-page);
   padding-top: max(var(--pad-page), env(safe-area-inset-top, 0px));
   padding-bottom: calc(var(--pad-page) + var(--content-bottom-inset));
@@ -467,6 +470,24 @@ body {
   .task-actions                { gap: 4px; }
   .task .btn-icon,
   .task-action-delete          { width: 32px; height: 32px; }
+
+  .top-pick-row                { flex-direction: column !important; }
+  .top-pick-actions            { min-width: 0 !important; width: 100%; }
+  .home-energy-desc            { flex-wrap: wrap; }
+  .home-energy-desc .serif     { margin-left: 0 !important; font-size: 18px !important; }
+  .home-window-col             { min-width: 0 !important; }
+  .duration-row                { flex-wrap: wrap; }
+  .tasks-toolbar               { flex-wrap: wrap; width: 100%; }
+  .quick-add-card              { min-width: 0 !important; width: 100%; max-width: 100%; }
+  .task-pagination             { flex-wrap: wrap; gap: 8px; }
+  .drop-confirm-actions        { flex-wrap: wrap; justify-content: flex-end; }
+  .cal-week-scroll             { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .cal-week-grid               { min-width: 560px; }
+}
+
+@media (max-width: 1024px) {
+  .between > .row              { flex-wrap: wrap; }
+  .cal-toolbar                 { flex-wrap: wrap; }
 }
 
 /* ── Completion animation ── */

@@ -438,7 +438,8 @@ function WeekView({
   const nowMins  = (today.getHours() - START_H) * 60 + today.getMinutes();
 
   return (
-    <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+    <div className="cal-week-scroll">
+    <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden", minWidth: 560 }}>
       {/* Day headers */}
       <div style={{ display: "grid", gridTemplateColumns: `${LABEL_W}px repeat(7, 1fr)`, borderBottom: "1px solid var(--line)", background: "var(--paper-2)" }}>
         <div />
@@ -529,6 +530,7 @@ function WeekView({
           })}
         </div>
       </div>
+    </div>
     </div>
   );
 }
@@ -698,8 +700,9 @@ function DropConfirmBanner({
         display: "flex",
         flexDirection: "column",
         gap: 10,
-        minWidth: 320,
-        maxWidth: 480,
+        minWidth: "min(320px, calc(100vw - 32px))",
+        maxWidth: "min(480px, calc(100vw - 32px))",
+        width: "calc(100vw - 32px)",
       }}
     >
       <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 500 }}>
@@ -708,7 +711,7 @@ function DropConfirmBanner({
       <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: -4 }}>
         This is a recurring task.
       </div>
-      <div className="row gap-2" style={{ justifyContent: "flex-end" }}>
+      <div className="row gap-2 drop-confirm-actions" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
         <button
           className="btn"
           style={{ fontSize: 12, padding: "5px 12px", background: "none", color: "var(--ink-3)", border: "1px solid var(--line)" }}

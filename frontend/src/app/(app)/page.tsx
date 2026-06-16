@@ -115,8 +115,8 @@ function TopPickCard({ task, energy, timeAvail }: { task: ScoredTask; energy: nu
   const type = taskTypeMeta(task);
   return (
     <div className="card" style={{ padding: 28, borderColor: "var(--ink)", boxShadow: "6px 6px 0 var(--ink)" }}>
-      <div className="row gap-6">
-        <div style={{ flex: 1 }}>
+      <div className="row gap-6 top-pick-row">
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="row gap-2 aic" style={{ marginBottom: 12 }}>
             <span className={`type-dot type-${type.cls}`} />
             <span className="tiny" style={{ color: "var(--ink-2)" }}>{type.label}</span>
@@ -132,7 +132,7 @@ function TopPickCard({ task, energy, timeAvail }: { task: ScoredTask; energy: nu
           )}
           <ScoreBreakdown segs={task.segs} />
         </div>
-        <div className="col gap-2" style={{ minWidth: 180, alignItems: "stretch" }}>
+        <div className="col gap-2 top-pick-actions" style={{ minWidth: 180, alignItems: "stretch" }}>
           <Link
             href="/tasks"
             className="btn btn-primary"
@@ -317,7 +317,7 @@ export default function HomePage() {
         <div className="row gap-6 home-energy-row">
           <div style={{ flex: 1 }}>
             <div className="label" style={{ marginBottom: 8 }}>Energy</div>
-            <div className="row aib gap-3" style={{ marginBottom: 4 }}>
+            <div className="row aib gap-3 home-energy-desc" style={{ marginBottom: 4 }}>
               <span className="display tnum home-energy-num" style={{ fontSize: 56, lineHeight: 1 }}>{energy}</span>
               <span className="mono" style={{ color: "var(--ink-3)", fontSize: 14 }}>/10</span>
               <span className="serif" style={{ marginLeft: 12, fontSize: 22, color: "var(--ink-2)" }}>
@@ -326,7 +326,7 @@ export default function HomePage() {
             </div>
             <EnergyRail value={energy} onChange={setEnergy} />
           </div>
-          <div className="hairline-v" style={{ paddingLeft: 24, minWidth: 220 }}>
+          <div className="hairline-v home-window-col" style={{ paddingLeft: 24, minWidth: 220 }}>
             <div className="label" style={{ marginBottom: 8 }}>Window</div>
             <div className="row aib gap-2" style={{ marginBottom: 4 }}>
               <span className="display tnum home-window-num" style={{ fontSize: 40, lineHeight: 1 }}>{fmtTime(timeAvail)}</span>
@@ -341,7 +341,7 @@ export default function HomePage() {
                 {new Date(nextMeeting.scheduled_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
               </div>
             )}
-            <div className="row gap-1">
+            <div className="row gap-1 duration-row">
               {[30, 60, 90, 120].map((m) => (
                 <button
                   key={m}

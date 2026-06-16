@@ -332,7 +332,7 @@ export default function TasksPage() {
             </span>
           </h1>
         </div>
-        <div className="row gap-2 aic">
+        <div className="row gap-2 aic tasks-toolbar">
           <button
             className={"btn" + (showSearch ? " btn-primary" : "")}
             style={{ fontSize: 13 }}
@@ -603,7 +603,7 @@ function TaskPagination({
   const rangeEnd = Math.min(total, (page + 1) * pageSize);
 
   return (
-    <div className="row between aic" style={{ fontSize: 13 }}>
+    <div className="row between aic task-pagination" style={{ fontSize: 13 }}>
       <span className="serif" style={{ color: "var(--ink-3)" }}>
         {rangeStart}–{rangeEnd} of {total}
       </span>
@@ -951,7 +951,7 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
   }
 
   return (
-    <div className="card" style={{ padding: "12px 16px", minWidth: 300 }}>
+    <div className="card quick-add-card" style={{ padding: "12px 16px", minWidth: 300 }}>
       <input
         ref={ref}
         value={value}
