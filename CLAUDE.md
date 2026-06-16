@@ -77,6 +77,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 | `history.py` | `/api/history` | Task event log |
 | `search.py` | `/api/search` | Full-text task search |
 | `ai.py` | `/api/ai` | Task classification heuristics |
+| `agent.py` | `/api/agent` | Circuit-native Claude agent with task/energy tools |
 | `sync.py` | `/api/sync` | AES-256 encrypted export/import |
 | `webauthn.py` | `/api/auth/webauthn` | Passkey registration and login |
 
@@ -120,11 +121,11 @@ app/(app)/          # Authenticated routes
   account/page.tsx  # Preferences, sleep log, blackouts, export/import, passkey
   add/page.tsx
   analytics/page.tsx
-  chat/page.tsx     # TerminalChat — command parser + Conduit Q&A fallback
+  chat/page.tsx     # TerminalChat — command parser + native Circuit agent (Claude) + client-side help
 app/(auth)/login/   # Login page
 components/
   TaskDetailModal.tsx   # Edit task — priority, cognitive, time, recurrence end/weekend-override, blackout skip flags (incl. wfh), travel buffers, group_id. All field labels have hover tooltips (FieldHint component).
-  TerminalChat.tsx      # Command parsing + ActionPreview + client-side recurrence/blackout help + Conduit agent fallback
+  TerminalChat.tsx      # Command parsing + ActionPreview + client-side recurrence/blackout help + Circuit native agent fallback
   AppShell.tsx / TabBar.tsx / Sidebar.tsx / Nav.tsx
 lib/
   api.ts                  # Typed fetch wrapper for all backend endpoints (includes sleep, batchUpdate)
@@ -223,7 +224,7 @@ Energy is modelled as a **running balance** (0–1) that accumulates through the
 
 ### TerminalChat (`frontend/src/components/TerminalChat.tsx`)
 
-Two-tier message handling:
+Three-tier message handling:
 
 1. **Command parser** (client-side, no API call needed): Matches action phrases before sending to the agent:
    - `push / move / reschedule / defer / shift / bump` + filter + date → batch-reschedule
@@ -233,11 +234,16 @@ Two-tier message handling:
    - Dates: tomorrow, next week, Monday–Sunday, end of week, end of day, next month
    - Shows **ActionPreview** panel listing matched tasks and proposed change; requires **Approve / Cancel** before executing via `POST /api/tasks/batch-update`
 
-2. **Client-side help**: Before reaching Conduit, messages mentioning recurrence/repeat/patterns/blackout/catch-up are answered client-side with the full format reference — Conduit has no Circuit-specific schema knowledge.
+2. **Client-side recurrence/blackout help**: Messages mentioning recurrence/repeat/patterns/blackout/catch-up are answered client-side with the full format reference — avoids an API round-trip.
 
-3. **Conduit agent fallback**: For all other messages, streams to the external Conduit service at `NEXT_PUBLIC_CONDUIT_API_URL`. Conduit has no Circuit task tools registered; it handles general conversational Q&A only.
+3. **Circuit native agent** (`POST /api/agent/chat`): For all other messages, streams to Circuit's own backend agent (`backend/app/routers/agent.py`). Uses Claude (claude-haiku-4-5-20251001) with tool_use. Tools available:
+   - `get_today_summary` — today's tasks: completed, pending, overdue, time blocked, by-tag breakdown
+   - `get_tasks` — filtered task list (focus_type, tag, min_cognitive_load, days_ahead)
+   - `get_energy_context` — current energy_level, stress_level, focus_mode from UserState
+   - Agent knows all recurrence patterns from its system prompt; no tool needed for format questions
+   - Requires `ANTHROPIC_API_KEY` env var on the backend; returns an error delta if missing
 
-Quick-command chips in the chat UI provide one-click access to common operations.
+Quick-command chips: "How busy is today?", "What are my deep work tasks this week?", plus batch-move commands that trigger the command parser.
 
 ### Calendar view (`frontend/src/app/(app)/calendar/page.tsx`)
 

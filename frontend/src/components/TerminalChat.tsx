@@ -3,9 +3,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { api, ApiTask } from "@/lib/api";
 
-// ── Conduit agent (Q&A only, no task tools available) ────────────────────────
+// ── Circuit native agent ──────────────────────────────────────────────────────
 
-const CONDUIT = (process.env.NEXT_PUBLIC_CONDUIT_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 const TOKEN_KEY = "circuit_auth_token";
 
 async function* agentStream(
@@ -14,16 +14,13 @@ async function* agentStream(
   signal: AbortSignal,
   onTool: (name: string) => void,
 ): AsyncGenerator<string> {
-  const res = await fetch(`${CONDUIT}/api/agent/chat`, {
+  const res = await fetch(`${API_BASE}/api/agent/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messages: history,
-      model: "llama-3.3-70b-versatile",
-      sibling_token: token,
-      scope: "circuit",
-      diary: false,
-    }),
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ messages: history }),
     signal,
   });
   if (!res.ok) {
@@ -239,7 +236,7 @@ export function TerminalChat() {
   const [msgs, setMsgs] = useState<Msg[]>([
     {
       id: uid(), role: "system",
-      content: "Ask me about your tasks, or give a command like \"push high cognitive-load tasks to tomorrow\".",
+      content: "Ask about your day, tasks, or energy — or give a command like \"push high cognitive-load tasks to tomorrow\".",
     },
   ]);
   const [value, setValue]     = useState("");
@@ -370,8 +367,8 @@ The edit modal also has a quick-pick dropdown with the most common options.
           content: isAbort
             ? (full || "(cancelled)")
             : (full
-              ? full + "\n\n_(Note: Conduit agent unavailable — task commands work offline)_"
-              : "Conduit agent is offline. Try a task command instead, e.g. \"push work tasks to tomorrow\"."),
+              ? full + "\n\n_(Note: agent error — task commands still work)_"
+              : "Agent unavailable. Try a task command instead, e.g. \"push work tasks to tomorrow\"."),
           streaming: false,
         } : m,
       ));
@@ -470,10 +467,10 @@ The edit modal also has a quick-pick dropdown with the most common options.
       {/* Quick command chips */}
       <div className="px-4 pb-2 flex gap-2 flex-wrap border-t border-circuit-border pt-2 bg-circuit-surface">
         {[
+          "How busy is today?",
+          "What are my deep work tasks this week?",
           "Push high cognitive-load tasks to tomorrow",
-          "Move work tasks to next week",
           "Reschedule overdue tasks to tomorrow",
-          "Push all tasks to next Monday",
         ].map((cmd) => (
           <button
             key={cmd}
@@ -499,7 +496,7 @@ The edit modal also has a quick-pick dropdown with the most common options.
             e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
           }}
           onKeyDown={handleKey}
-          placeholder={streaming ? "thinking…" : "push work tasks to tomorrow…"}
+          placeholder={streaming ? "thinking…" : "how busy is today? / push work tasks to tomorrow…"}
           rows={1}
           spellCheck={false}
           autoComplete="off"
