@@ -40,8 +40,10 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 
 ## Behavioral (tracked)
 
-- `historical_completion_rate`, `skipped_count`, `last_skipped_at`
-- `delay_pattern`, `task_decomposition_potential`
+- `historical_completion_rate` — EMA toward 100% on each completion (default 0.7); copied to next recurrence
+- `skipped_count`, `last_skipped_at` — incremented on skip/defer (frontend)
+- `delay_pattern` — learned after repeated skips (`peak-skip:morning|afternoon|evening`)
+- `task_decomposition_potential`
 
 ## Grouping
 

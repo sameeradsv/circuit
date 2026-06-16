@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, TaskEvent, User
+from app.behavioral import record_completion_rate
 from app.engines.recurrence import is_hourly_recurrence, next_occurrence, skip_occurrences_too_close_after_catchup
 from app.services.blackout import adjust_for_blackouts
 from app.task_event_time import task_event_occurred_at
@@ -260,6 +261,8 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
 
     # Auto-log completion/uncompletion event
     if payload.completed is not None and payload.completed != was_completed:
+        if payload.completed:
+            task.historical_completion_rate = record_completion_rate(task.historical_completion_rate)
         event_type = "completed" if payload.completed else "uncompleted"
         db.add(TaskEvent(
             user_id=user.id,
@@ -411,8 +414,10 @@ def batch_update_tasks(
         .all()
     )
     _JSON_FIELDS = {"required_resources", "dependencies"}
+    patch_data = payload.patch.model_dump(exclude_unset=True)
     for task in tasks:
-        for field, value in payload.patch.model_dump(exclude_unset=True).items():
+        was_completed = task.completed
+        for field, value in patch_data.items():
             if field == "metadata":
                 task.metadata_json = json.dumps(value)
             elif field in _JSON_FIELDS:
@@ -421,6 +426,8 @@ def batch_update_tasks(
                 task.blackout_skip_flags = json.dumps(value) if value is not None else None
             else:
                 setattr(task, field, value)
+        if patch_data.get("completed") is True and not was_completed:
+            task.historical_completion_rate = record_completion_rate(task.historical_completion_rate)
         task.updated_at = datetime.utcnow()
     db.commit()
     return {"updated": len(tasks), "ids": [t.id for t in tasks]}

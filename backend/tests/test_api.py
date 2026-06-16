@@ -373,6 +373,22 @@ def test_complete_task_uses_scheduled_at_for_event(client, auth):
     assert completed["occurred_at"] == expected
 
 
+def test_complete_task_updates_completion_rate(client, auth):
+    task = client.post(
+        "/api/tasks",
+        json={"text": "Habit task", "historical_completion_rate": 0.7},
+        headers=auth,
+    ).json()
+    assert task["historical_completion_rate"] == 0.7
+
+    updated = client.patch(
+        f"/api/tasks/{task['id']}",
+        json={"completed": True},
+        headers=auth,
+    ).json()
+    assert abs(updated["historical_completion_rate"] - 0.79) < 1e-9
+
+
 def test_energy_timeline_uses_scheduled_at(client, auth):
     scheduled_ms = 1_700_000_000_000
     task = client.post(
