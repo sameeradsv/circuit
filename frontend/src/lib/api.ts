@@ -318,6 +318,7 @@ export const api = {
   listSleepLogs: (days = 7) => req<ApiSleepLog[]>("GET", `/api/sleep?days=${days}`),
   listSleepOverrides: (page = 1, limit = 10) =>
     req<ApiSleepOverridePage>("GET", `/api/sleep/overrides?page=${page}&limit=${limit}`),
+  deleteSleepOverride: (date: string) => req<void>("DELETE", `/api/sleep/${date}`),
   getSleepFactor: () => req<ApiSleepFactor>("GET", "/api/sleep/factor"),
 
   // blackouts

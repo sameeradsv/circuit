@@ -52,7 +52,7 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 - **Sleep timing** from a calendar/task event titled **Sleep** (`scheduled_at` = bedtime, `duration` = length)
 - **Account → Sleep & recovery**: optional quality / disturbed / notes overrides
 - **Default sleep quality** (0–10, default 7) in Preferences
-- Override history: toggle **Show sleep overrides** with pagination
+- Override history: toggle **Show sleep overrides** with pagination; **Edit** or **Delete** per row
 - Energy baseline: `sleep_factor × 0.70 + energy_eod × 0.30` + cumulative task-event deltas through the day
 - **Circuit task energy on the timeline** is anchored to each task's **scheduled time** (when the work was planned), not when you tapped complete — matches Canopy (`occurred_at`) and Chef (meal `timestamp`). Cross-app chart lives on **Canopy → Energy** when sibling apps are configured.
 

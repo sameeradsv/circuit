@@ -339,6 +339,22 @@ def test_sleep_quality_override(client, auth):
     assert log["source"] == "mixed"
 
 
+def test_delete_sleep_override(client, auth):
+    client.post("/api/sleep", json={"quality": 5, "notes": "test night"})
+    listed = client.get("/api/sleep/overrides", headers=auth).json()
+    assert listed["total"] >= 1
+    date = listed["items"][0]["date"]
+
+    r = client.delete(f"/api/sleep/{date}", headers=auth)
+    assert r.status_code == 204
+
+    listed = client.get("/api/sleep/overrides", headers=auth).json()
+    assert all(item["date"] != date for item in listed["items"])
+
+    r = client.delete(f"/api/sleep/{date}", headers=auth)
+    assert r.status_code == 404
+
+
 # ── Task event timing ───────────────────────────────────────────────────────
 
 

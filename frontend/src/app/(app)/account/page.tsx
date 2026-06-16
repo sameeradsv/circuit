@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiBlackout, ApiSettings, ApiSleepLog, ApiUserState } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { usePasskey } from "@/lib/usePasskey";
-import { fmtDateIST } from "@/lib/tz";
+import { fmtDateIST, todayIST } from "@/lib/tz";
 import { invalidateTaskCache } from "@/lib/task-cache";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
@@ -49,6 +49,7 @@ export default function AccountPage() {
   const [sleepOverridePages, setSleepOverridePages] = useState(0);
   const [sleepOverrideTotal, setSleepOverrideTotal] = useState(0);
   const [sleepHistoryLoading, setSleepHistoryLoading] = useState(false);
+  const [editingSleepDate, setEditingSleepDate] = useState<string | null>(null);
   const SLEEP_OVERRIDE_PAGE_SIZE = 10;
 
   // blackout state
@@ -136,6 +137,60 @@ export default function AccountPage() {
     await loadSleepOverrides(1);
   }
 
+  function applySleepFormFromLog(log: ApiSleepLog | null) {
+    if (log) {
+      setSleepQuality(log.quality != null && !log.quality_is_default ? log.quality : "");
+      setSleepDisturbed(!!log.disturbed);
+      setSleepNotes(log.notes ?? "");
+    } else {
+      setSleepQuality("");
+      setSleepDisturbed(false);
+      setSleepNotes("");
+    }
+  }
+
+  function beginEditSleepOverride(log: ApiSleepLog) {
+    setEditingSleepDate(log.date);
+    applySleepFormFromLog(log);
+    setSleepMsg(null);
+    setSleepErr(null);
+  }
+
+  function cancelEditSleepOverride() {
+    setEditingSleepDate(null);
+    applySleepFormFromLog(todaySleep);
+    setSleepMsg(null);
+    setSleepErr(null);
+  }
+
+  async function handleDeleteSleepOverride(log: ApiSleepLog) {
+    if (!confirm(`Remove sleep overrides for ${log.date}?`)) return;
+    setSleepErr(null);
+    setSleepMsg(null);
+    try {
+      await api.deleteSleepOverride(log.date);
+      if (editingSleepDate === log.date) cancelEditSleepOverride();
+      if (log.date === todayIST()) {
+        const factor = await api.getSleepFactor();
+        setTodaySleep(factor.sleep_log);
+        if (!editingSleepDate) applySleepFormFromLog(factor.sleep_log);
+      }
+      if (showSleepHistory) {
+        const nextPage =
+          sleepOverrides.length === 1 && sleepOverridePage > 1
+            ? sleepOverridePage - 1
+            : sleepOverridePage;
+        await loadSleepOverrides(nextPage);
+      }
+      api.listSleepOverrides(1, 1)
+        .then((d) => setSleepOverrideTotal(d.total))
+        .catch(() => {});
+      setSleepMsg(`Removed overrides for ${log.date}.`);
+    } catch (e) {
+      setSleepErr(e instanceof Error ? e.message : "Failed to delete sleep override");
+    }
+  }
+
   useEffect(() => {
     if (!user) return;
     Promise.all([api.getSettings(), api.getUserState(), api.listBlackouts(), api.getSleepFactor()])
@@ -145,11 +200,7 @@ export default function AccountPage() {
         setBlackouts(bl);
         const today = factor.sleep_log;
         setTodaySleep(today);
-        if (today) {
-          if (today.quality != null && !today.quality_is_default) setSleepQuality(today.quality);
-          if (today.disturbed) setSleepDisturbed(true);
-          if (today.notes) setSleepNotes(today.notes);
-        }
+        if (!editingSleepDate) applySleepFormFromLog(today);
       })
       .catch(() => {});
     api.listSleepOverrides(1, 1)
@@ -266,15 +317,27 @@ export default function AccountPage() {
     setSleepErr(null);
     setSleepMsg(null);
     try {
+      const targetDate = editingSleepDate ?? undefined;
       const log = await api.logSleep({
+        date: targetDate,
         quality: sleepQuality !== "" ? sleepQuality : null,
         disturbed: sleepDisturbed,
         notes: sleepNotes.trim() || null,
       });
-      setTodaySleep(log);
+      if (!targetDate || targetDate === todayIST()) {
+        setTodaySleep(log);
+        applySleepFormFromLog(log);
+      } else {
+        applySleepFormFromLog(todaySleep);
+      }
+      setEditingSleepDate(null);
       if (showSleepHistory) await loadSleepOverrides(sleepOverridePage);
+      api.listSleepOverrides(1, 1)
+        .then((d) => setSleepOverrideTotal(d.total))
+        .catch(() => {});
+      const dateLabel = targetDate && targetDate !== todayIST() ? ` for ${targetDate}` : "";
       const durLabel = log.duration_h ? ` (${log.duration_h.toFixed(1)}h from Sleep task)` : "";
-      setSleepMsg(`Saved overrides${durLabel}.`);
+      setSleepMsg(`Saved overrides${dateLabel}${durLabel}.`);
     } catch (e) {
       setSleepErr(e instanceof Error ? e.message : "Failed to save sleep overrides");
     } finally {
@@ -508,6 +571,22 @@ export default function AccountPage() {
             </div>
           )}
 
+          {editingSleepDate && (
+            <div className="rounded border border-circuit-accent/40 bg-circuit-accent/5 px-3 py-2 text-xs flex items-center justify-between gap-3">
+              <span className="text-circuit-text">
+                Editing overrides for <span className="font-medium">{editingSleepDate}</span>
+                {editingSleepDate === todayIST() ? " (today)" : ""}
+              </span>
+              <button
+                type="button"
+                onClick={cancelEditSleepOverride}
+                className="text-circuit-muted hover:text-circuit-text shrink-0"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <label className="space-y-1">
               <span className="text-xs text-circuit-muted">
@@ -541,7 +620,7 @@ export default function AccountPage() {
           />
           <div className="flex flex-wrap items-center gap-4">
             <button onClick={handleLogSleep} disabled={sleepSaving} className="btn btn-primary">
-              {sleepSaving ? "Saving…" : "Save overrides"}
+              {sleepSaving ? "Saving…" : editingSleepDate ? "Save changes" : "Save overrides"}
             </button>
             <button
               type="button"
@@ -568,9 +647,14 @@ export default function AccountPage() {
                     Saved overrides · {sleepOverrideTotal} total
                   </p>
                   {sleepOverrides.map((l) => (
-                    <div key={l.id ?? l.date} className="flex items-center justify-between text-xs py-1.5 border-b border-circuit-border last:border-0">
-                      <span className="text-circuit-text font-medium">{l.date}</span>
-                      <span className="text-circuit-muted text-right">
+                    <div
+                      key={l.id ?? l.date}
+                      className={`flex items-center justify-between gap-3 text-xs py-1.5 border-b border-circuit-border last:border-0 ${
+                        editingSleepDate === l.date ? "bg-circuit-accent/5 -mx-1 px-1 rounded" : ""
+                      }`}
+                    >
+                      <span className="text-circuit-text font-medium shrink-0">{l.date}</span>
+                      <span className="text-circuit-muted text-right flex-1 min-w-0">
                         {l.duration_h != null ? `${l.duration_h.toFixed(1)}h` : "—"}
                         {l.quality != null
                           ? l.quality_is_default
@@ -579,6 +663,22 @@ export default function AccountPage() {
                           : ""}
                         {l.disturbed ? " · disturbed" : ""}
                         {l.notes ? ` · ${l.notes.slice(0, 40)}${l.notes.length > 40 ? "…" : ""}` : ""}
+                      </span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => beginEditSleepOverride(l)}
+                          className="text-circuit-muted hover:text-circuit-text"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteSleepOverride(l)}
+                          className="text-red-400/80 hover:text-red-400"
+                        >
+                          Delete
+                        </button>
                       </span>
                     </div>
                   ))}

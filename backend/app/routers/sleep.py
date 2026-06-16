@@ -4,6 +4,7 @@ Endpoints:
   POST /api/sleep          — upsert daily sleep overrides (quality, disturbed, notes)
   GET  /api/sleep          — list recent resolved sleep logs (?days=7)
   GET  /api/sleep/overrides — paginated manual sleep overrides
+  DELETE /api/sleep/{date} — remove overrides for a wake-up date (YYYY-MM-DD IST)
   GET  /api/sleep/factor   — computed energy factor for today (0–1) + breakdown
 
 Bedtime and wake time are read from a calendar/task event titled "Sleep"
@@ -342,6 +343,28 @@ def list_sleep_overrides(
 
     pages = max(1, (total + limit - 1) // limit) if total else 0
     return {"items": items, "total": total, "page": page, "limit": limit, "pages": pages}
+
+
+@router.delete("/{date}", status_code=204)
+def delete_sleep_override(
+    date: str,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Remove manual sleep overrides for a wake-up date. Timing reverts to the Sleep task + defaults."""
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+
+    row = db.query(SleepLog).filter_by(user_id=user.id, date=date).first()
+    if not row:
+        raise HTTPException(404, "No sleep override for that date")
+    if not _is_override_row(row):
+        raise HTTPException(404, "No sleep override for that date")
+
+    db.delete(row)
+    db.commit()
 
 
 # ── Energy factor computation ─────────────────────────────────────────────────
