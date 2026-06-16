@@ -582,17 +582,19 @@ export default function CalendarPage() {
           <button
             className="btn"
             style={{ fontSize: 13 }}
-            onClick={() => {
-              const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Circuit//EN"];
-              for (const t of tasks.filter((x) => x.scheduled_at && !x.completed)) {
-                const start = new Date(t.scheduled_at!);
-                const end   = new Date(t.scheduled_at! + (t.duration ?? 30) * 60_000);
-                const fmt   = (d: Date) => d.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-                lines.push("BEGIN:VEVENT", `UID:circuit-${t.id}@circuit`, `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`, `SUMMARY:${t.text}`, t.tiny_step ? `DESCRIPTION:${t.tiny_step}` : "", "END:VEVENT");
+            onClick={async () => {
+              try {
+                const res = await api.exportCalendar();
+                if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+                const blob = await res.blob();
+                const today = new Date().toISOString().slice(0, 10);
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `circuit-${today}.ics`;
+                a.click();
+              } catch (err) {
+                alert(err instanceof Error ? err.message : "Export failed");
               }
-              lines.push("END:VCALENDAR");
-              const blob = new Blob([lines.filter(Boolean).join("\r\n")], { type: "text/calendar" });
-              const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "circuit.ics"; a.click();
             }}
           >
             Export .ics

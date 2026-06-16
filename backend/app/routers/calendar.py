@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 _IST = ZoneInfo("Asia/Kolkata")
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -619,6 +620,187 @@ async def import_ics(
         db.rollback()
         raise HTTPException(400, f"Database error during import: {str(exc)[:300]}")
     return {"imported": created, "total": len(events), "expires_at": expires_at}
+
+
+# ── ICS export ────────────────────────────────────────────────────────────────
+
+def _esc(text: str) -> str:
+    """RFC 5545 text escaping: backslash, comma, semicolon, newline."""
+    return text.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n").replace("\r", "")
+
+
+def _fold(line: str) -> str:
+    """RFC 5545 line folding: max 75 octets per line, continuation lines start with a space."""
+    encoded = line.encode("utf-8")
+    if len(encoded) <= 75:
+        return line
+    chunks: list[str] = []
+    buf = b""
+    for char in line:
+        c = char.encode("utf-8")
+        if len(buf) + len(c) > (75 if not chunks else 74):
+            chunks.append(buf.decode("utf-8"))
+            buf = b" " + c
+        else:
+            buf += c
+    if buf:
+        chunks.append(buf.decode("utf-8"))
+    return "\r\n".join(chunks)
+
+
+def _recurrence_to_rrule(recurrence: str, ends_at_ms: Optional[int] = None) -> Optional[str]:
+    """Convert Circuit's internal recurrence pattern to an RRULE string."""
+    until = ""
+    if ends_at_ms:
+        until_dt = datetime.fromtimestamp(ends_at_ms / 1000, tz=timezone.utc)
+        until = f";UNTIL={until_dt.strftime('%Y%m%dT%H%M%SZ')}"
+
+    if recurrence == "daily":
+        return f"FREQ=DAILY{until}"
+    if recurrence == "weekday":
+        return f"FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR{until}"
+    if recurrence == "weekend":
+        return f"FREQ=WEEKLY;BYDAY=SA,SU{until}"
+    if recurrence.startswith("weekly:"):
+        days = recurrence[7:]          # e.g. "MO,WE,FR"
+        return f"FREQ=WEEKLY;BYDAY={days}{until}"
+    if recurrence == "weekly":
+        return f"FREQ=WEEKLY{until}"
+    if recurrence.startswith("monthly:"):
+        spec = recurrence[8:]          # e.g. "1MO" or "1"
+        if re.match(r"^-?\d+$", spec) or spec == "L":
+            # Day-of-month: e.g. "1" → BYMONTHDAY=1
+            day = spec if spec != "L" else "-1"
+            return f"FREQ=MONTHLY;BYMONTHDAY={day}{until}"
+        # Nth weekday: e.g. "1MO", "LFR"
+        m = re.match(r"^(L|-?\d+)([A-Z]{2})$", spec)
+        if m:
+            n = "-1" if m.group(1) == "L" else m.group(1)
+            return f"FREQ=MONTHLY;BYDAY={n}{m.group(2)}{until}"
+    return None
+
+
+_IST_OFFSET = "+0530"
+_VTIMEZONE = "\r\n".join([
+    "BEGIN:VTIMEZONE",
+    "TZID:Asia/Kolkata",
+    "BEGIN:STANDARD",
+    "DTSTART:19700101T000000",
+    "TZOFFSETFROM:+0530",
+    "TZOFFSETTO:+0530",
+    "TZNAME:IST",
+    "END:STANDARD",
+    "END:VTIMEZONE",
+])
+
+
+def _task_to_vevent(task: CircuitTask) -> str:
+    """Convert a CircuitTask to a VEVENT block string."""
+    lines: list[str] = ["BEGIN:VEVENT"]
+
+    # UID — stable across re-exports
+    lines.append(f"UID:circuit-{task.id}@circuit")
+
+    # Timestamps in IST
+    dtstart_ms = task.scheduled_at
+    if task.is_recurring_template and task.rrule_dtstart_ms:
+        dtstart_ms = task.rrule_dtstart_ms   # use original DTSTART for recurring templates
+
+    start_ist = datetime.fromtimestamp(dtstart_ms / 1000, tz=_IST)
+    end_ist   = start_ist + timedelta(minutes=task.duration or 30)
+    fmt_ist   = "%Y%m%dT%H%M%S"
+
+    lines.append(f"DTSTART;TZID=Asia/Kolkata:{start_ist.strftime(fmt_ist)}")
+    lines.append(f"DTEND;TZID=Asia/Kolkata:{end_ist.strftime(fmt_ist)}")
+
+    # Created / modified (UTC)
+    if task.created_at:
+        lines.append(f"DTSTAMP:{task.created_at.strftime('%Y%m%dT%H%M%SZ')}")
+
+    # Summary + description
+    lines.append(_fold(f"SUMMARY:{_esc(task.text)}"))
+    if task.tiny_step:
+        lines.append(_fold(f"DESCRIPTION:{_esc(task.tiny_step)}"))
+
+    # Location
+    if task.location_dependency:
+        lines.append(_fold(f"LOCATION:{_esc(task.location_dependency)}"))
+
+    # Category from tag
+    if task.tag and task.tag != "general":
+        lines.append(f"CATEGORIES:{_esc(task.tag)}")
+
+    # Status
+    if task.completed:
+        lines.append("STATUS:COMPLETED")
+    else:
+        lines.append("STATUS:CONFIRMED")
+
+    # Effort → priority (iCal: 0=undefined, 1=high, 5=medium, 9=low)
+    priority_map = {"high": "1", "medium": "5", "low": "9"}
+    if task.effort and task.effort in priority_map:
+        lines.append(f"PRIORITY:{priority_map[task.effort]}")
+
+    # Recurrence
+    rrule: Optional[str] = None
+    if task.rrule:
+        rrule = task.rrule
+    elif task.recurrence:
+        rrule = _recurrence_to_rrule(task.recurrence, task.recurrence_ends_at)
+
+    if rrule:
+        lines.append(f"RRULE:{rrule}")
+
+    lines.append("END:VEVENT")
+    return "\r\n".join(lines)
+
+
+@router.get("/export")
+def export_ics(
+    include_completed: bool = False,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Export all scheduled tasks as a standards-compliant .ics file importable
+    by iCloud Calendar, Google Calendar, and any RFC 5545-compliant app.
+
+    Recurring templates are exported once with their original DTSTART + RRULE
+    so the calendar app regenerates all occurrences. Single tasks use fixed
+    DTSTART/DTEND. All times are in Asia/Kolkata (IST).
+
+    ?include_completed=true to include already-completed tasks (default: false).
+    """
+    q = db.query(CircuitTask).filter(
+        CircuitTask.user_id == user.id,
+        CircuitTask.scheduled_at.isnot(None),
+    )
+    if not include_completed:
+        q = q.filter(CircuitTask.completed == False)  # noqa: E712
+    tasks = q.order_by(CircuitTask.scheduled_at).all()
+
+    header = "\r\n".join([
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Circuit//Task Export//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:Circuit Tasks",
+        "X-WR-TIMEZONE:Asia/Kolkata",
+    ])
+
+    parts = [header, _VTIMEZONE]
+    for task in tasks:
+        parts.append(_task_to_vevent(task))
+    parts.append("END:VCALENDAR")
+
+    ics_body = "\r\n".join(parts)
+    filename = f"circuit-{datetime.now(_IST).strftime('%Y%m%d')}.ics"
+    return Response(
+        content=ics_body,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Series propagation ────────────────────────────────────────────────────────

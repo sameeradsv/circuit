@@ -269,6 +269,11 @@ export const api = {
   }),
   getCalendarExpiry: () =>
     req<{ expires_at_ms: number | null; expires_at_iso: string | null; days_until_expiry: number | null }>("GET", "/api/calendar/expiry"),
+  exportCalendar: (includeCompleted = false) => {
+    const token = getAuthToken();
+    const url = `${apiBase}/api/calendar/export${includeCompleted ? "?include_completed=true" : ""}`;
+    return fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  },
   importCalendar: (file: File) => {
     const token = getAuthToken();
     const form = new FormData();
