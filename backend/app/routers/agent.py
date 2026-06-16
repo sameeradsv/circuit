@@ -260,17 +260,9 @@ async def agent_chat(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    from app.services.circuit_agent import resolve_agent_provider, stream_groq_agent
 
-    if not api_key:
-        async def _no_key():
-            yield f"data: {json.dumps({'error': 'ANTHROPIC_API_KEY not configured on the server'})}\n\n"
-            yield "data: [DONE]\n\n"
-        return StreamingResponse(_no_key(), media_type="text/event-stream")
-
-    import anthropic  # lazy import — only needed when key is present
-
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    provider = resolve_agent_provider()
     system = _build_system_prompt()
     msgs = [
         {"role": m["role"], "content": m["content"]}
@@ -278,9 +270,40 @@ async def agent_chat(
         if m.get("role") in ("user", "assistant") and m.get("content")
     ]
 
+    if not provider:
+        async def _no_key():
+            yield (
+                "data: "
+                + json.dumps({
+                    "error": (
+                        "No AI provider configured. Set GROQ_API_KEY (recommended) or "
+                        "ANTHROPIC_API_KEY on the server."
+                    ),
+                })
+                + "\n\n"
+            )
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_no_key(), media_type="text/event-stream")
+
     async def generate():
         try:
-            # First turn — may trigger tool_use
+            if provider == "groq":
+                async for event in stream_groq_agent(
+                    system=system,
+                    messages=msgs,
+                    tools=_TOOLS,
+                    execute_tool=_execute_tool,
+                    db=db,
+                    user_id=user.id,
+                ):
+                    yield f"data: {json.dumps(event)}\n\n"
+                return
+
+            # Anthropic fallback
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            import anthropic
+
+            client = anthropic.AsyncAnthropic(api_key=api_key)
             response = await client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=1024,
@@ -290,7 +313,6 @@ async def agent_chat(
             )
 
             if response.stop_reason == "tool_use":
-                # Build serialisable assistant content for the follow-up turn
                 assistant_content = []
                 tool_results = []
 
@@ -312,7 +334,6 @@ async def agent_chat(
                             "content": json.dumps(result),
                         })
 
-                # Second turn — stream the final response
                 msgs2 = msgs + [
                     {"role": "assistant", "content": assistant_content},
                     {"role": "user", "content": tool_results},
@@ -325,9 +346,7 @@ async def agent_chat(
                 ) as stream:
                     async for text in stream.text_stream:
                         yield f"data: {json.dumps({'delta': text})}\n\n"
-
             else:
-                # Direct text response — chunk it to look streaming
                 for block in response.content:
                     if hasattr(block, "text") and block.text:
                         text = block.text

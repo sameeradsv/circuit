@@ -19,7 +19,7 @@ Authenticated routes under `frontend/src/app/(app)/`:
 | Add | `/add` | Quick task capture |
 | Account | `/account` | Preferences, sleep overrides, blackouts, export/import, passkey |
 | Analytics | `/analytics` | Completion and workload stats |
-| Chat | `/chat` | TerminalChat — batch commands + Circuit agent |
+| Chat | `/chat` | TerminalChat — batch commands (no API) + Circuit agent (Groq default, Anthropic fallback) |
 | Energy | (via Canopy cross-app hook) | Cumulative energy timeline |
 
 Auth: `/login` — username/passcode or WebAuthn passkey.
