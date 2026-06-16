@@ -69,6 +69,8 @@ const TYPE_FILTERS = [
   { value: "errand",   label: "Errand",   color: "var(--rose)"    },
 ];
 
+const DONE_PAGE_SIZE = 20;
+
 interface ScoredTask extends ApiTask {
   score: number;
   reason: string;
@@ -110,6 +112,10 @@ export default function TasksPage() {
   const [energy]          = useEnergyLevel();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
+  const [doneTasks, setDoneTasks] = useState<ApiTask[]>([]);
+  const [doneTotal, setDoneTotal] = useState(0);
+  const [donePage, setDonePage] = useState(0);
+  const [doneLoading, setDoneLoading] = useState(false);
   const [typeFilter, setTypeFilter] = useState("all");
   const [detailTask, setDetailTask] = useState<ApiTask | null>(null);
   const [reschedulingTask, setReschedulingTask] = useState<ApiTask | null>(null);
@@ -123,12 +129,29 @@ export default function TasksPage() {
     if (!loading && !user) router.replace("/login");
   }, [user, loading, router]);
 
+  async function loadDonePage(page = 0) {
+    setDoneLoading(true);
+    try {
+      const res = await api.listTasksPage({ completed: true, page: page + 1, limit: DONE_PAGE_SIZE });
+      setDoneTasks(res.items);
+      setDoneTotal(res.total);
+      setDonePage(page);
+    } catch {
+      /* ignore */
+    } finally {
+      setDoneLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!user) return;
     const cached = getTaskCache();
     const nowMs = Date.now();
     if (cached) {
-      setTasks(cached);
+      setTasks(cached.filter((t) => !t.completed));
+      api.listTasksPage({ completed: true, page: 1, limit: 1 })
+        .then((res) => setDoneTotal(res.total))
+        .catch(() => {});
       api.listBlackouts().then((blackouts) => {
         setActiveBlackouts(blackouts.filter(b => b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
       }).catch(() => {});
@@ -136,14 +159,21 @@ export default function TasksPage() {
     }
     setFetching(true);
     Promise.all([
-      api.listTasks(),
+      api.listTasks({ completed: false }),
+      api.listTasksPage({ completed: true, page: 1, limit: 1 }),
       api.listBlackouts(),
-    ]).then(([taskList, blackouts]) => {
-      setTaskCache(taskList);
-      setTasks(taskList);
+    ]).then(([openList, doneMeta, blackouts]) => {
+      setTasks(openList);
+      setDoneTotal(doneMeta.total);
       setActiveBlackouts(blackouts.filter(b => b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
     }).catch(() => {}).finally(() => setFetching(false));
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !showDone) return;
+    loadDonePage(donePage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, showDone, donePage]);
 
   if (loading || !user) return null;
 
@@ -157,8 +187,7 @@ export default function TasksPage() {
   }
 
   const timeAvail = 120;
-  const open = tasks.filter((t) => !t.completed);
-  const done = tasks.filter((t) => t.completed);
+  const open = tasks;
 
   // Score and rank open tasks — blacked-out and import-review tasks are separated
   const needsImportReview = open.filter((t) => t.import_review_pending);
@@ -192,28 +221,52 @@ export default function TasksPage() {
     if (t.completed) {
       const updated = await api.updateTask(t.id, { completed: false });
       updateTaskInCache(updated);
-      setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      setTasks((prev) => [updated, ...prev.filter((x) => x.id !== updated.id)]);
+      setDoneTasks((prev) => prev.filter((x) => x.id !== updated.id));
+      setDoneTotal((n) => Math.max(0, n - 1));
       return;
     }
     setCompletingIds((prev) => new Set([...prev, t.id]));
     await new Promise((r) => setTimeout(r, 360));
     const updated = await api.updateTask(t.id, { completed: true });
     updateTaskInCache(updated);
-    setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    setTasks((prev) => prev.filter((x) => x.id !== updated.id));
+    setDoneTotal((n) => n + 1);
+    if (showDone) {
+      if (donePage === 0) {
+        setDoneTasks((prev) => [updated, ...prev].slice(0, DONE_PAGE_SIZE));
+      } else {
+        await loadDonePage(donePage);
+      }
+    }
     setCompletingIds((prev) => { const s = new Set(prev); s.delete(t.id); return s; });
   }
 
-  async function deleteTask(id: number) {
+  async function deleteTask(id: number, fromDone = false) {
     await api.deleteTask(id);
     invalidateTaskCache();
     setTasks((prev) => prev.filter((t) => t.id !== id));
+    if (fromDone) {
+      setDoneTasks((prev) => prev.filter((t) => t.id !== id));
+      setDoneTotal((n) => Math.max(0, n - 1));
+      if (showDone && doneTasks.length <= 1 && donePage > 0) {
+        setDonePage((p) => Math.max(0, p - 1));
+      } else if (showDone) {
+        await loadDonePage(donePage);
+      }
+    }
   }
 
   async function deleteSeriesTasks(id: number, fromScheduledAt?: number) {
     await api.deleteSeries(id, fromScheduledAt);
-    const updated = await api.listTasks();
-    setTaskCache(updated);
+    invalidateTaskCache();
+    const updated = await api.listTasks({ completed: false });
     setTasks(updated);
+    if (showDone) await loadDonePage(donePage);
+    else {
+      const meta = await api.listTasksPage({ completed: true, page: 1, limit: 1 });
+      setDoneTotal(meta.total);
+    }
   }
 
   async function skipTask(task: ApiTask) {
@@ -462,20 +515,41 @@ export default function TasksPage() {
       )}
 
       {/* Completed section toggle */}
-      {done.length > 0 && (
+      {doneTotal > 0 && (
         <div>
           <button
             className="btn"
-            onClick={() => setShowDone((v) => !v)}
+            onClick={() => {
+              setShowDone((v) => {
+                const next = !v;
+                if (next) setDonePage(0);
+                return next;
+              });
+            }}
             style={{ fontSize: 13 }}
           >
-            {showDone ? "Hide" : "Show"} {done.length} completed
+            {showDone ? "Hide" : "Show"} {doneTotal} completed
           </button>
           {showDone && (
-            <div className="card" style={{ padding: 6, marginTop: 10 }}>
-              {done.map((t) => (
-                <DoneRow key={t.id} task={t} onToggle={() => handleToggle(t)} onDelete={() => deleteTask(t.id)} />
-              ))}
+            <div className="col gap-3" style={{ marginTop: 10 }}>
+              <div className="card" style={{ padding: 6 }}>
+                {doneLoading && doneTasks.length === 0 ? (
+                  <p className="serif" style={{ padding: 16, margin: 0, color: "var(--ink-3)", fontSize: 14 }}>Loading…</p>
+                ) : (
+                  doneTasks.map((t) => (
+                    <DoneRow key={t.id} task={t} onToggle={() => handleToggle(t)} onDelete={() => deleteTask(t.id, true)} />
+                  ))
+                )}
+              </div>
+              {doneTotal > DONE_PAGE_SIZE && (
+                <TaskPagination
+                  page={donePage}
+                  pageSize={DONE_PAGE_SIZE}
+                  total={doneTotal}
+                  loading={doneLoading}
+                  onPageChange={setDonePage}
+                />
+              )}
             </div>
           )}
         </div>
@@ -505,6 +579,55 @@ export default function TasksPage() {
           onClose={() => setDetailTask(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ── TaskPagination ────────────────────────────────────────────────────────────
+
+function TaskPagination({
+  page,
+  pageSize,
+  total,
+  loading,
+  onPageChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  loading: boolean;
+  onPageChange: (page: number) => void;
+}) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const rangeStart = total === 0 ? 0 : page * pageSize + 1;
+  const rangeEnd = Math.min(total, (page + 1) * pageSize);
+
+  return (
+    <div className="row between aic" style={{ fontSize: 13 }}>
+      <span className="serif" style={{ color: "var(--ink-3)" }}>
+        {rangeStart}–{rangeEnd} of {total}
+      </span>
+      <div className="row gap-2 aic">
+        <button
+          className="btn"
+          style={{ fontSize: 12 }}
+          disabled={page === 0 || loading}
+          onClick={() => onPageChange(page - 1)}
+        >
+          Previous
+        </button>
+        <span className="mono" style={{ color: "var(--ink-3)", fontSize: 12 }}>
+          {page + 1} / {pageCount}
+        </span>
+        <button
+          className="btn"
+          style={{ fontSize: 12 }}
+          disabled={page >= pageCount - 1 || loading}
+          onClick={() => onPageChange(page + 1)}
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }

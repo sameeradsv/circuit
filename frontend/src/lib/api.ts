@@ -203,6 +203,24 @@ export interface ApiTaskEvent {
   metadata: Record<string, unknown>;
 }
 
+export interface ApiTaskPage {
+  items: ApiTask[];
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+}
+
+export type ListTasksOpts = {
+  completed?: boolean;
+};
+
+export type ListTasksPageOpts = {
+  completed?: boolean;
+  page?: number;
+  limit?: number;
+};
+
 export const api = {
   // auth
   authStatus: () => req<{ has_users: boolean; sync_ready: boolean }>("GET", "/api/auth/status"),
@@ -213,7 +231,19 @@ export const api = {
     req<{ token: string; user: { id: number; username: string } }>("POST", "/api/auth/login", { username, password }),
 
   // tasks
-  listTasks: () => req<ApiTask[]>("GET", "/api/tasks"),
+  listTasks: (opts?: ListTasksOpts) => {
+    const params = new URLSearchParams();
+    if (opts?.completed !== undefined) params.set("completed", String(opts.completed));
+    const q = params.toString();
+    return req<ApiTask[]>("GET", q ? `/api/tasks?${q}` : "/api/tasks");
+  },
+  listTasksPage: (opts: ListTasksPageOpts = {}) => {
+    const params = new URLSearchParams();
+    if (opts.completed !== undefined) params.set("completed", String(opts.completed));
+    params.set("page", String(opts.page ?? 1));
+    params.set("limit", String(opts.limit ?? 20));
+    return req<ApiTaskPage>("GET", `/api/tasks?${params}`);
+  },
   createTask: (payload: TaskIn) => req<ApiTask>("POST", "/api/tasks", payload),
   updateTask: (id: number, patch: TaskPatch) => req<ApiTask>("PATCH", `/api/tasks/${id}`, patch),
   batchUpdate: (ids: number[], patch: TaskPatch) =>

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
@@ -189,8 +189,53 @@ def _task_to_dict(t: CircuitTask) -> dict:
 
 
 @router.get("")
-def list_tasks(user: User = Depends(require_user), db: Session = Depends(get_db)):
-    tasks = db.query(CircuitTask).filter(CircuitTask.user_id == user.id).all()
+def list_tasks(
+    completed: Optional[bool] = Query(None, description="Filter by completion status"),
+    page: Optional[int] = Query(None, ge=1, description="Page number (1-based); returns paginated payload"),
+    limit: Optional[int] = Query(None, ge=1, le=100, description="Page size when paginating"),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(CircuitTask).filter(CircuitTask.user_id == user.id)
+    if completed is not None:
+        q = q.filter(CircuitTask.completed == completed)
+
+    if page is not None or limit is not None:
+        page_n = max(1, page or 1)
+        limit_n = max(1, min(100, limit or 20))
+        offset = (page_n - 1) * limit_n
+        total = q.count()
+        if completed is True:
+            rows = (
+                q.order_by(CircuitTask.updated_at.desc(), CircuitTask.id.desc())
+                .offset(offset)
+                .limit(limit_n)
+                .all()
+            )
+        else:
+            rows = (
+                q.order_by(
+                    CircuitTask.scheduled_at.asc().nulls_last(),
+                    CircuitTask.id.desc(),
+                )
+                .offset(offset)
+                .limit(limit_n)
+                .all()
+            )
+        pages = max(1, (total + limit_n - 1) // limit_n) if total else 0
+        return {
+            "items": [_task_to_dict(t) for t in rows],
+            "total": total,
+            "page": page_n,
+            "limit": limit_n,
+            "pages": pages,
+        }
+
+    tasks = q.order_by(
+        CircuitTask.completed.asc(),
+        CircuitTask.scheduled_at.asc().nulls_last(),
+        CircuitTask.id.desc(),
+    ).all()
     return [_task_to_dict(t) for t in tasks]
 
 

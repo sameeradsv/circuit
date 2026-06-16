@@ -97,6 +97,25 @@ def test_list_tasks(client, auth):
     assert len(r.json()) >= 1
 
 
+def test_list_tasks_paginated(client, auth):
+    r = client.get("/api/tasks?completed=true&page=1&limit=5", headers=auth)
+    assert r.status_code == 200
+    data = r.json()
+    assert isinstance(data, dict)
+    assert "items" in data
+    assert "total" in data
+    assert data["page"] == 1
+    assert data["limit"] == 5
+
+
+def test_list_tasks_completed_filter(client, auth):
+    r = client.get("/api/tasks?completed=false", headers=auth)
+    assert r.status_code == 200
+    items = r.json()
+    assert isinstance(items, list)
+    assert all(not t["completed"] for t in items)
+
+
 def test_patch_task(client, auth):
     tasks = client.get("/api/tasks", headers=auth).json()
     task_id = tasks[0]["id"]
