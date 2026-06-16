@@ -392,6 +392,20 @@ body {
   .sidenav                     { display: none; }
   .app-content                 { margin-left: 0; padding-bottom: 88px; padding-top: env(safe-area-inset-top, 0px); }
   .tabbar                      { display: flex; }
+
+  /* Home page — stack header and energy card vertically on mobile */
+  .home-header                 { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .home-header h1              { font-size: 28px !important; }
+  .home-header .header-pills   { flex-direction: row; flex-wrap: wrap; }
+  .home-energy-row             { flex-direction: column; gap: 20px !important; }
+  .home-energy-row .hairline-v { border-left: none; border-top: 1px solid var(--line);
+                                  padding-left: 0 !important; padding-top: 20px; min-width: unset !important; }
+  .home-energy-num             { font-size: 40px !important; }
+  .home-window-num             { font-size: 28px !important; }
+
+  /* Task page header stacks on mobile */
+  .tasks-header                { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .tasks-header h1             { font-size: 26px !important; }
 }
 
 /* ── Completion animation ── */

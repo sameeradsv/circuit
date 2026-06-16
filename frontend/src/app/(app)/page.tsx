@@ -237,12 +237,26 @@ export default function HomePage() {
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
   const [calendarExpiry, setCalendarExpiry] = useState<{ expires_at_ms: number | null; expires_at_iso: string | null; days_until_expiry: number | null } | null>(null);
+  const [nextMeeting, setNextMeeting] = useState<ApiTask | null>(null);
 
   useEffect(() => {
     if (!user) return;
     setFetching(true);
     Promise.all([
-      api.listTasks().then(setTasks).catch(() => {}),
+      api.listTasks().then((list) => {
+        setTasks(list);
+        // Find the next upcoming scheduled task and use it as the time window
+        const nowMs = Date.now();
+        const upcoming = list
+          .filter((t) => !t.completed && t.scheduled_at && t.scheduled_at > nowMs)
+          .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0));
+        const next = upcoming[0] ?? null;
+        setNextMeeting(next);
+        if (next?.scheduled_at) {
+          const mins = Math.floor((next.scheduled_at - nowMs) / 60_000);
+          if (mins > 5 && mins <= 480) setTimeAvail(mins);
+        }
+      }).catch(() => {}),
       api.getCalendarExpiry().then(setCalendarExpiry).catch(() => {}),
     ]).finally(() => setFetching(false));
   }, [user]);
@@ -268,7 +282,7 @@ export default function HomePage() {
   return (
     <div className="col gap-6 page-cap">
       {/* Header */}
-      <header className="between" style={{ alignItems: "flex-start" }}>
+      <header className="between home-header" style={{ alignItems: "flex-start" }}>
         <div>
           <div className="label" style={{ marginBottom: 6 }}>
             {dateLabel} · {timeLabel}
@@ -284,7 +298,7 @@ export default function HomePage() {
             </span>
           </h1>
         </div>
-        <div className="row gap-2 aic" style={{ flexShrink: 0, marginTop: 4 }}>
+        <div className="row gap-2 aic header-pills" style={{ flexShrink: 0, marginTop: 4 }}>
           {completedToday > 0 && (
             <span className="pill">
               <span className="dot" style={{ background: "var(--sage)" }} />
@@ -300,11 +314,11 @@ export default function HomePage() {
 
       {/* Energy + Window card */}
       <div className="card" style={{ padding: 24 }}>
-        <div className="row gap-6">
+        <div className="row gap-6 home-energy-row">
           <div style={{ flex: 1 }}>
             <div className="label" style={{ marginBottom: 8 }}>Energy</div>
             <div className="row aib gap-3" style={{ marginBottom: 4 }}>
-              <span className="display tnum" style={{ fontSize: 56, lineHeight: 1 }}>{energy}</span>
+              <span className="display tnum home-energy-num" style={{ fontSize: 56, lineHeight: 1 }}>{energy}</span>
               <span className="mono" style={{ color: "var(--ink-3)", fontSize: 14 }}>/10</span>
               <span className="serif" style={{ marginLeft: 12, fontSize: 22, color: "var(--ink-2)" }}>
                 {desc.word.toLowerCase()} — {desc.hint}
@@ -314,10 +328,19 @@ export default function HomePage() {
           </div>
           <div className="hairline-v" style={{ paddingLeft: 24, minWidth: 220 }}>
             <div className="label" style={{ marginBottom: 8 }}>Window</div>
-            <div className="row aib gap-2" style={{ marginBottom: 12 }}>
-              <span className="display tnum" style={{ fontSize: 40, lineHeight: 1 }}>{fmtTime(timeAvail)}</span>
-              <span className="serif" style={{ fontSize: 18, color: "var(--ink-3)" }}>before your next meeting</span>
+            <div className="row aib gap-2" style={{ marginBottom: 4 }}>
+              <span className="display tnum home-window-num" style={{ fontSize: 40, lineHeight: 1 }}>{fmtTime(timeAvail)}</span>
+              <span className="serif" style={{ fontSize: 18, color: "var(--ink-3)" }}>
+                {nextMeeting
+                  ? <>until <em>{nextMeeting.text.slice(0, 32)}{nextMeeting.text.length > 32 ? "…" : ""}</em></>
+                  : "before your next meeting"}
+              </span>
             </div>
+            {nextMeeting?.scheduled_at && (
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginBottom: 10 }}>
+                {new Date(nextMeeting.scheduled_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
+              </div>
+            )}
             <div className="row gap-1">
               {[30, 60, 90, 120].map((m) => (
                 <button

@@ -113,6 +113,8 @@ export default function TasksPage() {
   const [reschedulingTask, setReschedulingTask] = useState<ApiTask | null>(null);
   const [completingIds, setCompletingIds] = useState<Set<number>>(new Set());
   const [showDone, setShowDone] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [textFilter, setTextFilter] = useState("");
   const [activeBlackouts, setActiveBlackouts] = useState<ApiBlackout[]>([]);
 
   useEffect(() => {
@@ -155,10 +157,11 @@ export default function TasksPage() {
     .map((t) => { const { score, reason } = scoreForRank(t, energy, timeAvail); return { ...t, score, reason }; })
     .sort((a, b) => b.score - a.score);
 
-  // Apply type filter
-  const filtered = typeFilter === "all"
-    ? ranked
-    : ranked.filter((t) => taskTypeMeta(t).cls === typeFilter);
+  // Apply type + text filters
+  const lowerText = textFilter.toLowerCase();
+  const filtered = ranked
+    .filter((t) => typeFilter === "all" || taskTypeMeta(t).cls === typeFilter)
+    .filter((t) => !lowerText || t.text.toLowerCase().includes(lowerText) || (t.tiny_step ?? "").toLowerCase().includes(lowerText));
 
   // Tasks with a specific future time > 2h away should never appear in "Right now"
   // or "Soon" regardless of score — surface them in "Later" sorted by time.
@@ -242,28 +245,58 @@ export default function TasksPage() {
   return (
     <div className="col gap-5 page-cap">
       {/* Header */}
-      <header className="between" style={{ alignItems: "flex-end" }}>
+      <header className="between tasks-header" style={{ alignItems: "flex-end" }}>
         <div>
           <div className="label" style={{ marginBottom: 6 }}>All tasks · ranked for you</div>
           <h1 className="display" style={{ fontSize: 36, margin: 0 }}>
-            {ranked.length} things{" "}
+            {filtered.length}{ranked.length !== filtered.length ? `/${ranked.length}` : ""} things{" "}
             <span className="serif" style={{ color: "var(--ink-3)", fontSize: 28 }}>
               sorted by what fits <em>right now</em>
             </span>
           </h1>
         </div>
         <div className="row gap-2 aic">
-          <button className="btn" style={{ fontSize: 13 }}>
-            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M7 12h10M11 18h2"/></svg>
-            Filter
-          </button>
-          <button className="btn" style={{ fontSize: 13 }}>
-            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-            Re-rank
+          <button
+            className={"btn" + (showSearch ? " btn-primary" : "")}
+            style={{ fontSize: 13 }}
+            onClick={() => { setShowSearch((v) => !v); if (showSearch) setTextFilter(""); }}
+            title="Search tasks"
+          >
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+            </svg>
+            Search
           </button>
           <QuickAddRow onCreated={(t) => setTasks((prev) => [t, ...prev])} />
         </div>
       </header>
+
+      {/* Text search bar */}
+      {showSearch && (
+        <div className="row gap-2 aic">
+          <input
+            autoFocus
+            type="text"
+            value={textFilter}
+            onChange={(e) => setTextFilter(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") { setShowSearch(false); setTextFilter(""); } }}
+            placeholder="Search task names…"
+            style={{
+              flex: 1, border: "1px solid var(--line)", background: "var(--paper)",
+              padding: "8px 12px", borderRadius: 6, fontSize: 14,
+              color: "var(--ink)", outline: "none", fontFamily: "var(--font-body)",
+            }}
+          />
+          {textFilter && (
+            <button
+              onClick={() => setTextFilter("")}
+              style={{ fontSize: 12, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer" }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Type filter pills */}
       <div className="row gap-2 wrap">
