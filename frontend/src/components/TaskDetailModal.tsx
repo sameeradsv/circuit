@@ -261,13 +261,13 @@ export function TaskDetailModal({
                   </select>
                 </label>
                 <label className="flex items-center gap-3">
-                  <span className="w-44 shrink-0 text-xs text-circuit-muted">Weekend time (Sa–Su)</span>
+                  <span className="w-44 shrink-0 text-xs text-circuit-muted">Weekend time (Sa–Su, AM)</span>
                   <input
                     type="time"
                     value={weekendTime}
                     onChange={(e) => { setWeekendTime(e.target.value); applyWeekendTime(e.target.value); }}
                     className="input-field flex-1 py-1 text-xs"
-                    title="Override the recurrence time on Sat & Sun (leave blank to use default time)"
+                    title="Shifts the recurrence time on Sat & Sun — applies only to morning tasks (before noon)"
                   />
                 </label>
               </>

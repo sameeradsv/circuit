@@ -22,8 +22,11 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 def _apply_day_time_override(dt: datetime, overrides_json: Optional[str]) -> datetime:
-    """Apply a day-specific time from day_time_overrides JSON if one exists for dt's weekday."""
+    """Apply a day-specific time from day_time_overrides JSON if one exists for dt's weekday.
+    Only applies to morning tasks (original hour < 12); afternoon/evening tasks keep their time."""
     if not overrides_json:
+        return dt
+    if dt.hour >= 12:  # afternoon/evening tasks are never shifted
         return dt
     overrides = json.loads(overrides_json)
     wd = _WEEKDAY[dt.weekday()]
