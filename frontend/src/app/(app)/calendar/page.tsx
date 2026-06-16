@@ -7,7 +7,7 @@ import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { BlackoutDayOverlay, BlackoutMonthBadge, blackoutCellStyle } from "@/components/calendar/BlackoutLayers";
 import { useEnergyMode } from "@/lib/use-energy-mode";
-import { getTaskCache, setTaskCache, updateTaskInCache } from "@/lib/task-cache";
+import { updateTaskInCache } from "@/lib/task-cache";
 
 // ── Constants & helpers ───────────────────────────────────────────────────────
 
@@ -45,6 +45,28 @@ function startOfWeek(d: Date): Date {
 
 function daysInMonth(y: number, m: number): number {
   return new Date(y, m + 1, 0).getDate();
+}
+
+/** Visible calendar grid range (ms), including leading/trailing days in month view. */
+function visibleRangeMs(view: CalView, focusDate: Date): { from: number; to: number } {
+  if (view === "day") {
+    const start = startOfDay(focusDate);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return { from: start.getTime(), to: end.getTime() - 1 };
+  }
+  if (view === "week") {
+    const start = startOfWeek(focusDate);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    return { from: start.getTime(), to: end.getTime() - 1 };
+  }
+  const year = focusDate.getFullYear();
+  const month = focusDate.getMonth();
+  const gridStart = startOfWeek(new Date(year, month, 1));
+  const gridEnd = new Date(gridStart);
+  gridEnd.setDate(gridEnd.getDate() + 42);
+  return { from: gridStart.getTime(), to: gridEnd.getTime() - 1 };
 }
 
 function taskTypeCls(task: ApiTask): string {
@@ -98,6 +120,11 @@ const DAY_FULL    = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Fr
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 type CalView = "day" | "week" | "month";
+
+function defaultCalView(): CalView {
+  if (typeof window === "undefined") return "month";
+  return window.matchMedia("(orientation: portrait)").matches ? "day" : "month";
+}
 
 interface PendingDrop {
   task: ApiTask;
@@ -733,16 +760,23 @@ export default function CalendarPage() {
   }, [user, loading, router]);
 
   useEffect(() => {
+    setView(defaultCalView());
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
-    const cached = getTaskCache();
     api.listBlackouts().then(setBlackouts).catch(() => {});
-    if (cached) { setTasks(cached); return; }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const { from, to } = visibleRangeMs(view, focusDate);
     setFetching(true);
-    Promise.all([api.listTasks(), api.listBlackouts()])
-      .then(([tasks, bl]) => { setTaskCache(tasks); setTasks(tasks); setBlackouts(bl); })
+    api.listTasks({ scheduled_from_ms: from, scheduled_to_ms: to, include_unscheduled: true })
+      .then(setTasks)
       .catch(() => {})
       .finally(() => setFetching(false));
-  }, [user]);
+  }, [user, view, focusDate]);
 
   if (loading || !user) return null;
 
@@ -777,8 +811,8 @@ export default function CalendarPage() {
         localStorage.setItem("circuit-ics-expires", String(result.expires_at));
       }
       setImportMsg(msg);
-      const updated = await api.listTasks();
-      setTaskCache(updated);
+      const { from, to } = visibleRangeMs(view, focusDate);
+      const updated = await api.listTasks({ scheduled_from_ms: from, scheduled_to_ms: to, include_unscheduled: true });
       setTasks(updated);
     } catch (e) {
       setImportMsg(`Import failed: ${e instanceof Error ? e.message : "unknown error"}`);
@@ -934,11 +968,13 @@ export default function CalendarPage() {
         <TaskDetailModal
           task={selectedTask}
           mode={energyMode}
-          onSave={(updated) => setTasks((prev) => {
-            const next = prev.map((t) => t.id === updated.id ? updated : t);
-            setTaskCache(next);
-            return next;
-          })}
+          onSave={(updated) => {
+            setTasks((prev) => {
+              const next = prev.map((t) => t.id === updated.id ? updated : t);
+              updateTaskInCache(updated);
+              return next;
+            });
+          }}
           onClose={() => setSelectedTask(null)}
         />
       )}

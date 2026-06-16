@@ -62,6 +62,18 @@ class SearchResult(BaseModel):
     total: int
 
 
+class AnalyticsTaskBrief(BaseModel):
+    id: int
+    text: str
+    skipped_count: int = 0
+    days_open: int = 0
+
+
+class AttentionItem(BaseModel):
+    message: str
+    task_id: int
+
+
 class SummaryResponse(BaseModel):
     total_tasks: int
     completed_tasks: int
@@ -70,6 +82,9 @@ class SummaryResponse(BaseModel):
     total_pending_minutes: int
     avg_skip_count: float
     by_tag: dict[str, int]
+    most_skipped: list[AnalyticsTaskBrief] = []
+    stale_tasks: list[AnalyticsTaskBrief] = []
+    attention_needed: list[AttentionItem] = []
 
 
 class AiClassifyRequest(BaseModel):

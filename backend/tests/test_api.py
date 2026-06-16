@@ -116,6 +116,50 @@ def test_list_tasks_completed_filter(client, auth):
     assert all(not t["completed"] for t in items)
 
 
+def test_list_tasks_scheduled_range(client, auth):
+    client.post(
+        "/api/tasks",
+        json={"text": "In range", "scheduled_at": 1_700_000_000_000},
+        headers=auth,
+    )
+    client.post(
+        "/api/tasks",
+        json={"text": "Out of range", "scheduled_at": 1_800_000_000_000},
+        headers=auth,
+    )
+    client.post("/api/tasks", json={"text": "Unscheduled open"}, headers=auth)
+
+    r = client.get(
+        "/api/tasks",
+        params={
+            "scheduled_from_ms": 1_699_000_000_000,
+            "scheduled_to_ms": 1_701_000_000_000,
+            "include_unscheduled": True,
+        },
+        headers=auth,
+    )
+    assert r.status_code == 200
+    texts = {t["text"] for t in r.json()}
+    assert "In range" in texts
+    assert "Unscheduled open" in texts
+    assert "Out of range" not in texts
+
+
+def test_summary_analytics_fields(client, auth):
+    client.post(
+        "/api/tasks",
+        json={"text": "Skipped a lot", "skipped_count": 3},
+        headers=auth,
+    )
+    r = client.get("/api/summary", headers=auth)
+    assert r.status_code == 200
+    data = r.json()
+    assert "most_skipped" in data
+    assert "stale_tasks" in data
+    assert "attention_needed" in data
+    assert any(item["text"] == "Skipped a lot" for item in data["most_skipped"])
+
+
 def test_patch_task(client, auth):
     tasks = client.get("/api/tasks", headers=auth).json()
     task_id = tasks[0]["id"]
@@ -221,6 +265,8 @@ def test_summary(client, auth):
     data = r.json()
     assert "total_tasks" in data
     assert "completion_rate" in data
+    assert "most_skipped" in data
+    assert "attention_needed" in data
 
 
 # ── AI classify ───────────────────────────────────────────────────────────────

@@ -184,6 +184,9 @@ export interface ApiSummary {
   total_pending_minutes: number;
   avg_skip_count: number;
   by_tag: Record<string, number>;
+  most_skipped: { id: number; text: string; skipped_count: number; days_open?: number }[];
+  stale_tasks: { id: number; text: string; skipped_count?: number; days_open: number }[];
+  attention_needed: { message: string; task_id: number }[];
 }
 
 export interface ApiAiClassify {
@@ -213,6 +216,9 @@ export interface ApiTaskPage {
 
 export type ListTasksOpts = {
   completed?: boolean;
+  scheduled_from_ms?: number;
+  scheduled_to_ms?: number;
+  include_unscheduled?: boolean;
 };
 
 export type ListTasksPageOpts = {
@@ -234,6 +240,9 @@ export const api = {
   listTasks: (opts?: ListTasksOpts) => {
     const params = new URLSearchParams();
     if (opts?.completed !== undefined) params.set("completed", String(opts.completed));
+    if (opts?.scheduled_from_ms != null) params.set("scheduled_from_ms", String(opts.scheduled_from_ms));
+    if (opts?.scheduled_to_ms != null) params.set("scheduled_to_ms", String(opts.scheduled_to_ms));
+    if (opts?.include_unscheduled) params.set("include_unscheduled", "true");
     const q = params.toString();
     return req<ApiTask[]>("GET", q ? `/api/tasks?${q}` : "/api/tasks");
   },

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -191,6 +191,12 @@ def _task_to_dict(t: CircuitTask) -> dict:
 @router.get("")
 def list_tasks(
     completed: Optional[bool] = Query(None, description="Filter by completion status"),
+    scheduled_from_ms: Optional[int] = Query(None, description="Inclusive scheduled_at lower bound (ms epoch)"),
+    scheduled_to_ms: Optional[int] = Query(None, description="Inclusive scheduled_at upper bound (ms epoch)"),
+    include_unscheduled: bool = Query(
+        False,
+        description="With a scheduled range, also return open tasks with no scheduled_at",
+    ),
     page: Optional[int] = Query(None, ge=1, description="Page number (1-based); returns paginated payload"),
     limit: Optional[int] = Query(None, ge=1, le=100, description="Page size when paginating"),
     user: User = Depends(require_user),
@@ -199,6 +205,24 @@ def list_tasks(
     q = db.query(CircuitTask).filter(CircuitTask.user_id == user.id)
     if completed is not None:
         q = q.filter(CircuitTask.completed == completed)
+
+    if scheduled_from_ms is not None or scheduled_to_ms is not None:
+        from_ms = scheduled_from_ms if scheduled_from_ms is not None else 0
+        to_ms = scheduled_to_ms if scheduled_to_ms is not None else 2**62
+        in_range = and_(
+            CircuitTask.scheduled_at.isnot(None),
+            CircuitTask.scheduled_at >= from_ms,
+            CircuitTask.scheduled_at <= to_ms,
+        )
+        if include_unscheduled:
+            q = q.filter(
+                or_(
+                    in_range,
+                    and_(CircuitTask.scheduled_at.is_(None), CircuitTask.completed.is_(False)),
+                )
+            )
+        else:
+            q = q.filter(in_range)
 
     if page is not None or limit is not None:
         page_n = max(1, page or 1)
