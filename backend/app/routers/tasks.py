@@ -16,8 +16,22 @@ from app.models import CircuitTask, TaskEvent, User
 from app.engines.recurrence import next_occurrence
 
 _IST = ZoneInfo("Asia/Kolkata")
+_WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+
+def _apply_day_time_override(dt: datetime, overrides_json: Optional[str]) -> datetime:
+    """Apply a day-specific time from day_time_overrides JSON if one exists for dt's weekday."""
+    if not overrides_json:
+        return dt
+    overrides = json.loads(overrides_json)
+    wd = _WEEKDAY[dt.weekday()]
+    time_str = overrides.get(wd)
+    if time_str:
+        h, m = map(int, time_str.split(":"))
+        return dt.replace(hour=h, minute=m, second=0, microsecond=0)
+    return dt
 
 
 class TaskIn(BaseModel):
@@ -62,6 +76,8 @@ class TaskIn(BaseModel):
     rrule: Optional[str] = None
     rrule_dtstart_ms: Optional[int] = None
     is_recurring_template: bool = False
+    group_id: Optional[str] = None
+    day_time_overrides: Optional[dict] = None  # {"SA": "10:00", "SU": "10:00"}
 
 
 class TaskPatch(BaseModel):
@@ -101,6 +117,8 @@ class TaskPatch(BaseModel):
     metadata: Optional[dict[str, Any]] = None
     client_updated_at: Optional[int] = None
     blackout_skip_flags: Optional[list[str]] = None
+    group_id: Optional[str] = None
+    day_time_overrides: Optional[dict] = None  # {"SA": "10:00", "SU": "10:00"}
 
 
 def _adjust_for_blackouts(
@@ -227,6 +245,8 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "is_recurring_template": bool(t.is_recurring_template),
         "recurrence_ends_at": t.recurrence_ends_at,
         "post_blackout_behavior": t.post_blackout_behavior or "resume",
+        "group_id": t.group_id,
+        "day_time_overrides": json.loads(t.day_time_overrides) if t.day_time_overrides else {},
     }
 
 
@@ -238,7 +258,7 @@ def list_tasks(user: User = Depends(require_user), db: Session = Depends(get_db)
 
 @router.post("", status_code=201)
 def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    _exclude = {"metadata", "required_resources", "dependencies", "blackout_skip_flags"}
+    _exclude = {"metadata", "required_resources", "dependencies", "blackout_skip_flags", "day_time_overrides"}
     task = CircuitTask(
         user_id=user.id,
         **{k: v for k, v in payload.model_dump(exclude=_exclude).items()},
@@ -246,6 +266,7 @@ def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session
         dependencies=json.dumps(payload.dependencies),
         metadata_json=json.dumps(payload.metadata),
         blackout_skip_flags=json.dumps(payload.blackout_skip_flags) if payload.blackout_skip_flags else None,
+        day_time_overrides=json.dumps(payload.day_time_overrides) if payload.day_time_overrides else None,
     )
     db.add(task)
     db.commit()
@@ -260,6 +281,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
         raise HTTPException(status_code=404, detail="Task not found")
 
     was_completed = task.completed
+    old_scheduled_at = task.scheduled_at
     _JSON_FIELDS = {"required_resources", "dependencies"}
 
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -269,10 +291,36 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             setattr(task, field, json.dumps(value))
         elif field == "blackout_skip_flags":
             task.blackout_skip_flags = json.dumps(value) if value is not None else None
+        elif field == "day_time_overrides":
+            task.day_time_overrides = json.dumps(value) if value else None
         else:
             setattr(task, field, value)
 
     task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Group propagation: shift all linked tasks by the same delta when scheduled_at changes
+    if (
+        payload.scheduled_at is not None
+        and task.group_id
+        and old_scheduled_at is not None
+        and task.scheduled_at != old_scheduled_at
+    ):
+        delta_ms = task.scheduled_at - old_scheduled_at
+        group_members = (
+            db.query(CircuitTask)
+            .filter(
+                CircuitTask.group_id == task.group_id,
+                CircuitTask.id != task_id,
+                CircuitTask.user_id == user.id,
+                CircuitTask.completed == False,  # noqa: E712
+            )
+            .all()
+        )
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        for member in group_members:
+            if member.scheduled_at is not None:
+                member.scheduled_at += delta_ms
+                member.updated_at = now_utc
 
     # Auto-log completion/uncompletion event
     if payload.completed is not None and payload.completed != was_completed:
@@ -308,12 +356,14 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                     if raw_next:
                         raw_dt = datetime.fromtimestamp(raw_next / 1000, tz=_IST)
                         raw_dt = raw_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
+                        raw_dt = _apply_day_time_override(raw_dt, task.day_time_overrides)
                         next_ms = int(raw_dt.timestamp() * 1000)
                 elif task.recurrence:
                     # Simple pattern (user-created tasks)
                     next_dt = next_occurrence(task.recurrence, from_dt)
                     if next_dt:
                         next_dt = next_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
+                        next_dt = _apply_day_time_override(next_dt, task.day_time_overrides)
                         next_ms = int(next_dt.timestamp() * 1000)
 
                 # Respect recurrence end date — don't create occurrences past it
@@ -325,6 +375,11 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                     next_ms = _adjust_for_blackouts(next_ms, task, user.id, db, from_dt)
                     if task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
                         next_ms = None
+                    # Re-apply day-time override after blackout may have shifted the date
+                    if next_ms and task.day_time_overrides:
+                        adj_dt = datetime.fromtimestamp(next_ms / 1000, tz=_IST)
+                        adj_dt = _apply_day_time_override(adj_dt, task.day_time_overrides)
+                        next_ms = int(adj_dt.timestamp() * 1000)
 
                 if next_ms:
                     next_task = CircuitTask(
@@ -358,6 +413,8 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                         blackout_skip_flags=task.blackout_skip_flags,
                         recurrence_ends_at=task.recurrence_ends_at,
                         post_blackout_behavior=task.post_blackout_behavior,
+                        group_id=task.group_id,
+                        day_time_overrides=task.day_time_overrides,
                     )
                     db.add(next_task)
             except Exception:
@@ -470,11 +527,12 @@ def migrate_from_localstorage(
                 continue
         task = CircuitTask(
             user_id=user.id,
-            **{k: v for k, v in item.model_dump(exclude={"metadata", "required_resources", "dependencies", "blackout_skip_flags"}).items()},
+            **{k: v for k, v in item.model_dump(exclude={"metadata", "required_resources", "dependencies", "blackout_skip_flags", "day_time_overrides"}).items()},
             required_resources=json.dumps(item.required_resources),
             dependencies=json.dumps(item.dependencies),
             metadata_json=json.dumps(item.metadata),
             blackout_skip_flags=json.dumps(item.blackout_skip_flags) if item.blackout_skip_flags else None,
+            day_time_overrides=json.dumps(item.day_time_overrides) if item.day_time_overrides else None,
         )
         db.add(task)
         created += 1

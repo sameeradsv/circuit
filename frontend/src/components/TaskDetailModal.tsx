@@ -60,6 +60,25 @@ export function TaskDetailModal({
 }) {
   const [patch, setPatch] = useState<TaskPatch>({});
   const [saving, setSaving] = useState(false);
+
+  // Day-time override state: weekday (MO–FR) and weekend (SA–SU) time strings
+  const initDto = task.day_time_overrides ?? {};
+  const [weekdayTime, setWeekdayTime] = useState(
+    initDto.MO ?? initDto.TU ?? initDto.WE ?? initDto.TH ?? initDto.FR ?? ''
+  );
+  const [weekendTime, setWeekendTime] = useState(initDto.SA ?? initDto.SU ?? '');
+
+  function buildDayTimeOverrides(wd: string, we: string): Record<string, string> | null {
+    const result: Record<string, string> = {};
+    if (wd) (['MO', 'TU', 'WE', 'TH', 'FR'] as const).forEach(d => { result[d] = wd; });
+    if (we) (['SA', 'SU'] as const).forEach(d => { result[d] = we; });
+    return Object.keys(result).length > 0 ? result : null;
+  }
+
+  function setDayTimeOverride(wd: string, we: string) {
+    const dto = buildDayTimeOverrides(wd, we);
+    setPatch(p => ({ ...p, day_time_overrides: dto ?? {} }));
+  }
   const [propagating, setPropagating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [propagateMsg, setPropagateMsg] = useState<string | null>(null);
@@ -230,6 +249,33 @@ export function TaskDetailModal({
                     <option value="catch_up">Catch up immediately</option>
                   </select>
                 </label>
+                <div className="space-y-2 pt-1">
+                  <p className="text-xs text-circuit-muted" style={{ paddingLeft: 0 }}>Time overrides by day (leave blank to use scheduled time)</p>
+                  <label className="flex items-center gap-3">
+                    <span className="w-44 shrink-0 text-xs text-circuit-muted">Weekday time (M–F)</span>
+                    <input
+                      type="time"
+                      value={weekdayTime}
+                      onChange={(e) => {
+                        setWeekdayTime(e.target.value);
+                        setDayTimeOverride(e.target.value, weekendTime);
+                      }}
+                      className="input-field flex-1 py-1 text-xs"
+                    />
+                  </label>
+                  <label className="flex items-center gap-3">
+                    <span className="w-44 shrink-0 text-xs text-circuit-muted">Weekend time (Sa–Su)</span>
+                    <input
+                      type="time"
+                      value={weekendTime}
+                      onChange={(e) => {
+                        setWeekendTime(e.target.value);
+                        setDayTimeOverride(weekdayTime, e.target.value);
+                      }}
+                      className="input-field flex-1 py-1 text-xs"
+                    />
+                  </label>
+                </div>
               </>
             )}
             <Select
@@ -269,6 +315,27 @@ export function TaskDetailModal({
                 </label>
               );
             })}
+          </section>
+
+          {/* Group */}
+          <section className="space-y-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Task group</p>
+            <label className="flex items-center gap-3">
+              <span className="w-44 shrink-0 text-xs text-circuit-muted">Group name</span>
+              <input
+                type="text"
+                placeholder="e.g. laundry, morning-routine"
+                value={merged.group_id ?? ''}
+                onChange={(e) => set('group_id', (e.target.value || null) as unknown as string)}
+                className="input-field flex-1 py-1 text-xs"
+                maxLength={50}
+              />
+            </label>
+            {merged.group_id && (
+              <p className="text-xs text-circuit-muted" style={{ paddingLeft: 188 }}>
+                Tasks sharing this name shift together when rescheduled.
+              </p>
+            )}
           </section>
 
           {/* Behavioural (read-only) */}

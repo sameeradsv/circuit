@@ -202,6 +202,37 @@ def _migrate_sleep_log() -> None:
         conn.commit()
 
 
+def _migrate_energy_eod() -> None:
+    inspector = inspect(engine)
+    existing_cols = {c["name"] for c in inspector.get_columns("user_state")}
+    if "energy_eod" in existing_cols:
+        return
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        if is_sqlite:
+            conn.execute(text("ALTER TABLE user_state ADD COLUMN energy_eod REAL"))
+        else:
+            conn.execute(text("ALTER TABLE user_state ADD COLUMN IF NOT EXISTS energy_eod REAL"))
+        conn.commit()
+
+
+def _migrate_task_groups() -> None:
+    inspector = inspect(engine)
+    existing_cols = {c["name"] for c in inspector.get_columns("circuit_tasks")}
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        for col_name, col_def in [
+            ("group_id", "VARCHAR(100)"),
+            ("day_time_overrides", "TEXT"),
+        ]:
+            if col_name not in existing_cols:
+                if is_sqlite:
+                    conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN {col_name} {col_def}"))
+                else:
+                    conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
+        conn.commit()
+
+
 def _migrate_recurrence_extra() -> None:
     inspector = inspect(engine)
     existing_cols = {c["name"] for c in inspector.get_columns("circuit_tasks")}

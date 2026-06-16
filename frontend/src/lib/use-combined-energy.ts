@@ -12,6 +12,8 @@ export interface CombinedEnergy {
   composite: number;
   /** 0–1 stress level from Circuit UserState */
   stress: number;
+  /** Opening energy for today (sleep-derived + carry-over) */
+  startEnergy: number;
   /** Which apps contributed */
   sources: string[];
   /** Per-source breakdown */
@@ -69,16 +71,22 @@ export function useCombinedEnergy() {
 
       if (!sync) { setLoading(false); return; }
 
-      // Circuit's own energy: blend manual slider with task-event curve
-      const circuitE = sync.manual_energy * 0.7 + sync.energy_so_far * 0.3;
+      // Circuit's energy: use running_energy (start_energy + today's task deltas)
+      // falling back to the legacy blend if the new field isn't present yet
+      const circuitE = typeof sync.running_energy === "number"
+        ? sync.running_energy
+        : sync.manual_energy * 0.7 + sync.energy_so_far * 0.3;
+
+      const startEnergy = typeof sync.start_energy === "number" ? sync.start_energy : 0.7;
 
       const sources = ["circuit"];
       if (canopyE !== null) sources.push("canopy");
       if (chefE   !== null) sources.push("chef");
 
       setEnergy({
-        composite: Math.round(composite(circuitE, canopyE, chefE) * 1000) / 1000,
-        stress:    sync.stress_level,
+        composite:   Math.round(composite(circuitE, canopyE, chefE) * 1000) / 1000,
+        stress:      sync.stress_level,
+        startEnergy: Math.round(startEnergy * 1000) / 1000,
         sources,
         circuit:   Math.round(circuitE * 1000) / 1000,
         canopy:    canopyE !== null ? Math.round(canopyE * 1000) / 1000 : null,

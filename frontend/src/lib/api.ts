@@ -70,6 +70,8 @@ export interface ApiTask {
   is_recurring_template: boolean;
   recurrence_ends_at: number | null;
   post_blackout_behavior: "resume" | "catch_up";
+  group_id: string | null;
+  day_time_overrides: Record<string, string>;  // {"MO": "08:00", "SA": "10:00", …}
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
@@ -86,6 +88,7 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "preferred_execution_window" | "delay_pattern"
   | "required_resources" | "dependencies" | "metadata" | "location_dependency"
   | "blackout_skip_flags"
+  | "group_id" | "day_time_overrides"
 >>;
 
 export interface ApiSleepLog {

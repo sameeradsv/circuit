@@ -95,6 +95,12 @@ class CircuitTask(Base):
     # or "catch_up" (keep as overdue so user does it on return)
     post_blackout_behavior: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
+    # Task group: tasks sharing the same group_id shift together when rescheduled
+    group_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    # Day-of-week time overrides: JSON {"SA": "10:00", "SU": "10:00"} — overrides
+    # the default recurrence time for specific weekdays (keys: MO TU WE TH FR SA SU)
+    day_time_overrides: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Timestamps
     client_created_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     client_updated_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
@@ -122,6 +128,8 @@ class UserState(Base):
     stress_level: Mapped[float] = mapped_column(Float, default=0.3)
     time_available_minutes: Mapped[int] = mapped_column(Integer, default=480)
     focus_mode: Mapped[str] = mapped_column(String(20), default="normal")
+    # Carry-over: running energy level at end of previous day (written by sync endpoint)
+    energy_eod: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
