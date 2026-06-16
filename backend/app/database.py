@@ -221,6 +221,20 @@ def _migrate_energy_eod() -> None:
         conn.commit()
 
 
+def _migrate_recurrence_anchor() -> None:
+    inspector = inspect(engine)
+    existing_cols = {c["name"] for c in inspector.get_columns("circuit_tasks")}
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        col_def = "INTEGER" if is_sqlite else "BIGINT"
+        if "recurrence_anchor_ms" not in existing_cols:
+            if is_sqlite:
+                conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN recurrence_anchor_ms {col_def}"))
+            else:
+                conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN IF NOT EXISTS recurrence_anchor_ms {col_def}"))
+        conn.commit()
+
+
 def _migrate_task_groups() -> None:
     inspector = inspect(engine)
     existing_cols = {c["name"] for c in inspector.get_columns("circuit_tasks")}

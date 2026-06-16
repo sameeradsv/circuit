@@ -43,7 +43,7 @@ def next_occurrence(pattern: str, from_dt: datetime) -> Optional[datetime]:
         return _next_weekly(days_str, from_dt)
 
     if pattern.startswith("monthly:"):
-        spec = pattern[8:].upper()  # e.g., "1" or "3FR" or "LMO"
+        spec = pattern[8:].upper()  # e.g., "1" or "3FR" or "LMO" or "LWD"
         return _next_monthly(spec, from_dt)
 
     return None
@@ -99,15 +99,19 @@ def _next_weekly(days_str: str, dt: datetime) -> Optional[datetime]:
 
 
 def _next_monthly(spec: str, dt: datetime) -> Optional[datetime]:
-    """Next occurrence of monthly pattern like '1', '15', '1MO', '3FR', 'LMO'."""
+    """Next occurrence of monthly pattern like '1', '15', '1MO', '3FR', 'LMO', 'LWD'."""
     day_map = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+
+    # Last working day (last Mon-Fri) of the month
+    if spec == "LWD":
+        return _last_working_day_of_month(dt)
 
     # Try parsing as just a day of month (1-31)
     if spec.isdigit():
         day_of_month = int(spec)
         return _next_date_of_month(day_of_month, dt)
 
-    # Try parsing as "Nth weekday" or "LWD" (last weekday)
+    # Try parsing as "Nth weekday" or "LWD" (last specific weekday)
     if len(spec) >= 3:
         num_str = spec[:-2]
         wd_str = spec[-2:].upper()
@@ -155,6 +159,18 @@ def _nth_weekday_of_month(n: int, target_wd: int, dt: datetime) -> Optional[date
         current += timedelta(days=1)
 
     return None
+
+
+def _last_working_day_of_month(dt: datetime) -> datetime:
+    """Last weekday (Mon-Fri) of next month."""
+    # First day of next month
+    first_next = (dt.replace(day=1) + timedelta(days=32)).replace(day=1)
+    # Last day of next month
+    last_day = (first_next + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    # Walk backwards until we hit a weekday
+    while last_day.weekday() >= 5:
+        last_day -= timedelta(days=1)
+    return last_day
 
 
 def _last_weekday_of_month(target_wd: int, dt: datetime) -> datetime:

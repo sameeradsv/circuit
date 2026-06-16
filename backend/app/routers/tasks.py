@@ -160,8 +160,10 @@ def _adjust_for_blackouts(
         if not hits:
             return current_ms
 
-        if behavior == "catch_up":
-            # Move to the morning of the first day after the latest overlapping blackout
+        if behavior in ("catch_up", "catch_up_once"):
+            # Move to the morning of the first day after the latest overlapping blackout.
+            # For catch_up_once the series anchor is handled in the completion handler,
+            # not here — both modes produce the same immediate catch-up date.
             latest_end = max(b.end_date_ms for b in hits)
             next_day = datetime.fromtimestamp((latest_end + 1) / 1000, tz=_IST)
             next_day = next_day.replace(
@@ -250,6 +252,7 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "is_recurring_template": bool(t.is_recurring_template),
         "recurrence_ends_at": t.recurrence_ends_at,
         "post_blackout_behavior": t.post_blackout_behavior or "resume",
+        "recurrence_anchor_ms": t.recurrence_anchor_ms,
         "group_id": t.group_id,
         "day_time_overrides": json.loads(t.day_time_overrides) if t.day_time_overrides else {},
         "travel_buffer_before_mins": t.travel_buffer_before_mins,
@@ -346,7 +349,10 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             try:
                 from app.models import Blackout
                 user_blackouts = db.query(Blackout).filter(Blackout.user_id == user.id).all()
-                from_dt = datetime.fromtimestamp(task.scheduled_at / 1000, tz=_IST)
+                # catch_up_once: use the stored anchor (original pre-blackout scheduled_at)
+                # so subsequent occurrences compute from the original series schedule.
+                anchor_ms = task.recurrence_anchor_ms or task.scheduled_at
+                from_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
                 next_ms: Optional[int] = None
 
                 if task.rrule and task.is_recurring_template:
@@ -381,8 +387,16 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                     next_ms = None
 
                 # Skip over blackout periods per task's post_blackout_behavior
+                next_anchor_ms: Optional[int] = None
                 if next_ms:
+                    pre_adjust_ms = next_ms
                     next_ms = _adjust_for_blackouts(next_ms, task, user_blackouts, from_dt)
+                    # catch_up_once: if the date was moved by blackout adjustment, store the
+                    # original pre-adjustment scheduled_at as recurrence_anchor_ms so the
+                    # next completion computes from that anchor (series stays on schedule).
+                    if (task.post_blackout_behavior == "catch_up_once"
+                            and next_ms != pre_adjust_ms):
+                        next_anchor_ms = pre_adjust_ms
                     if task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
                         next_ms = None
                     # Re-apply day-time override after blackout may have shifted the date
@@ -423,6 +437,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                         blackout_skip_flags=task.blackout_skip_flags,
                         recurrence_ends_at=task.recurrence_ends_at,
                         post_blackout_behavior=task.post_blackout_behavior,
+                        recurrence_anchor_ms=next_anchor_ms,
                         group_id=task.group_id,
                         day_time_overrides=task.day_time_overrides,
                         travel_buffer_before_mins=task.travel_buffer_before_mins,

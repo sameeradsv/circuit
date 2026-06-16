@@ -6,12 +6,32 @@ import { apiTaskToTask } from '@/lib/engine-adapter';
 import { scoreTask } from '../engines/src/scheduling-engine/scoring';
 import type { EnergyMode } from '@/lib/use-energy-mode';
 
+function FieldHint({ text }: { text: string }) {
+  return (
+    <span className="relative group inline-flex items-center">
+      <span
+        className="w-3.5 h-3.5 rounded-full border border-circuit-border text-circuit-muted inline-flex items-center justify-center cursor-default select-none"
+        style={{ fontSize: 9, lineHeight: 1, flexShrink: 0 }}
+      >?</span>
+      <span
+        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 px-2.5 py-2 rounded-lg text-xs text-circuit-text border border-circuit-border shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 leading-relaxed"
+        style={{ background: 'var(--paper)', whiteSpace: 'normal' }}
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
 function Slider({
-  label, value, onChange,
-}: { label: string; value: number; onChange: (v: number) => void }) {
+  label, value, onChange, hint,
+}: { label: string; value: number; onChange: (v: number) => void; hint?: string }) {
   return (
     <label className="flex items-center gap-3">
-      <span className="w-44 shrink-0 text-xs text-circuit-muted">{label}</span>
+      <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+        {label}
+        {hint && <FieldHint text={hint} />}
+      </span>
       <input
         type="range" min={0} max={1} step={0.05} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
@@ -23,11 +43,14 @@ function Slider({
 }
 
 function Select({
-  label, value, options, onChange,
-}: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
+  label, value, options, onChange, hint,
+}: { label: string; value: string; options: string[]; onChange: (v: string) => void; hint?: string }) {
   return (
     <label className="flex items-center gap-3">
-      <span className="w-44 shrink-0 text-xs text-circuit-muted">{label}</span>
+      <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+        {label}
+        {hint && <FieldHint text={hint} />}
+      </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -168,27 +191,30 @@ export function TaskDetailModal({
           {/* Priority */}
           <section className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Priority</p>
-            <Slider label="Importance" value={merged.importance ?? 0.5} onChange={(v) => set('importance', v)} />
-            <Slider label="Urgency" value={merged.urgency ?? 0.5} onChange={(v) => set('urgency', v)} />
-            <Slider label="Consequence of delay" value={merged.consequence_of_delay ?? 0.3} onChange={(v) => set('consequence_of_delay', v)} />
-            <Slider label="Momentum value" value={merged.momentum_value ?? 0.5} onChange={(v) => set('momentum_value', v)} />
+            <Slider label="Importance" value={merged.importance ?? 0.5} onChange={(v) => set('importance', v)} hint="How critical this task is to your goals. High = essential work; low = nice-to-have." />
+            <Slider label="Urgency" value={merged.urgency ?? 0.5} onChange={(v) => set('urgency', v)} hint="How time-sensitive this is. High urgency surfaces the task sooner in your list." />
+            <Slider label="Consequence of delay" value={merged.consequence_of_delay ?? 0.3} onChange={(v) => set('consequence_of_delay', v)} hint="Impact if this is pushed back. Raises the score when delay has real consequences." />
+            <Slider label="Momentum value" value={merged.momentum_value ?? 0.5} onChange={(v) => set('momentum_value', v)} hint="Whether completing this creates forward momentum — e.g. it unblocks other work." />
           </section>
 
           {/* Cognitive */}
           <section className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Cognitive load</p>
-            <Slider label="Cognitive load" value={merged.cognitive_load ?? 0.5} onChange={(v) => set('cognitive_load', v)} />
-            <Slider label="Emotional resistance" value={merged.emotional_resistance ?? 0.5} onChange={(v) => set('emotional_resistance', v)} />
-            <Slider label="Activation energy" value={merged.activation_energy ?? 0.5} onChange={(v) => set('activation_energy', v)} />
-            <Slider label="Recovery cost" value={merged.recovery_cost ?? 0.3} onChange={(v) => set('recovery_cost', v)} />
-            <Slider label="Energy → reward ratio" value={merged.energy_to_reward_ratio ?? 0.5} onChange={(v) => set('energy_to_reward_ratio', v)} />
+            <Slider label="Cognitive load" value={merged.cognitive_load ?? 0.5} onChange={(v) => set('cognitive_load', v)} hint="Mental bandwidth required. Heavy tasks are deprioritised when your energy is low." />
+            <Slider label="Emotional resistance" value={merged.emotional_resistance ?? 0.5} onChange={(v) => set('emotional_resistance', v)} hint="How much you're dreading or avoiding this. Higher resistance lowers the score when willpower is depleted." />
+            <Slider label="Activation energy" value={merged.activation_energy ?? 0.5} onChange={(v) => set('activation_energy', v)} hint="How hard it is to start. High = needs a good uninterrupted block to get into." />
+            <Slider label="Recovery cost" value={merged.recovery_cost ?? 0.3} onChange={(v) => set('recovery_cost', v)} hint="How drained you'll feel after finishing. Used to space out back-to-back demanding tasks." />
+            <Slider label="Energy → reward ratio" value={merged.energy_to_reward_ratio ?? 0.5} onChange={(v) => set('energy_to_reward_ratio', v)} hint="Net energy after completing — a high-ratio task can feel energising even if cognitively heavy." />
           </section>
 
           {/* Time & focus */}
           <section className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Time & focus</p>
             <label className="flex items-center gap-3">
-              <span className="w-44 shrink-0 text-xs text-circuit-muted">Scheduled for</span>
+              <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                Scheduled for
+                <FieldHint text="Pin this task to a specific date and time." />
+              </span>
               <input
                 type="datetime-local"
                 value={merged.scheduled_at ? toDatetimeLocal(merged.scheduled_at) : ''}
@@ -197,7 +223,10 @@ export function TaskDetailModal({
               />
             </label>
             <label className="flex items-center gap-3">
-              <span className="w-44 shrink-0 text-xs text-circuit-muted">Duration (minutes)</span>
+              <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                Duration (minutes)
+                <FieldHint text="Expected time to complete. Used for calendar blocks and capacity planning." />
+              </span>
               <input
                 type="number" min={5} max={480} step={5}
                 value={merged.duration ?? 30}
@@ -206,7 +235,10 @@ export function TaskDetailModal({
               />
             </label>
             <label className="flex items-center gap-3">
-              <span className="w-44 shrink-0 text-xs text-circuit-muted">Travel before (min)</span>
+              <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                Travel before (min)
+                <FieldHint text="Transit time needed before this task. Shown as a hatched buffer block in the calendar." />
+              </span>
               <input
                 type="number" min={0} max={120} step={5}
                 value={merged.travel_buffer_before_mins ?? ''}
@@ -216,7 +248,10 @@ export function TaskDetailModal({
               />
             </label>
             <label className="flex items-center gap-3">
-              <span className="w-44 shrink-0 text-xs text-circuit-muted">Travel after (min)</span>
+              <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                Travel after (min)
+                <FieldHint text="Transit time needed after this task. Shown as a hatched buffer block in the calendar." />
+              </span>
               <input
                 type="number" min={0} max={120} step={5}
                 value={merged.travel_buffer_after_mins ?? ''}
@@ -225,11 +260,14 @@ export function TaskDetailModal({
                 className="input-field flex-1 py-1 text-xs"
               />
             </label>
-            <Select label="Effort" value={merged.effort ?? 'medium'} options={['low', 'medium', 'high']} onChange={(v) => set('effort', v as ApiTask['effort'])} />
-            <Select label="Focus type" value={merged.focus_type ?? 'shallow'} options={['shallow', 'deep', 'admin', 'creative']} onChange={(v) => set('focus_type', v)} />
-            <Select label="Deadline" value={merged.deadline_type ?? 'none'} options={['none', 'soft', 'hard']} onChange={(v) => set('deadline_type', v as ApiTask['deadline_type'])} />
+            <Select label="Effort" value={merged.effort ?? 'medium'} options={['low', 'medium', 'high']} onChange={(v) => set('effort', v as ApiTask['effort'])} hint="Overall effort level — affects how tasks are grouped and suggested during your day." />
+            <Select label="Focus type" value={merged.focus_type ?? 'shallow'} options={['shallow', 'deep', 'admin', 'creative']} onChange={(v) => set('focus_type', v)} hint="Type of cognitive engagement. Deep and creative tasks score higher during peak energy windows." />
+            <Select label="Deadline" value={merged.deadline_type ?? 'none'} options={['none', 'soft', 'hard']} onChange={(v) => set('deadline_type', v as ApiTask['deadline_type'])} hint="Soft = flexible target. Hard = fixed cutoff that significantly boosts urgency as the date approaches." />
             <label className="flex items-center gap-3">
-              <span className="w-44 shrink-0 text-xs text-circuit-muted">Recurrence</span>
+              <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                Recurrence
+                <FieldHint text="How often this repeats. e.g. daily, weekday, weekly:MO,WE,FR, monthly:1MO, monthly:LFR (last Friday), monthly:LWD (last working day). Leave blank for one-off tasks." />
+              </span>
               <input
                 type="text"
                 value={merged.recurrence ?? ''}
@@ -241,7 +279,10 @@ export function TaskDetailModal({
             {(merged.recurrence || merged.rrule) && (
               <>
                 <label className="flex items-center gap-3">
-                  <span className="w-44 shrink-0 text-xs text-circuit-muted">Repeat until</span>
+                  <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                    Repeat until
+                    <FieldHint text="Stop generating new occurrences after this date. Leave blank to repeat indefinitely." />
+                  </span>
                   <input
                     type="date"
                     value={merged.recurrence_ends_at ? new Date(merged.recurrence_ends_at).toISOString().slice(0, 10) : ''}
@@ -250,24 +291,30 @@ export function TaskDetailModal({
                   />
                 </label>
                 <label className="flex items-center gap-3">
-                  <span className="w-44 shrink-0 text-xs text-circuit-muted">After blackout</span>
+                  <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                    After blackout
+                    <FieldHint text="Resume: skips to the next natural schedule occurrence after the blackout. Catch up, shift series: moves to the day after the blackout ends and anchors the whole series from there. Catch up, keep schedule: moves to the day after the blackout ends for this one occurrence, then resumes the original schedule unchanged." />
+                  </span>
                   <select
                     value={merged.post_blackout_behavior ?? 'resume'}
-                    onChange={(e) => set('post_blackout_behavior', e.target.value as 'resume' | 'catch_up')}
+                    onChange={(e) => set('post_blackout_behavior', e.target.value as 'resume' | 'catch_up' | 'catch_up_once')}
                     className="input-field flex-1 py-1 text-xs"
                   >
                     <option value="resume">Resume on next schedule</option>
-                    <option value="catch_up">Catch up immediately</option>
+                    <option value="catch_up">Catch up, shift series</option>
+                    <option value="catch_up_once">Catch up, keep schedule</option>
                   </select>
                 </label>
                 <label className="flex items-center gap-3">
-                  <span className="w-44 shrink-0 text-xs text-circuit-muted">Weekend time (Sa–Su, AM)</span>
+                  <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                    Weekend time (Sa–Su, AM)
+                    <FieldHint text="Override the recurrence time on Saturday and Sunday. Only applies to morning tasks (originally scheduled before noon)." />
+                  </span>
                   <input
                     type="time"
                     value={weekendTime}
                     onChange={(e) => { setWeekendTime(e.target.value); applyWeekendTime(e.target.value); }}
                     className="input-field flex-1 py-1 text-xs"
-                    title="Shifts the recurrence time on Sat & Sun — applies only to morning tasks (before noon)"
                   />
                 </label>
               </>
@@ -277,6 +324,7 @@ export function TaskDetailModal({
               value={merged.preferred_execution_window ?? ''}
               options={['', 'morning', 'afternoon', 'evening']}
               onChange={(v) => set('preferred_execution_window', v || null as unknown as string)}
+              hint="Best time of day for this task. Used to match tasks to your natural energy peaks."
             />
           </section>
 
@@ -316,7 +364,10 @@ export function TaskDetailModal({
           <section className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Task group</p>
             <label className="flex items-center gap-3">
-              <span className="w-44 shrink-0 text-xs text-circuit-muted">Group name</span>
+              <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+                Group name
+                <FieldHint text="Tasks sharing this label shift together when any one is rescheduled. e.g. 'morning-routine' or 'laundry'." />
+              </span>
               <input
                 type="text"
                 placeholder="e.g. laundry, morning-routine"
@@ -390,7 +441,7 @@ export function TaskDetailModal({
               <button
                 onClick={handleApplyToSeries}
                 disabled={propagating || (!seriesOpts.classification && !seriesOpts.name)}
-                className="btn-primary w-full text-xs mt-1"
+                className="btn btn-primary w-full text-xs mt-1"
               >
                 {propagating ? 'Applying…' : 'Apply to series'}
               </button>
@@ -460,7 +511,7 @@ export function TaskDetailModal({
           )}
 
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving || propagating} className="btn-primary flex-1">
+            <button onClick={handleSave} disabled={saving || propagating} className="btn btn-primary flex-1">
               {saving ? 'Saving…' : 'Save'}
             </button>
             {isSeries && (

@@ -32,6 +32,7 @@ export const QUICK_PATTERNS: RecurrenceOption[] = [
   { label: "15th of month", pattern: "monthly:15", description: "15th day each month" },
   { label: "1st Monday", pattern: "monthly:1MO", description: "1st Monday each month" },
   { label: "Last Friday", pattern: "monthly:LFR", description: "Last Friday each month" },
+  { label: "Last working day", pattern: "monthly:LWD", description: "Last weekday each month" },
 ];
 
 export function formatRecurrence(pattern: string | null): string {
@@ -46,6 +47,8 @@ export function formatRecurrence(pattern: string | null): string {
     const days = pattern.slice(7).split(",").map(formatDay).join(", ");
     return `Every ${days}`;
   }
+
+  if (pattern === "monthly:LWD") return "Last working day";
 
   if (pattern.startsWith("monthly:")) {
     const spec = pattern.slice(8);

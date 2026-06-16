@@ -85,7 +85,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 **`CircuitTask`** — core task record (~47 columns):
 - Scheduling: `scheduled_at` (ms epoch), `recurrence` (pattern string), `duration`, `effort`
 - Recurrence/calendar: `rrule` (raw RRULE string), `rrule_dtstart_ms`, `is_recurring_template` — calendar imports store one template task per series; next occurrences are generated on completion
-- Recurrence control: `recurrence_ends_at` (ms epoch, optional cutoff), `post_blackout_behavior` (`"resume"` | `"catch_up"`)
+- Recurrence control: `recurrence_ends_at` (ms epoch, optional cutoff; null = indefinite), `post_blackout_behavior` (`"resume"` | `"catch_up"` | `"catch_up_once"`), `recurrence_anchor_ms` (ms epoch, nullable — set by completion handler on catch_up_once tasks to preserve the pre-blackout series anchor)
 - Blackouts: `blackout_skip_flags` (JSON array of types that cause this task to be skipped)
 - Cognitive: `cognitive_load`, `emotional_resistance`, `activation_energy`, `recovery_cost`
 - Priority: `importance`, `urgency`, `consequence_of_delay`, `momentum_value`
@@ -108,7 +108,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 
 Schema changes are additive — never destructive. Add a `_migrate_*()` function in `database.py` that uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (Postgres) or inspector-checked `ALTER TABLE` (SQLite), then call it from `on_startup` in `main.py`. Do not use Alembic.
 
-Current migrations in startup order: `_migrate_sqlite`, `_migrate_postgres`, `_migrate_webauthn_tables`, `_migrate_blackout_and_rrule`, `_migrate_recurrence_extra`, `_migrate_sleep_log`, `_migrate_energy_eod` (adds `user_state.energy_eod`), `_migrate_task_groups` (adds `group_id`, `day_time_overrides`, `travel_buffer_before_mins`, `travel_buffer_after_mins`).
+Current migrations in startup order: `_migrate_sqlite`, `_migrate_postgres`, `_migrate_webauthn_tables`, `_migrate_blackout_and_rrule`, `_migrate_recurrence_extra`, `_migrate_sleep_log`, `_migrate_energy_eod` (adds `user_state.energy_eod`), `_migrate_task_groups` (adds `group_id`, `day_time_overrides`, `travel_buffer_before_mins`, `travel_buffer_after_mins`), `_migrate_recurrence_anchor` (adds `circuit_tasks.recurrence_anchor_ms`).
 
 ### Frontend (`frontend/src/`)
 
@@ -123,8 +123,8 @@ app/(app)/          # Authenticated routes
   chat/page.tsx     # TerminalChat — command parser + Conduit Q&A fallback
 app/(auth)/login/   # Login page
 components/
-  TaskDetailModal.tsx   # Edit task — priority, cognitive, time, recurrence end/weekend-override, blackout skip flags (incl. wfh), travel buffers, group_id
-  TerminalChat.tsx      # Command parsing + ActionPreview + Conduit agent fallback
+  TaskDetailModal.tsx   # Edit task — priority, cognitive, time, recurrence end/weekend-override, blackout skip flags (incl. wfh), travel buffers, group_id. All field labels have hover tooltips (FieldHint component).
+  TerminalChat.tsx      # Command parsing + ActionPreview + client-side recurrence/blackout help + Conduit agent fallback
   AppShell.tsx / TabBar.tsx / Sidebar.tsx / Nav.tsx
 lib/
   api.ts                  # Typed fetch wrapper for all backend endpoints (includes sleep, batchUpdate)
@@ -142,11 +142,23 @@ lib/
 
 **User-created tasks** (`recurrence` field): patterns like `daily`, `weekly:MO,WE,FR`, `monthly:1MO`. On completion, `tasks.py` calls `engines/recurrence.py → next_occurrence()` and auto-creates the next task.
 
+Supported recurrence patterns:
+- `daily` — every day
+- `weekday` — Mon–Fri
+- `weekend` — Sat & Sun
+- `monday` … `sunday` — every specific weekday
+- `weekly:MO,WE,FR` — specific days (comma-separated two-letter codes)
+- `monthly:15` — 15th of each month
+- `monthly:1MO` — 1st Monday; `monthly:3FR` — 3rd Friday; `monthly:LFR` — last Friday
+- `monthly:LWD` — last working day (last Mon–Fri) of the month; exports as `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1`
+
 **Calendar imports** (`rrule` field): ICS events with RRULE are stored as a single template task (`is_recurring_template=True`). The template's `scheduled_at` is set to the **first occurrence on or after today** (import date); `rrule_dtstart_ms` retains the original DTSTART for correct future expansion. On completion, `_expand_rrule()` finds the next date and creates the next template.
+
+IST timezone note: `_first_future_ms()` in `calendar.py` validates the IST weekday of each candidate against the RRULE BYDAY before accepting it, guarding against UTC/IST date-boundary mismatches in the expander.
 
 **RRULE → recurrence mapping** (`_rrule_to_recurrence()` in `calendar.py`): On import, the raw RRULE is also parsed into Circuit's simple `recurrence` pattern (e.g. `FREQ=WEEKLY;BYDAY=MO,WE` → `weekly:MO,WE`). Keyword detection from event titles (`_detect_recurrence()`) is the fallback.
 
-**Recurrence end date**: `recurrence_ends_at` (ms epoch) on a task prevents new occurrences from being created past this date.
+**Recurrence end date**: `recurrence_ends_at` (ms epoch) prevents new occurrences from being created past this date. Null = indefinite.
 
 ### Blackout system
 
@@ -157,10 +169,11 @@ Tasks carry `blackout_skip_flags` specifying which types cause them to be skippe
 **During an active blackout**: blacked-out tasks are **hidden** from the Right now / Soon / Later sections and shown in a collapsed **"On hold"** section at the bottom of the task list.
 
 **Post-blackout behavior** (per task, set in TaskDetailModal):
-- `"catch_up"` — next recurrence lands on the first day after the blackout ends; series anchors from that new date
-- `"resume"` — advances through recurrence pattern (adding intervals) until an occurrence falls after all blackouts; the series then continues from that occurrence following the original schedule
+- `"resume"` — skips ahead through the recurrence pattern until an occurrence falls after all blackouts; the series continues from that occurrence on the original schedule (no catch-up)
+- `"catch_up"` — moves to the first day after the blackout ends and anchors the **entire series** from that new date
+- `"catch_up_once"` — moves to the first day after the blackout ends for this one occurrence, then resumes the original schedule unchanged. Implemented via `recurrence_anchor_ms`: the completion handler stores the original pre-blackout `scheduled_at` on the new task; when that task is completed, its `recurrence_anchor_ms` is used as `from_dt` for computing the next occurrence, after which the anchor is cleared.
 
-Backend: `_adjust_for_blackouts()` in `tasks.py` runs after `next_ms` is computed at task completion.
+Backend: `_adjust_for_blackouts()` in `tasks.py` runs after `next_ms` is computed at task completion. Both `catch_up` and `catch_up_once` produce the same immediate date; the series-anchor difference is resolved in the completion handler.
 
 ### Scheduling algorithm (`src/scheduling-engine/scoring.ts`)
 
@@ -220,7 +233,9 @@ Two-tier message handling:
    - Dates: tomorrow, next week, Monday–Sunday, end of week, end of day, next month
    - Shows **ActionPreview** panel listing matched tasks and proposed change; requires **Approve / Cancel** before executing via `POST /api/tasks/batch-update`
 
-2. **Conduit agent fallback**: For non-command messages, streams to the external Conduit service at `NEXT_PUBLIC_CONDUIT_API_URL`. Conduit has no Circuit task tools registered; it handles conversational Q&A only.
+2. **Client-side help**: Before reaching Conduit, messages mentioning recurrence/repeat/patterns/blackout/catch-up are answered client-side with the full format reference — Conduit has no Circuit-specific schema knowledge.
+
+3. **Conduit agent fallback**: For all other messages, streams to the external Conduit service at `NEXT_PUBLIC_CONDUIT_API_URL`. Conduit has no Circuit task tools registered; it handles general conversational Q&A only.
 
 Quick-command chips in the chat UI provide one-click access to common operations.
 

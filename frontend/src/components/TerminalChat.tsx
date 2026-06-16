@@ -305,6 +305,41 @@ export function TerminalChat() {
       return;
     }
 
+    // Client-side recurrence format help (Conduit has no Circuit-specific knowledge)
+    if (/recur|repeat|pattern|format|weekly|daily|monthly|friday|monday|working day|weekday|how.*set.*recur|blackout|catch.?up|after.*blackout/i.test(t)) {
+      push({
+        role: "assistant",
+        content: `**Recurrence patterns**
+
+Type the pattern exactly into the Recurrence field when editing a task:
+
+| Pattern | Meaning |
+|---|---|
+| \`daily\` | Every day |
+| \`weekday\` | Mon – Fri |
+| \`weekend\` | Sat & Sun |
+| \`monday\` … \`sunday\` | Every specific weekday |
+| \`weekly:MO,WE,FR\` | Specific days (MO TU WE TH FR SA SU) |
+| \`monthly:15\` | 15th of each month |
+| \`monthly:1MO\` | 1st Monday of the month |
+| \`monthly:3FR\` | 3rd Friday of the month |
+| \`monthly:LFR\` | **Last Friday** of the month |
+| \`monthly:LWD\` | **Last working day** (last Mon–Fri) |
+| \`monthly:LMO\` | Last Monday of the month |
+
+The edit modal also has a quick-pick dropdown with the most common options.
+
+**After-blackout behavior** (set per task in the edit modal):
+
+| Option | Meaning |
+|---|---|
+| Resume on next schedule | Skip to the next natural occurrence after the blackout — series unchanged |
+| Catch up, shift series | Do the task on the first day after the blackout; anchor the whole series from that date |
+| Catch up, keep schedule | Do the task on the first day after the blackout; subsequent occurrences revert to the original schedule |`,
+      });
+      return;
+    }
+
     // Fall through to Conduit agent for Q&A
     setStreaming(true);
     const history = [

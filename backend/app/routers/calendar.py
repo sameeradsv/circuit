@@ -115,17 +115,36 @@ def _first_future_ms(dtstart_ms: int, rrule_str: str, exdate_set: set) -> Option
     today_ist = datetime.now(_IST).replace(hour=0, minute=0, second=0, microsecond=0)
     today_ms = int(today_ist.astimezone(timezone.utc).timestamp() * 1000)
 
+    # For weekly patterns, precompute expected IST weekdays.
+    # _expand_rrule uses UTC-based weekday arithmetic. Because midnight IST = 18:30 UTC
+    # of the previous calendar day, a "Monday" candidate in UTC is actually Tuesday in
+    # IST. Validating the IST weekday here filters out those off-by-one-day artefacts.
+    _day_map = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+    expected_ist_wds: Optional[set] = None
+    _parts: dict[str, str] = {}
+    for seg in rrule_str.upper().split(";"):
+        if "=" in seg:
+            k, v = seg.split("=", 1)
+            _parts[k] = v
+    if _parts.get("FREQ") == "WEEKLY" and "BYDAY" in _parts:
+        expected_ist_wds = {
+            _day_map[t.strip()[-2:]] for t in _parts["BYDAY"].split(",")
+            if t.strip()[-2:] in _day_map
+        }
+
     candidates = _expand_rrule(dtstart_ms, rrule_str, exdate_set, cutoff_ms=today_ms)
     for raw_ts in candidates:
         raw_dt = datetime.fromtimestamp(raw_ts / 1000, tz=_IST)
-        # Check that this day (IST) is >= today
-        if raw_dt.date() >= today_ist.date():
-            # Apply original time-of-day (IST) so the template reflects the real event time
-            corrected = raw_dt.replace(
-                hour=orig_dt.hour, minute=orig_dt.minute,
-                second=orig_dt.second, microsecond=0,
-            )
-            return int(corrected.timestamp() * 1000)
+        if raw_dt.date() < today_ist.date():
+            continue
+        if expected_ist_wds is not None and raw_dt.weekday() not in expected_ist_wds:
+            continue
+        # Apply original time-of-day (IST) so the template reflects the real event time
+        corrected = raw_dt.replace(
+            hour=orig_dt.hour, minute=orig_dt.minute,
+            second=orig_dt.second, microsecond=0,
+        )
+        return int(corrected.timestamp() * 1000)
     return None
 
 
@@ -661,6 +680,8 @@ def _recurrence_to_rrule(recurrence: str, ends_at_ms: Optional[int] = None) -> O
         return f"FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR{until}"
     if recurrence == "weekend":
         return f"FREQ=WEEKLY;BYDAY=SA,SU{until}"
+    if recurrence == "monthly:LWD":
+        return f"FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1{until}"
     if recurrence.startswith("weekly:"):
         days = recurrence[7:]          # e.g. "MO,WE,FR"
         return f"FREQ=WEEKLY;BYDAY={days}{until}"

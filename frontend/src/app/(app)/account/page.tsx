@@ -334,7 +334,7 @@ export default function AccountPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button type="submit" disabled={saving} className="btn-primary">
+            <button type="submit" disabled={saving} className="btn btn-primary">
               {saving ? "Saving…" : "Save preferences"}
             </button>
             {saveMsg && <span className="text-xs text-circuit-muted">{saveMsg}</span>}
@@ -386,7 +386,7 @@ export default function AccountPage() {
             <button
               onClick={handleAddBlackout}
               disabled={addingBlackout || !newBlackoutStart || !newBlackoutEnd}
-              className="btn-primary"
+              className="btn btn-primary"
             >
               {addingBlackout ? "Adding…" : "Add"}
             </button>
@@ -476,7 +476,7 @@ export default function AccountPage() {
             maxLength={500}
           />
           <div className="flex items-center gap-4">
-            <button onClick={handleLogSleep} disabled={sleepSaving} className="btn-primary">
+            <button onClick={handleLogSleep} disabled={sleepSaving} className="btn btn-primary">
               {sleepSaving ? "Saving…" : "Log sleep"}
             </button>
             {sleepMsg && <span className="text-xs text-circuit-muted">{sleepMsg}</span>}
@@ -514,7 +514,7 @@ export default function AccountPage() {
               placeholder="Passphrase (min 8 chars)" minLength={8} required
               className="input-field flex-1"
             />
-            <button type="submit" disabled={exporting} className="btn-primary shrink-0">
+            <button type="submit" disabled={exporting} className="btn btn-primary shrink-0">
               {exporting ? "Exporting…" : "Export"}
             </button>
           </div>
@@ -542,7 +542,7 @@ export default function AccountPage() {
             className="input-field font-mono text-xs resize-y"
           />
           <div className="flex items-center gap-4">
-            <button type="submit" disabled={importing} className="btn-primary">
+            <button type="submit" disabled={importing} className="btn btn-primary">
               {importing ? "Importing…" : "Import"}
             </button>
             {importResult && <span className="text-xs text-circuit-muted">{importResult}</span>}
@@ -581,7 +581,7 @@ export default function AccountPage() {
               <button
                 onClick={handleCleanup}
                 disabled={cleaning}
-                className="btn-primary text-xs"
+                className="btn btn-primary text-xs"
                 style={{ background: "var(--terra)", borderColor: "var(--terra)" }}
               >
                 {cleaning ? "Deleting…" : `Yes, delete events after ${cleanupAfterDate}`}
@@ -620,7 +620,7 @@ export default function AccountPage() {
                   Enabled
                 </span>
               ) : (
-                <button onClick={handleEnablePasskey} disabled={passkeyBusy} className="btn-primary shrink-0 text-xs">
+                <button onClick={handleEnablePasskey} disabled={passkeyBusy} className="btn btn-primary shrink-0 text-xs">
                   {passkeyBusy ? "Setting up…" : "Enable"}
                 </button>
               )}
