@@ -59,6 +59,14 @@ Optional per-day rows keyed by IST wake-up date: `quality`, `disturbed`, `notes`
 
 - `required_resources`, `dependencies`, `metadata_json`
 
+## Task events (`TaskEvent` table)
+
+Logged on complete/uncomplete/skip/reschedule. Fields: `event_type`, `occurred_at`, `metadata_json`.
+
+- **Energy timeline** (`/api/energy/timeline`): effective time = `scheduled_at` of the linked task when set, else stored `occurred_at`. Logic in `app/task_event_time.py`.
+- **Sleep work signals**: always raw `occurred_at` (when you actually worked).
+- New completions write `occurred_at` from `task_event_occurred_at()` — scheduled slot preferred.
+
 ## Scoring
 
 Deterministic multi-factor score in `scheduling-engine/scoring.ts` — importance, urgency, overdue time, energy mode fit, cognitive penalties, duration fit. Each ranked task carries human-readable `reasons`.

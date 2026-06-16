@@ -27,6 +27,8 @@ Both apps share **TypeScript engines** under `src/*-engine/` (scoring, recurrenc
 | `services/blackout.py` | Blackout overlap checks, `adjust_for_blackouts`, proactive reschedule on blackout create |
 | `services/export_crypto.py` | Encrypted backup blobs |
 | `engines/recurrence.py` | Pattern → next occurrence (shared logic with frontend) |
+| `routers/calendar.py` | ICS parse/import/export, `_expand_rrule`, `_snap_start_to_cutoff`, `_first_future_ms` |
+| `task_event_time.py` | Map task events to scheduled slot for energy timeline (write + read) |
 | `database.py` | Additive migrations on startup (no Alembic) |
 
 Key routers: see `CLAUDE.md` router table.
@@ -61,7 +63,15 @@ Key routers: see `CLAUDE.md` router table.
 
 ## Cross-app energy
 
-`frontend/src/lib/use-combined-energy.ts` blends Circuit + Canopy + Chef energy endpoints for composite daily balance (used on energy/analytics surfaces).
+| App | Timeline endpoint | Event time source |
+|-----|-------------------|-------------------|
+| Circuit | `GET /api/energy/timeline` | Task `scheduled_at` (fallback: `TaskEvent.occurred_at`) |
+| Canopy | `GET /api/sync/energy/timeline` | Interaction `occurred_at` |
+| Chef | `GET /energy/timeline` | Meal `timestamp` |
+
+`frontend/src/lib/use-combined-energy.ts` blends Circuit + Canopy + Chef sync endpoints for composite daily balance. **Canopy's Energy page** (`canopy/frontend/src/app/energy/page.tsx`) renders the merged chart when `NEXT_PUBLIC_CIRCUIT_API_URL` / `CHEF_API_URL` are set.
+
+Sleep **work signals** in Circuit (`sleep.py`) still use raw task-event completion timestamps — separate from energy timeline placement.
 
 ## Docs
 

@@ -159,7 +159,13 @@ Supported recurrence patterns:
 
 **Calendar imports** (`rrule` field): ICS events with RRULE are stored as a single template task (`is_recurring_template=True`). The template's `scheduled_at` is set to the **first occurrence on or after today** (import date); `rrule_dtstart_ms` retains the original DTSTART for correct future expansion. On completion, `_expand_rrule()` finds the next date and creates the next template.
 
-IST timezone note: `_first_future_ms()` in `calendar.py` validates the IST weekday of each candidate against the RRULE BYDAY before accepting it, guarding against UTC/IST date-boundary mismatches in the expander.
+RRULE cutoff snapping (`_snap_start_to_cutoff` in `calendar.py`): when advancing from an old DTSTART, the expander aligns to the **pattern** (e.g. `FREQ=WEEKLY` without `BYDAY` repeats on DTSTART's weekday — common iCloud export). Without this, everything incorrectly landed on import day.
+
+Detached instances with `RECURRENCE-ID` import as **one-offs** (not series masters), even if the VEVENT also carries an RRULE line.
+
+One-off future events use their ICS `DTSTART` directly. Past one-offs are skipped. **Re-import** is required to fix tasks imported before the snap fix; there is no DB migration.
+
+IST timezone note: `_first_future_ms()` validates the IST weekday of each candidate against explicit `BYDAY` before accepting it, guarding against UTC/IST date-boundary mismatches in the expander.
 
 **RRULE → recurrence mapping** (`_rrule_to_recurrence()` in `calendar.py`): On import, the raw RRULE is also parsed into Circuit's simple `recurrence` pattern (e.g. `FREQ=WEEKLY;BYDAY=MO,WE` → `weekly:MO,WE`). Keyword detection from event titles (`_detect_recurrence()`) is the fallback.
 
@@ -212,6 +218,8 @@ Energy is modelled as a **running balance** (0–1) that accumulates through the
    - `start_energy` / `end_energy` — opening and closing balance for the day
    
    Task deltas: completing a high `energy_to_reward_ratio` task can be net-positive; skipping costs willpower (−0.05 to −0.20); uncompleting costs recovery (−0.05 to −0.25); heavy cognitive-load completions drain even if "done".
+
+   **Event time on the timeline** uses the task's **scheduled slot** (`scheduled_at`) when present, not wall-clock completion time (`app/task_event_time.py`). New `TaskEvent` rows are written the same way; the timeline read path also maps existing rows via `effective_event_time()` so historical data aligns without migration. Unscheduled tasks and explicit `POST /api/history/events` `occurred_at` still use actual/log time. **Sleep work signals** (`sleep.py → _get_work_signals`) intentionally keep raw `TaskEvent.occurred_at` (actual work hours matter for late-night penalties).
 
    `GET /api/energy/sync` also returns `start_energy` and `running_energy` (real-time balance for Circuit's task events only), plus legacy `drain_so_far` / `drain_ahead` for backward compat.
 

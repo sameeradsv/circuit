@@ -3,10 +3,10 @@
 ## Implemented (full-stack app)
 
 - FastAPI backend with JWT + WebAuthn passkeys
-- Task CRUD, recurrence auto-creation, batch-update, ICS calendar import
+- Task CRUD, recurrence auto-creation, batch-update, ICS calendar import (RRULE snap to next valid occurrence; iCloud `FREQ=WEEKLY` without `BYDAY`)
 - Blackouts: on-hold UI, post-blackout behaviors, calendar shading, proactive reschedule on create
 - Sleep from **Sleep** calendar task + quality/disturbed overrides + default quality setting
-- Cumulative energy timeline with cross-day carry-over (`energy_eod`)
+- Cumulative energy timeline with cross-day carry-over (`energy_eod`); task events mapped to scheduled slot on timeline
 - Calendar day/week/month with drag-and-drop
 - TaskDetailModal (modular `task-detail/` sections)
 - TerminalChat batch commands + Circuit native agent (Claude)

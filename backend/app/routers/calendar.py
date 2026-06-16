@@ -108,6 +108,133 @@ def _detect_recurrence(title: str, description: str) -> Optional[str]:
     return None
 
 
+def _parse_rrule_parts(rrule_str: str) -> dict[str, str]:
+    parts: dict[str, str] = {}
+    for seg in rrule_str.upper().split(";"):
+        if "=" in seg:
+            k, v = seg.split("=", 1)
+            parts[k.strip()] = v.strip()
+    return parts
+
+
+def _with_orig_time(orig: datetime, dt: datetime) -> datetime:
+    return dt.replace(
+        hour=orig.hour, minute=orig.minute, second=orig.second,
+        microsecond=0, tzinfo=timezone.utc,
+    )
+
+
+def _nth_weekday_in_month(
+    year: int, month: int, nth: int, weekday: int, orig_start: datetime,
+) -> Optional[datetime]:
+    """nth 1–4 = 1st..4th weekday of month; -1 = last."""
+    if nth == -1:
+        if month == 12:
+            nm_y, nm_m = year + 1, 1
+        else:
+            nm_y, nm_m = year, month + 1
+        last = datetime(nm_y, nm_m, 1, tzinfo=timezone.utc) - timedelta(days=1)
+        d = last
+        while d.weekday() != weekday:
+            d -= timedelta(days=1)
+        return _with_orig_time(orig_start, d)
+    count = 0
+    d = datetime(year, month, 1, tzinfo=timezone.utc)
+    while d.month == month:
+        if d.weekday() == weekday:
+            count += 1
+            if count == nth:
+                return _with_orig_time(orig_start, d)
+        d += timedelta(days=1)
+    return None
+
+
+def _snap_start_to_cutoff(orig_start: datetime, parts: dict[str, str], cutoff: datetime) -> datetime:
+    """Advance a series anchor to the first tick on or after cutoff matching the RRULE."""
+    if cutoff <= orig_start:
+        return orig_start
+
+    freq = parts.get("FREQ", "")
+    interval = max(1, int(parts.get("INTERVAL", "1")))
+    day_map = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+
+    if freq == "DAILY":
+        delta = (cutoff.date() - orig_start.date()).days
+        steps = max(0, delta // interval)
+        candidate = orig_start + timedelta(days=steps * interval)
+        if candidate < cutoff:
+            candidate += timedelta(days=interval)
+        return candidate
+
+    if freq == "WEEKLY":
+        weekly_days: list[int] = []
+        if "BYDAY" in parts:
+            for token in parts["BYDAY"].split(","):
+                token = token.strip()
+                if re.match(r"^(-?\d+|L)[A-Z]{2}$", token):
+                    continue
+                wd = day_map.get(token[-2:], -1)
+                if wd >= 0:
+                    weekly_days.append(wd)
+        if weekly_days:
+            return _with_orig_time(
+                orig_start,
+                cutoff.replace(hour=0, minute=0, second=0, microsecond=0),
+            )
+        # FREQ=WEEKLY without BYDAY — repeat on DTSTART's weekday (common iCloud export).
+        candidate = _with_orig_time(orig_start, cutoff)
+        days_ahead = (orig_start.weekday() - candidate.weekday()) % 7
+        candidate = candidate + timedelta(days=days_ahead)
+        if candidate < cutoff:
+            candidate += timedelta(weeks=interval)
+        return candidate
+
+    if freq == "MONTHLY":
+        monthday = int(parts["BYMONTHDAY"].split(",")[0]) if "BYMONTHDAY" in parts else orig_start.day
+        monthly_spec: Optional[tuple[int, int]] = None
+        if "BYDAY" in parts:
+            token = parts["BYDAY"].split(",")[0].strip()
+            m = re.match(r"^(-?\d+|L)([A-Z]{2})$", token)
+            if m:
+                nth = -1 if m.group(1) in ("L", "-1") else int(m.group(1))
+                wd = day_map.get(m.group(2), -1)
+                if wd >= 0:
+                    monthly_spec = (nth, wd)
+
+        y, m = cutoff.year, cutoff.month
+        for _ in range(240):
+            if monthly_spec:
+                nth, wd = monthly_spec
+                candidate = _nth_weekday_in_month(y, m, nth, wd, orig_start)
+            else:
+                try:
+                    candidate = orig_start.replace(year=y, month=m, day=monthday)
+                except ValueError:
+                    candidate = None
+            if candidate and candidate >= cutoff:
+                return candidate
+            m += interval
+            while m > 12:
+                m -= 12
+                y += 1
+        return cutoff
+
+    if freq == "YEARLY":
+        y = cutoff.year
+        for _ in range(100):
+            try:
+                candidate = orig_start.replace(year=y)
+            except ValueError:
+                y += interval
+                continue
+            if candidate >= cutoff:
+                return candidate
+            y += interval
+        return cutoff
+
+    return cutoff
+
+
 def _first_future_ms(dtstart_ms: int, rrule_str: str, exdate_set: set) -> Optional[int]:
     """Return the first RRULE occurrence on or after today (IST), preserving the original time-of-day.
     Returns None if the series has no future occurrences."""
@@ -121,16 +248,14 @@ def _first_future_ms(dtstart_ms: int, rrule_str: str, exdate_set: set) -> Option
     # IST. Validating the IST weekday here filters out those off-by-one-day artefacts.
     _day_map = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
     expected_ist_wds: Optional[set] = None
-    _parts: dict[str, str] = {}
-    for seg in rrule_str.upper().split(";"):
-        if "=" in seg:
-            k, v = seg.split("=", 1)
-            _parts[k] = v
+    _parts = _parse_rrule_parts(rrule_str)
     if _parts.get("FREQ") == "WEEKLY" and "BYDAY" in _parts:
-        expected_ist_wds = {
+        wds = {
             _day_map[t.strip()[-2:]] for t in _parts["BYDAY"].split(",")
-            if t.strip()[-2:] in _day_map
+            if t.strip()[-2:] in _day_map and not re.match(r"^(-?\d+|L)[A-Z]{2}$", t.strip())
         }
+        if wds:
+            expected_ist_wds = wds
 
     candidates = _expand_rrule(dtstart_ms, rrule_str, exdate_set, cutoff_ms=today_ms)
     for raw_ts in candidates:
@@ -254,19 +379,15 @@ def _expand_rrule(dtstart_ms: int, rrule_str: str, exdate_set: set[int], cutoff_
     now = datetime.now(timezone.utc)
     horizon = now + timedelta(days=_RRULE_HORIZON_DAYS)
 
+    parts = _parse_rrule_parts(rrule_str)
+
     # If a cutoff is set, skip to the cutoff time instead of starting from ancient DTSTART
     # This is critical: a series from 2020 with a daily recurrence would generate thousands
     # of occurrences between 2020 and now; we only want those from cutoff onward.
     if cutoff_ms:
         cutoff_dt = datetime.fromtimestamp(cutoff_ms / 1000, tz=timezone.utc)
         if cutoff_dt > start:
-            start = cutoff_dt
-
-    parts: dict[str, str] = {}
-    for seg in rrule_str.upper().split(";"):
-        if "=" in seg:
-            k, v = seg.split("=", 1)
-            parts[k] = v
+            start = _snap_start_to_cutoff(orig_start, parts, cutoff_dt)
 
     freq = parts.get("FREQ", "")
     interval = max(1, int(parts.get("INTERVAL", "1")))
@@ -280,7 +401,7 @@ def _expand_rrule(dtstart_ms: int, rrule_str: str, exdate_set: set[int], cutoff_
 
     day_map = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
     byday: list[int] = []
-    if "BYDAY" in parts:
+    if "BYDAY" in parts and freq == "WEEKLY":
         for token in parts["BYDAY"].split(","):
             wd = day_map.get(token.strip()[-2:], -1)
             if wd >= 0 and wd not in byday:
@@ -483,13 +604,17 @@ def _process_ics_event(ev: dict) -> Optional[dict]:
             duration_min = max(5, (dtend_ms - dtstart_ms) // 60_000)
     elif "DURATION" in ev:
         duration_min = _parse_duration(ev["DURATION"])
+    rrule = ev.get("RRULE")
+    # Detached instances (RECURRENCE-ID) are one-offs, not series masters — even if RRULE present.
+    if ev.get("RECURRENCE_ID"):
+        rrule = None
     return {
         "summary":      summary[:500],
         "description":  (ev.get("DESCRIPTION", "").strip() or "")[:500],
         "location":     (ev.get("LOCATION", "").strip()    or "")[:100],
         "scheduled_at": dtstart_ms,
         "duration_min": min(duration_min, 720),
-        "rrule":        ev.get("RRULE"),
+        "rrule":        rrule,
         "exdates":      ev.get("EXDATES", []),
         "uid":          ev.get("UID", ""),
         "cal_name":     ev.get("CAL_NAME", ""),
@@ -547,6 +672,8 @@ def parse_ics(text: str) -> list[dict]:
             current["DTEND_TZID"] = tzid
         elif name_base in ("SUMMARY", "DESCRIPTION", "DURATION", "LOCATION", "UID", "RRULE", "COLOR"):
             current[name_base] = value
+        elif name_base == "RECURRENCE-ID":
+            current["RECURRENCE_ID"] = value
         elif name_base == "X-APPLE-EVENT-COLOR":
             current["X_APPLE_EVENT_COLOR"] = value
         elif name_base == "EXDATE":

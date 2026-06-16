@@ -35,7 +35,7 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 - **Day / week / month** views with 24-hour grid (day/week)
 - **Drag-and-drop** to reschedule; recurring tasks ask *this occurrence* vs *shift series*
 - **Blackout shading** — unavailable date ranges tinted on all views
-- **ICS import/export** — recurring events stored as RRULE templates
+- **ICS import/export** — recurring events stored as one RRULE template per series; `scheduled_at` = first occurrence on or after today (original DTSTART kept in `rrule_dtstart_ms`). Supports iCloud-style `FREQ=WEEKLY` without `BYDAY`, explicit `BYDAY`, monthly patterns, and detached `RECURRENCE-ID` instances as one-offs. Re-import to refresh dates after importer fixes.
 - Travel buffers shown as hatched blocks before/after tasks
 
 ## Blackouts
@@ -54,6 +54,7 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 - **Default sleep quality** (0–10, default 7) in Preferences
 - Override history: toggle **Show sleep overrides** with pagination
 - Energy baseline: `sleep_factor × 0.70 + energy_eod × 0.30` + cumulative task-event deltas through the day
+- **Circuit task energy on the timeline** is anchored to each task's **scheduled time** (when the work was planned), not when you tapped complete — matches Canopy (`occurred_at`) and Chef (meal `timestamp`). Cross-app chart lives on **Canopy → Energy** when sibling apps are configured.
 
 ## Account and sync
 
