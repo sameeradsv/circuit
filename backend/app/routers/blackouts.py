@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -10,10 +9,11 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import Blackout, User
+from app.services.blackout import reschedule_tasks_for_blackout
 
 router = APIRouter(prefix="/api/blackouts", tags=["blackouts"])
 
-_VALID_TYPES = {"travelling", "period", "sickness", "leave"}
+_VALID_TYPES = {"travelling", "period", "sickness", "leave", "wfh"}
 
 
 class BlackoutIn(BaseModel):
@@ -22,13 +22,14 @@ class BlackoutIn(BaseModel):
     end_date_ms: int
 
 
-def _to_dict(b: Blackout) -> dict:
+def _to_dict(b: Blackout, tasks_rescheduled: int = 0) -> dict:
     return {
         "id": b.id,
         "blackout_type": b.blackout_type,
         "start_date_ms": b.start_date_ms,
         "end_date_ms": b.end_date_ms,
         "created_at": b.created_at.isoformat(),
+        "tasks_rescheduled": tasks_rescheduled,
     }
 
 
@@ -53,7 +54,9 @@ def create_blackout(payload: BlackoutIn, user: User = Depends(require_user), db:
     db.add(b)
     db.commit()
     db.refresh(b)
-    return _to_dict(b)
+
+    moved = reschedule_tasks_for_blackout(user.id, b, db)
+    return _to_dict(b, tasks_rescheduled=moved)
 
 
 @router.delete("/{blackout_id}", status_code=204)

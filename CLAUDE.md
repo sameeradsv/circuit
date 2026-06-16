@@ -70,7 +70,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 | `tasks.py` | `/api/tasks` | Task CRUD, recurrence auto-creation on completion, blackout-aware next-occurrence, batch-update |
 | `calendar.py` | `/api/calendar` | ICS import (lazy-load RRULE, first-future-occurrence), series propagation, expiry |
 | `blackouts.py` | `/api/blackouts` | Blackout date-range CRUD |
-| `sleep.py` | `/api/sleep` | Sleep log CRUD + energy factor computation |
+| `sleep.py` | `/api/sleep` | Sleep overrides + factor; timing from **Sleep** calendar task |
 | `settings.py` | `/api/settings` | Per-user key-value settings |
 | `user.py` | `/api/user` | User state (energy/stress/focus mode), delete account |
 | `energy.py` | `/api/energy` | Cumulative energy timeline (signed deltas, running balance, cross-day carry-over) + real-time sync |
@@ -97,9 +97,11 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 
 **`Blackout`** — date ranges when user is unavailable (`blackout_type`: `travelling` / `period` / `sickness` / `leave` / `wfh`)
 
-**`SleepLog`** — daily sleep context keyed by `(user_id, date)` IST wake-up date:
-- `bedtime_ms`, `wake_ms` (epoch ms), `quality` (0–10 float), `disturbed` (bool), `notes` (text)
-- Used by `GET /api/sleep/factor` and `GET /api/energy/sync` to compute `sleep_factor` (0–1)
+**`SleepLog`** — optional daily overrides keyed by `(user_id, date)` IST wake-up date:
+- `quality`, `disturbed`, `notes` — user overrides from Account → Sleep & recovery
+- `bedtime_ms` / `wake_ms` — optional manual override (legacy); normally derived from a **Sleep** task (`scheduled_at` + `duration`)
+- Default quality from `UserSettings.default_sleep_quality` (7/10) when not overridden
+- `GET /api/sleep/overrides` — paginated list of saved override rows
 
 **`UserState`** — `energy_level` (manual 0–1 slider), `stress_level`, `focus_mode`, `energy_eod` (nullable float — closing energy balance of the previous day, used for cross-day carry-over in `_start_energy()`).
 
@@ -117,14 +119,16 @@ Current migrations in startup order: `_migrate_sqlite`, `_migrate_postgres`, `_m
 app/(app)/          # Authenticated routes
   page.tsx          # Tasks dashboard (home)
   tasks/page.tsx    # Task list with scoring, On hold section for blacked-out tasks
-  calendar/page.tsx # Day / week / month views, ICS import, click-to-edit events
-  account/page.tsx  # Preferences, sleep log, blackouts, export/import, passkey
+  calendar/page.tsx # Day / week / month views, drag-and-drop reschedule, blackout shading, ICS import
+  account/page.tsx  # Preferences, sleep overrides, blackouts, export/import, passkey
   add/page.tsx
   analytics/page.tsx
   chat/page.tsx     # TerminalChat — command parser + native Circuit agent (Claude) + client-side help
 app/(auth)/login/   # Login page
 components/
-  TaskDetailModal.tsx   # Edit task — priority, cognitive, time, recurrence end/weekend-override, blackout skip flags (incl. wfh), travel buffers, group_id. All field labels have hover tooltips (FieldHint component).
+  TaskDetailModal.tsx   # Re-export from task-detail/
+  task-detail/          # Modal sections: priority, cognitive, time/recurrence, blackouts, series panel
+  calendar/BlackoutLayers.tsx  # Calendar blackout tint overlays
   TerminalChat.tsx      # Command parsing + ActionPreview + client-side recurrence/blackout help + Circuit native agent fallback
   AppShell.tsx / TabBar.tsx / Sidebar.tsx / Nav.tsx
 lib/
@@ -169,12 +173,16 @@ Tasks carry `blackout_skip_flags` specifying which types cause them to be skippe
 
 **During an active blackout**: blacked-out tasks are **hidden** from the Right now / Soon / Later sections and shown in a collapsed **"On hold"** section at the bottom of the task list.
 
-**Post-blackout behavior** (per task, set in TaskDetailModal):
+**Calendar**: blackout date ranges render as tinted day backgrounds (day/week/month views) via `lib/blackout-utils.ts`.
+
+**On blackout create**: `POST /api/blackouts` calls `services/blackout.py → reschedule_tasks_for_blackout()` — affected open tasks scheduled inside the range are moved per each task's `post_blackout_behavior`. Response includes `tasks_rescheduled` count.
+
+**Post-blackout behavior** (per task, set in TaskDetailModal → task-detail sections):
 - `"resume"` — skips ahead through the recurrence pattern until an occurrence falls after all blackouts; the series continues from that occurrence on the original schedule (no catch-up)
 - `"catch_up"` — moves to the first day after the blackout ends and anchors the **entire series** from that new date
 - `"catch_up_once"` — moves to the first day after the blackout ends for this one occurrence, then resumes the original schedule unchanged. Implemented via `recurrence_anchor_ms`: the completion handler stores the original pre-blackout `scheduled_at` on the new task; when that task is completed, its `recurrence_anchor_ms` is used as `from_dt` for computing the next occurrence, after which the anchor is cleared.
 
-Backend: `_adjust_for_blackouts()` in `tasks.py` runs after `next_ms` is computed at task completion. Both `catch_up` and `catch_up_once` produce the same immediate date; the series-anchor difference is resolved in the completion handler.
+Backend: `services/blackout.py → adjust_for_blackouts()` runs after `next_ms` is computed at task completion (and on blackout create). Both `catch_up` and `catch_up_once` produce the same immediate date; the series-anchor difference is resolved in the completion handler. One-off tasks on `resume` move to the first day after the blackout ends.
 
 ### Scheduling algorithm (`src/scheduling-engine/scoring.ts`)
 
@@ -207,9 +215,11 @@ Energy is modelled as a **running balance** (0–1) that accumulates through the
 
    `GET /api/energy/sync` also returns `start_energy` and `running_energy` (real-time balance for Circuit's task events only), plus legacy `drain_so_far` / `drain_ahead` for backward compat.
 
-3. **Sleep + work-session factor** — `GET /api/sleep/factor` (also embedded in `/api/energy/sync` as `sleep_factor`) computes a 0–1 multiplier from:
-   - **Sleep log** (logged via Account → Sleep & recovery): duration penalty (<7 h), late bedtime penalty (midnight–6 AM), early wake penalty (<6 AM), quality blend (0–10), disturbance penalty
-   - **Work signals derived automatically from task events** (no user input needed): yesterday's last task event hour (late-night work penalty), yesterday's work span (>8 h penalty), today's first task event hour (early-start penalty)
+3. **Sleep + work-session factor** — timing from the **Sleep** calendar task; quality/disturbed overrides optional on Account. `GET /api/sleep/factor` (also embedded in `/api/energy/sync` as `sleep_factor`) computes a 0–1 multiplier from:
+ - **Sleep task** (or manual times): duration, late bedtime, early wake
+ - **Override quality** (default 7/10 from settings unless overridden)
+ - **Disturbed sleep** penalty when flagged
+ - **Work signals** derived automatically from task events (no user input needed): yesterday's last task event hour (late-night work penalty), yesterday's work span (>8 h penalty), today's first task event hour (early-start penalty)
 
 **Cross-day carry-over:**
 
@@ -247,7 +257,7 @@ Quick-command chips: "How busy is today?", "What are my deep work tasks this wee
 
 ### Calendar view (`frontend/src/app/(app)/calendar/page.tsx`)
 
-Day and week views show a full 24-hour grid (midnight to midnight, 64 px/hour) and auto-scroll to 7 AM on open. Month view shows task dots with overflow counts. Clicking any event opens `TaskDetailModal` for inline editing.
+Day and week views show a full 24-hour grid (midnight to midnight, 64 px/hour) and auto-scroll to 7 AM on open. Month view shows task chips with overflow counts. All views support **drag-and-drop** reschedule (recurring tasks prompt occurrence vs series). Blackout ranges appear as tinted backgrounds. Clicking any event opens `TaskDetailModal` for inline editing.
 
 Tasks with `travel_buffer_before_mins` / `travel_buffer_after_mins` render hatched gray blocks before/after the task block in day and week views, indicating blocked transit time.
 

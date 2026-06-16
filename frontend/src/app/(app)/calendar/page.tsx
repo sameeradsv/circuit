@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiTask } from "@/lib/api";
+import { api, ApiBlackout, ApiTask } from "@/lib/api";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
+import { BlackoutDayOverlay, BlackoutMonthBadge, blackoutCellStyle } from "@/components/calendar/BlackoutLayers";
 import { useEnergyMode } from "@/lib/use-energy-mode";
 import { getTaskCache, setTaskCache, updateTaskInCache } from "@/lib/task-cache";
 
@@ -245,12 +246,13 @@ function TaskBlock({
 // ── Day view ──────────────────────────────────────────────────────────────────
 
 function DayView({
-  date, tasks, today, onTaskClick,
+  date, tasks, today, blackouts, onTaskClick,
   dragTask, onDropTask, onDragStart, onDragEnd,
 }: {
   date: Date;
   tasks: ApiTask[];
   today: Date;
+  blackouts: ApiBlackout[];
   onTaskClick: (t: ApiTask) => void;
   dragTask: ApiTask | null;
   onDropTask: (task: ApiTask, newMs: number) => void;
@@ -316,6 +318,7 @@ function DayView({
               setDropTop(null);
             }}
           >
+            <BlackoutDayOverlay day={date} blackouts={blackouts} />
             <HourLines />
 
             {/* Current time indicator */}
@@ -379,12 +382,13 @@ function DayView({
 // ── Week view ─────────────────────────────────────────────────────────────────
 
 function WeekView({
-  weekStart, tasks, today, onTaskClick,
+  weekStart, tasks, today, blackouts, onTaskClick,
   dragTask, onDropTask, onDragStart, onDragEnd,
 }: {
   weekStart: Date;
   tasks: ApiTask[];
   today: Date;
+  blackouts: ApiBlackout[];
   onTaskClick: (t: ApiTask) => void;
   dragTask: ApiTask | null;
   onDropTask: (task: ApiTask, newMs: number) => void;
@@ -472,6 +476,7 @@ function WeekView({
                   setDropInfo(null);
                 }}
               >
+                <BlackoutDayOverlay day={day} blackouts={blackouts} />
                 <HourLines />
 
                 {/* Current time bar */}
@@ -504,13 +509,14 @@ function WeekView({
 // ── Month view ────────────────────────────────────────────────────────────────
 
 function MonthView({
-  year, month, tasks, today, onTaskClick,
+  year, month, tasks, today, blackouts, onTaskClick,
   dragTask, onDropTask, onDragStart, onDragEnd,
 }: {
   year: number;
   month: number;
   tasks: ApiTask[];
   today: Date;
+  blackouts: ApiBlackout[];
   onTaskClick: (t: ApiTask) => void;
   dragTask: ApiTask | null;
   onDropTask: (task: ApiTask, newMs: number) => void;
@@ -545,12 +551,17 @@ function MonthView({
         const dayTasks = inMonth ? (tasksByDay[dayNum] ?? []) : [];
         const overflow = dayTasks.length > 3;
         const isDropTarget = inMonth && dropDay === dayNum;
+        const cellDay = inMonth ? new Date(year, month, dayNum) : null;
+        const cellStyle = cellDay ? blackoutCellStyle(cellDay, blackouts) : undefined;
 
         return (
           <div
             key={i}
             className={"cal-cell" + (!inMonth ? " is-other" : "") + (isToday ? " is-today" : "")}
-            style={isDropTarget ? { outline: "2px solid var(--circuit-accent, var(--terra))", outlineOffset: -2 } : undefined}
+            style={{
+              ...(isDropTarget ? { outline: "2px solid var(--circuit-accent, var(--terra))", outlineOffset: -2 } : {}),
+              ...cellStyle,
+            }}
             onDragOver={(e) => {
               if (!dragTask || !inMonth) return;
               e.preventDefault();
@@ -575,6 +586,7 @@ function MonthView({
             <div className="between" style={{ marginBottom: 4 }}>
               <span className="cal-num">{inMonth ? String(dayNum).padStart(2, "0") : ""}</span>
               <div className="row gap-2 aic">
+                {inMonth && cellDay && <BlackoutMonthBadge day={cellDay} blackouts={blackouts} />}
                 {isToday && <span className="tiny" style={{ color: "var(--terra)" }}>TODAY</span>}
                 {inMonth && dayTasks.length > 0 && (
                   <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 600, background: "var(--ink)", color: "var(--paper)", borderRadius: 99, padding: "1px 5px", lineHeight: 1.4 }}>
@@ -700,6 +712,7 @@ export default function CalendarPage() {
   const { user, loading } = useCircuitAuth();
   const router = useRouter();
   const [tasks, setTasks]   = useState<ApiTask[]>([]);
+  const [blackouts, setBlackouts] = useState<ApiBlackout[]>([]);
   const [fetching, setFetching] = useState(false);
   const [view, setView]     = useState<CalView>("month");
   const today = useMemo(() => startOfDay(new Date()), []);
@@ -720,10 +733,11 @@ export default function CalendarPage() {
   useEffect(() => {
     if (!user) return;
     const cached = getTaskCache();
+    api.listBlackouts().then(setBlackouts).catch(() => {});
     if (cached) { setTasks(cached); return; }
     setFetching(true);
-    api.listTasks()
-      .then((tasks) => { setTaskCache(tasks); setTasks(tasks); })
+    Promise.all([api.listTasks(), api.listBlackouts()])
+      .then(([tasks, bl]) => { setTaskCache(tasks); setTasks(tasks); setBlackouts(bl); })
       .catch(() => {})
       .finally(() => setFetching(false));
   }, [user]);
@@ -892,9 +906,9 @@ export default function CalendarPage() {
       {fetching && <p className="serif" style={{ color: "var(--ink-3)" }}>Loading…</p>}
 
       {/* View content */}
-      {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
-      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
-      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
+      {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
+      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
+      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
 
       {pendingDrop && (
         <DropConfirmBanner

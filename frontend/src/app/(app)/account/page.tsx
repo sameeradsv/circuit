@@ -6,6 +6,7 @@ import { api, ApiBlackout, ApiSettings, ApiSleepLog, ApiUserState } from "@/lib/
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { usePasskey } from "@/lib/usePasskey";
 import { fmtDateIST } from "@/lib/tz";
+import { invalidateTaskCache } from "@/lib/task-cache";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
 
@@ -166,7 +167,13 @@ export default function AccountPage() {
       const endMs = new Date(newBlackoutEnd).getTime() + 86_399_999; // end of day
       const b = await api.createBlackout({ blackout_type: newBlackoutType, start_date_ms: startMs, end_date_ms: endMs });
       setBlackouts((prev) => [...prev, b].sort((a, b) => a.start_date_ms - b.start_date_ms));
-      setBlackoutMsg("Blackout added.");
+      invalidateTaskCache();
+      const moved = b.tasks_rescheduled ?? 0;
+      setBlackoutMsg(
+        moved > 0
+          ? `Blackout added. ${moved} scheduled task${moved !== 1 ? "s" : ""} moved out of the range.`
+          : "Blackout added.",
+      );
     } catch (e) {
       setBlackoutErr(e instanceof Error ? e.message : "Failed to add blackout");
     } finally {
@@ -403,7 +410,8 @@ export default function AccountPage() {
         <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Blackouts</h2>
         <div className="panel p-5 space-y-4">
           <p className="text-xs text-circuit-muted">
-            Mark dates when you're unavailable. Tasks flagged to skip during these times will be grayed out in your task list.
+            Mark dates when you&apos;re unavailable. Flagged tasks are hidden in your task list during blackouts;
+            adding a blackout also moves affected scheduled tasks to their post-blackout slot. Shaded days appear on the calendar.
           </p>
 
           <div className="flex flex-wrap gap-3 items-end">

@@ -1,32 +1,66 @@
 # App features
 
+Circuit ships as two apps sharing the same TypeScript scheduling engines:
+
+1. **Vanilla PWA** (repo root `src/`) — offline-first, `localStorage`
+2. **Full-stack app** (`frontend/` + `backend/`) — Next.js + FastAPI, PostgreSQL/SQLite
+
+This document describes the **full-stack** product (primary development surface).
+
 ## Navigation
 
-Four main pages (bottom nav + hash routes):
+Authenticated routes under `frontend/src/app/(app)/`:
 
 | Page | Route | Purpose |
 |------|-------|---------|
-| Home | `#` / `#home` | Dashboard: stats, workload, forecast, today's plan |
-| Add | `#add` | Capture tasks, presets, dimensions, sync tools |
-| Tasks | `#tasks` | Full list with filters and list/group views |
-| Day | `#calendar` | Week strip + day view for scheduled tasks |
+| Home | `/` | Task dashboard — ranked open tasks, energy context |
+| Tasks | `/tasks` | Full list, filters, **On hold** section during blackouts |
+| Calendar | `/calendar` | Day / week / month views, drag-and-drop, blackout shading, ICS import |
+| Add | `/add` | Quick task capture |
+| Account | `/account` | Preferences, sleep overrides, blackouts, export/import, passkey |
+| Analytics | `/analytics` | Completion and workload stats |
+| Chat | `/chat` | TerminalChat — batch commands + Circuit agent |
+| Energy | (via Canopy cross-app hook) | Cumulative energy timeline |
 
-## Task capture
+Auth: `/login` — username/passcode or WebAuthn passkey.
 
-- **Presets:** Chores, Work, Social, Ad hoc, Meetup — prefilled dimensions, fully editable.
-- **Dimensions:** Time, cognitive, context, priority, and behavioral fields per [task model](./task-model.md).
+## Task capture & editing
+
+- Structured dimensions: priority, cognitive load, effort, duration, scheduling, recurrence
+- **TaskDetailModal** (`components/task-detail/`) — sectioned editor with hover tooltips on every field
+- **TerminalChat** — natural-language batch reschedule/complete/prioritize with approval preview
+
+## Calendar
+
+- **Day / week / month** views with 24-hour grid (day/week)
+- **Drag-and-drop** to reschedule; recurring tasks ask *this occurrence* vs *shift series*
+- **Blackout shading** — unavailable date ranges tinted on all views
+- **ICS import/export** — recurring events stored as RRULE templates
+- Travel buffers shown as hatched blocks before/after tasks
+
+## Blackouts
+
+Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`, `leave`, `wfh`).
+
+- Tasks opt in via **Skip this task when** flags in the task editor (`leave` auto-applies to `tag=work`)
+- During an active blackout: affected tasks move to **On hold** on the task list
+- **On create**: affected scheduled tasks are automatically moved per each task's post-blackout behavior (`resume` / `catch_up` / `catch_up_once`)
+- Calendar days in range are visually shaded
+
+## Sleep & energy
+
+- **Sleep timing** from a calendar/task event titled **Sleep** (`scheduled_at` = bedtime, `duration` = length)
+- **Account → Sleep & recovery**: optional quality / disturbed / notes overrides
+- **Default sleep quality** (0–10, default 7) in Preferences
+- Override history: toggle **Show sleep overrides** with pagination
+- Energy baseline: `sleep_factor × 0.70 + energy_eod × 0.30` + cumulative task-event deltas through the day
 
 ## Account and sync
 
-- **Sign in / create account:** Username + passcode (PBKDF2-hashed locally). Per-user task storage namespace.
-- **Biometric sign-in:** WebAuthn passkey (fingerprint / Face ID). Register after first login via the `PasskeyBanner` prompt; subsequent logins show a "Sign in with biometrics" button on the login page.
-- **Continue on this device only:** Keeps legacy local storage without an account.
-- **Cross-device:** On device A, **Export account backup** (JSON). On device B, sign in with the same username/passcode, then **Import account backup**.
-- **Sign out:** Returns to the sign-in screen; tasks remain in that user's namespace on the device.
-
-Server-side sync is not required for the backup flow; a future sync API can use the same bundle format.
+- JWT auth + optional WebAuthn passkey
+- AES-256 encrypted export/import of tasks and settings
+- Per-user settings key-value store (`default_energy_mode`, `default_sleep_quality`, working hours, etc.)
 
 ## PWA
 
-- `manifest.webmanifest` and `icons/icon.svg` (circuit trace branding).
-- Service worker: `sw.js`.
+The vanilla root app includes `manifest.webmanifest`, service worker, and esbuild bundle. The Next.js frontend supports standalone/PWA build modes separately.

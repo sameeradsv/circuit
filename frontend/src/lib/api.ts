@@ -145,6 +145,7 @@ export interface ApiBlackout {
   start_date_ms: number;
   end_date_ms: number;
   created_at: string;
+  tasks_rescheduled?: number;
 }
 
 export interface ApiSettings {

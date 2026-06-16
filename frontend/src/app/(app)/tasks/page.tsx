@@ -13,6 +13,7 @@ import { apiTaskToTask } from "@/lib/engine-adapter";
 import { scoreTasks } from "@/engines/src/scheduling-engine/scoring";
 import { useVoiceInput } from "@/lib/use-voice-input";
 import { suggestSlot, updateDelayPattern, formatSlot, SlotSuggestion } from "@/lib/suggest-slot";
+import { BLACKOUT_LABELS } from "@/lib/blackout-utils";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -339,10 +340,7 @@ export default function TasksPage() {
       {activeBlackouts.length > 0 && (
         <div style={{ padding: "8px 14px", background: "var(--paper-2)", borderRadius: 6, fontSize: 13, color: "var(--ink-2)", border: "1px solid var(--line)" }}>
           {activeBlackouts.map(b => {
-            const label = b.blackout_type === "leave" ? "On leave"
-              : b.blackout_type === "period" ? "On period"
-              : b.blackout_type === "sickness" ? "Sick"
-              : "Travelling";
+            const label = BLACKOUT_LABELS[b.blackout_type] ?? b.blackout_type;
             const until = new Date(b.end_date_ms).toLocaleDateString("en-IN", { month: "short", day: "numeric", timeZone: "Asia/Kolkata" });
             return <span key={b.id} style={{ marginRight: 12 }}>{label} until {until}</span>;
           })}

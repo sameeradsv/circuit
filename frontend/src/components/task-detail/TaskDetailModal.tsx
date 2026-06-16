@@ -1,0 +1,179 @@
+"use client";
+
+import { useState } from "react";
+import { api, ApiTask, TaskPatch } from "@/lib/api";
+import { apiTaskToTask } from "@/lib/engine-adapter";
+import { scoreTask } from "../../engines/src/scheduling-engine/scoring";
+import type { EnergyMode } from "@/lib/use-energy-mode";
+import { TaskBehavioralSection } from "./TaskBehavioralSection";
+import { TaskBlackoutSection } from "./TaskBlackoutSection";
+import { TaskCognitiveSection } from "./TaskCognitiveSection";
+import { TaskGroupSection } from "./TaskGroupSection";
+import { TaskPrioritySection } from "./TaskPrioritySection";
+import { TaskScorePreview } from "./TaskScorePreview";
+import { TaskSeriesPanel, type SeriesOptions } from "./TaskSeriesPanel";
+import { TaskTimeFocusSection } from "./TaskTimeFocusSection";
+import type { MergedTask } from "./types";
+
+export function TaskDetailModal({
+  task,
+  mode,
+  onSave,
+  onDeleteSeries,
+  onClose,
+}: {
+  task: ApiTask;
+  mode: EnergyMode;
+  onSave: (updated: ApiTask) => void;
+  onDeleteSeries?: (fromScheduledAt?: number) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [patch, setPatch] = useState<TaskPatch>({});
+  const [saving, setSaving] = useState(false);
+
+  const initDto = task.day_time_overrides ?? {};
+  const [weekendTime, setWeekendTime] = useState(initDto.SA ?? initDto.SU ?? "");
+
+  function applyWeekendTime(we: string) {
+    const dto: Record<string, string> = {};
+    if (we) { dto.SA = we; dto.SU = we; }
+    setPatch((p) => ({ ...p, day_time_overrides: dto }));
+  }
+
+  const [propagating, setPropagating] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [propagateMsg, setPropagateMsg] = useState<string | null>(null);
+  const [showSeriesPanel, setShowSeriesPanel] = useState(false);
+  const [seriesOpts, setSeriesOpts] = useState<SeriesOptions>({
+    classification: true,
+    name: false,
+    forwardOnly: false,
+  });
+  const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
+
+  const isSeries = /^ics:.+:\d{10,}$/.test(task.client_id ?? "");
+  const merged: MergedTask = { ...task, ...patch };
+
+  const scored = scoreTask(apiTaskToTask({ ...task, ...patch } as ApiTask), {
+    mode,
+    now: Date.now(),
+    availableMinutes: 480,
+    completedToday: 0,
+  });
+
+  function set<K extends keyof TaskPatch>(key: K, value: TaskPatch[K]) {
+    setPatch((p) => ({ ...p, [key]: value }));
+  }
+
+  async function handleApplyToSeries() {
+    setPropagating(true);
+    setSaveError(null);
+    setPropagateMsg(null);
+    try {
+      if (Object.keys(patch).length > 0) await api.updateTask(task.id, patch);
+      const { updated } = await api.propagateClassification(task.id, {
+        include_classification: seriesOpts.classification,
+        include_text: seriesOpts.name,
+        from_scheduled_at: seriesOpts.forwardOnly ? (task.scheduled_at ?? Date.now()) : undefined,
+      });
+      const what = [seriesOpts.classification && "classification", seriesOpts.name && "name"].filter(Boolean).join(" + ");
+      setPropagateMsg(`${what} applied to ${updated} other occurrence${updated !== 1 ? "s" : ""}`);
+      setShowSeriesPanel(false);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPropagating(false);
+    }
+  }
+
+  async function handleSave() {
+    if (Object.keys(patch).length === 0) { onClose(); return; }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const updated = await api.updateTask(task.id, patch);
+      onSave(updated);
+      onClose();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const sectionProps = { merged, set };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-circuit-surface border border-circuit-border rounded-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-start justify-between p-5 border-b border-circuit-border">
+          <div>
+            <h2 className="font-semibold text-circuit-text">{task.text}</h2>
+            <p className="mt-1 text-xs text-circuit-muted capitalize">
+              {merged.tag} · {merged.effort} effort · {merged.duration}m
+            </p>
+          </div>
+          <button onClick={onClose} className="text-circuit-muted hover:text-circuit-text ml-4">✕</button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 space-y-6">
+          {!task.completed && <TaskScorePreview scored={scored} />}
+          <TaskPrioritySection {...sectionProps} />
+          <TaskCognitiveSection {...sectionProps} />
+          <TaskTimeFocusSection
+            {...sectionProps}
+            weekendTime={weekendTime}
+            onWeekendTimeChange={(value) => {
+              setWeekendTime(value);
+              applyWeekendTime(value);
+            }}
+          />
+          <TaskBlackoutSection {...sectionProps} />
+          <TaskGroupSection {...sectionProps} />
+          <TaskBehavioralSection task={task} />
+        </div>
+
+        <div className="flex flex-col gap-2 p-5 border-t border-circuit-border">
+          {saveError && <p className="text-xs text-red-500">{saveError}</p>}
+          {propagateMsg && <p className="text-xs text-circuit-muted">{propagateMsg}</p>}
+
+          {isSeries && showSeriesPanel && (
+            <TaskSeriesPanel
+              task={task}
+              seriesOpts={seriesOpts}
+              onSeriesOptsChange={setSeriesOpts}
+              propagating={propagating}
+              onApply={handleApplyToSeries}
+              confirmDeleteSeries={confirmDeleteSeries}
+              onConfirmDeleteSeriesChange={setConfirmDeleteSeries}
+              onDeleteSeries={onDeleteSeries}
+              onSaveError={setSaveError}
+            />
+          )}
+
+          <div className="flex gap-3">
+            <button onClick={handleSave} disabled={saving || propagating} className="btn btn-primary flex-1">
+              {saving ? "Saving…" : "Save"}
+            </button>
+            {isSeries && (
+              <button
+                onClick={() => { setShowSeriesPanel((v) => !v); setPropagateMsg(null); }}
+                disabled={saving || propagating}
+                className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors"
+                title="Apply changes to all occurrences in this recurring series"
+              >
+                Edit series {showSeriesPanel ? "▴" : "▾"}
+              </button>
+            )}
+            <button onClick={onClose} className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
