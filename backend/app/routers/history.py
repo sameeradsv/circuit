@@ -12,6 +12,7 @@ from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, TaskEvent, User
 from app.schemas import TaskEventRead
+from app.task_event_time import task_event_occurred_at
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -37,10 +38,10 @@ def log_event(
     if not task or task.user_id != user.id:
         raise HTTPException(404, "Task not found")
 
-    occurred = (
-        datetime.utcfromtimestamp(payload.occurred_at / 1000)
-        if payload.occurred_at
-        else datetime.now(timezone.utc).replace(tzinfo=None)
+    occurred = task_event_occurred_at(
+        task,
+        explicit_ms=payload.occurred_at,
+        fallback=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     event = TaskEvent(
         user_id=user.id,

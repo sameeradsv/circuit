@@ -5,11 +5,13 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, TaskEvent, User, UserState
+from app.task_event_time import effective_event_time
 
 _IST = ZoneInfo("Asia/Kolkata")
 
@@ -86,17 +88,32 @@ def energy_timeline(
     day_start_utc = day_start_ist.astimezone(timezone.utc).replace(tzinfo=None)
     day_end_utc   = day_end_ist.astimezone(timezone.utc).replace(tzinfo=None)
 
+    day_start_ms = int(day_start_utc.timestamp() * 1000)
+    day_end_ms = int(day_end_utc.timestamp() * 1000)
     rows = (
         db.query(TaskEvent, CircuitTask)
         .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
         .filter(
             TaskEvent.user_id == user.id,
-            TaskEvent.occurred_at >= day_start_utc,
-            TaskEvent.occurred_at < day_end_utc,
+            or_(
+                and_(
+                    TaskEvent.occurred_at >= day_start_utc,
+                    TaskEvent.occurred_at < day_end_utc,
+                ),
+                and_(
+                    CircuitTask.scheduled_at.isnot(None),
+                    CircuitTask.scheduled_at >= day_start_ms,
+                    CircuitTask.scheduled_at < day_end_ms,
+                ),
+            ),
         )
-        .order_by(TaskEvent.occurred_at)
         .all()
     )
+    rows = [
+        row for row in rows
+        if day_start_utc <= effective_event_time(row[0], row[1]) < day_end_utc
+    ]
+    rows.sort(key=lambda row: effective_event_time(row[0], row[1]))
 
     from app.routers.sleep import compute_sleep_factor, resolve_sleep_with_fallback, _get_work_signals
     date_str = target.isoformat()
@@ -114,9 +131,10 @@ def energy_timeline(
         delta = _task_delta(ev.event_type, task)
         running = round(min(1.0, max(0.0, running + delta)), 3)
         label   = _task_label(delta)
-        local_time = ev.occurred_at.replace(tzinfo=timezone.utc).astimezone(_IST)
+        event_at = effective_event_time(ev, task)
+        local_time = event_at.replace(tzinfo=timezone.utc).astimezone(_IST)
         events.append({
-            "occurred_at":    ev.occurred_at.isoformat() + "Z",
+            "occurred_at":    event_at.isoformat() + "Z",
             "time":           local_time.strftime("%H:%M"),
             "energy":         round(min(1.0, max(0.0, (delta + 0.25) / 0.50)), 3),  # map delta→0–1 for compat
             "delta":          delta,
@@ -181,16 +199,31 @@ def energy_sync(
     day_end_utc   = day_end_ist.astimezone(timezone.utc).replace(tzinfo=None)
     now_utc       = now_ist.astimezone(timezone.utc).replace(tzinfo=None)
 
-    past_rows = (
+    day_start_ms = int(day_start_utc.timestamp() * 1000)
+    now_ms = int(now_utc.timestamp() * 1000)
+    candidate_rows = (
         db.query(TaskEvent, CircuitTask)
         .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
         .filter(
             TaskEvent.user_id == user.id,
-            TaskEvent.occurred_at >= day_start_utc,
-            TaskEvent.occurred_at <= now_utc,
+            or_(
+                and_(
+                    TaskEvent.occurred_at >= day_start_utc,
+                    TaskEvent.occurred_at <= now_utc,
+                ),
+                and_(
+                    CircuitTask.scheduled_at.isnot(None),
+                    CircuitTask.scheduled_at >= day_start_ms,
+                    CircuitTask.scheduled_at <= now_ms,
+                ),
+            ),
         )
         .all()
     )
+    past_rows = [
+        row for row in candidate_rows
+        if day_start_utc <= effective_event_time(row[0], row[1]) <= now_utc
+    ]
 
     future_tasks = (
         db.query(CircuitTask)

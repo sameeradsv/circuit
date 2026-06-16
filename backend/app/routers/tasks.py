@@ -15,6 +15,7 @@ from app.deps.auth import require_user
 from app.models import CircuitTask, TaskEvent, User
 from app.engines.recurrence import next_occurrence
 from app.services.blackout import adjust_for_blackouts
+from app.task_event_time import task_event_occurred_at
 
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
@@ -264,7 +265,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             user_id=user.id,
             task_id=task_id,
             event_type=event_type,
-            occurred_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            occurred_at=task_event_occurred_at(task),
             metadata_json="{}",
         ))
 

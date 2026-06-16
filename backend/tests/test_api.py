@@ -338,3 +338,44 @@ def test_sleep_quality_override(client, auth):
     assert log["disturbed"] is True
     assert log["source"] == "mixed"
 
+
+# ── Task event timing ───────────────────────────────────────────────────────
+
+
+def test_complete_task_uses_scheduled_at_for_event(client, auth):
+    scheduled_ms = 1_700_000_000_000  # fixed epoch ms for deterministic assertion
+    task = client.post(
+        "/api/tasks",
+        json={"text": "Morning standup", "scheduled_at": scheduled_ms},
+        headers=auth,
+    ).json()
+    client.patch(f"/api/tasks/{task['id']}", json={"completed": True}, headers=auth)
+    events = client.get(f"/api/history/events?task_id={task['id']}", headers=auth).json()
+    completed = next(e for e in events if e["event_type"] == "completed")
+    from datetime import datetime, timezone
+    expected = datetime.fromtimestamp(scheduled_ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    assert completed["occurred_at"] == expected
+
+
+def test_energy_timeline_uses_scheduled_at(client, auth):
+    scheduled_ms = 1_700_000_000_000
+    task = client.post(
+        "/api/tasks",
+        json={"text": "Deep work block", "scheduled_at": scheduled_ms},
+        headers=auth,
+    ).json()
+    client.patch(f"/api/tasks/{task['id']}", json={"completed": True}, headers=auth)
+
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Asia/Kolkata")
+    target_date = datetime.fromtimestamp(scheduled_ms / 1000, tz=timezone.utc).astimezone(ist).date().isoformat()
+
+    r = client.get(f"/api/energy/timeline?date={target_date}", headers=auth)
+    assert r.status_code == 200
+    events = r.json()["events"]
+    assert any("Deep work block" in e["note"] for e in events)
+    expected_time = datetime.fromtimestamp(scheduled_ms / 1000, tz=timezone.utc).astimezone(ist).strftime("%H:%M")
+    match = next(e for e in events if "Deep work block" in e["note"])
+    assert match["time"] == expected_time
+
