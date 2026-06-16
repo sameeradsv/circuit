@@ -4,6 +4,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.database import (
     Base, engine,
@@ -26,6 +27,7 @@ from app.routers.calendar import router as calendar_router
 from app.routers.energy import router as energy_router
 from app.routers.blackouts import router as blackouts_router
 from app.routers.sleep import router as sleep_router
+from app.routers.agent import router as agent_router
 
 app = FastAPI(title="Circuit API", version="1.0.0")
 
@@ -34,6 +36,7 @@ origins = os.getenv(
     "http://localhost:3000,http://127.0.0.1:3000,https://sameeradsv.github.io",
 ).split(",")
 
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in origins],
@@ -55,6 +58,7 @@ app.include_router(calendar_router)
 app.include_router(energy_router)
 app.include_router(blackouts_router)
 app.include_router(sleep_router)
+app.include_router(agent_router)
 
 
 @app.on_event("startup")

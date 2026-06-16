@@ -7,6 +7,10 @@ import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { useEnergyMode } from "@/lib/use-energy-mode";
 
+// Module-level cache — survives re-renders, cleared on full page reload.
+let _taskCache: { tasks: ApiTask[]; ts: number } | null = null;
+const TASK_CACHE_MS = 30_000;
+
 // ── Constants & helpers ───────────────────────────────────────────────────────
 
 const HOUR_H        = 64;   // px per hour
@@ -423,8 +427,15 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (!user) return;
+    if (_taskCache && Date.now() - _taskCache.ts < TASK_CACHE_MS) {
+      setTasks(_taskCache.tasks);
+      return;
+    }
     setFetching(true);
-    api.listTasks().then(setTasks).catch(() => {}).finally(() => setFetching(false));
+    api.listTasks()
+      .then((tasks) => { _taskCache = { tasks, ts: Date.now() }; setTasks(tasks); })
+      .catch(() => {})
+      .finally(() => setFetching(false));
   }, [user]);
 
   if (loading || !user) return null;
@@ -442,6 +453,7 @@ export default function CalendarPage() {
       }
       setImportMsg(msg);
       const updated = await api.listTasks();
+      _taskCache = { tasks: updated, ts: Date.now() };
       setTasks(updated);
     } catch (e) {
       setImportMsg(`Import failed: ${e instanceof Error ? e.message : "unknown error"}`);
@@ -572,7 +584,11 @@ export default function CalendarPage() {
         <TaskDetailModal
           task={selectedTask}
           mode={energyMode}
-          onSave={(updated) => setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t))}
+          onSave={(updated) => setTasks((prev) => {
+            const next = prev.map((t) => t.id === updated.id ? updated : t);
+            _taskCache = { tasks: next, ts: Date.now() };
+            return next;
+          })}
           onClose={() => setSelectedTask(null)}
         />
       )}

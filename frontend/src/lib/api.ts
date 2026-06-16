@@ -1,4 +1,4 @@
-import { getAuthToken } from "./auth";
+import { getAuthToken, setAuthToken, setLocalUser } from "./auth";
 
 const apiBase =
   (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
@@ -17,6 +17,12 @@ async function req<T>(
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401) {
+    setAuthToken(null);
+    setLocalUser(null);
+    if (typeof window !== "undefined") window.location.replace("/login");
+    throw new Error("Session expired");
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => res.statusText);
     throw new Error(detail || `HTTP ${res.status}`);
