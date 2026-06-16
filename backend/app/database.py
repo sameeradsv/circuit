@@ -15,7 +15,7 @@ connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite")
 pool_kwargs = (
     {}
     if DATABASE_URL.startswith("sqlite")
-    else {"pool_pre_ping": True, "pool_recycle": 280}
+    else {"pool_pre_ping": True, "pool_recycle": 280, "pool_size": 2, "max_overflow": 3}
 )
 engine = create_engine(DATABASE_URL, connect_args=connect_args, **pool_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -80,6 +80,7 @@ export interface ApiTask {
   day_time_overrides: Record<string, string>;  // {"SA": "10:00", "SU": "10:00"}
   travel_buffer_before_mins: number | null;
   travel_buffer_after_mins: number | null;
+  recurrence_anchor_ms: number | null;
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
@@ -98,6 +99,7 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "blackout_skip_flags"
   | "group_id" | "day_time_overrides"
   | "travel_buffer_before_mins" | "travel_buffer_after_mins"
+  | "recurrence_anchor_ms"
 >>;
 
 export interface ApiSleepLog {

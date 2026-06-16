@@ -98,6 +98,12 @@ const MONTH_NAMES = ["January","February","March","April","May","June","July","A
 
 type CalView = "day" | "week" | "month";
 
+interface PendingDrop {
+  task: ApiTask;
+  newMs: number;
+  origMs: number;
+}
+
 // ── Hour grid (shared) ────────────────────────────────────────────────────────
 
 function HourLines() {
@@ -599,6 +605,76 @@ function MonthView({
   );
 }
 
+// ── Drop confirmation banner ──────────────────────────────────────────────────
+
+function DropConfirmBanner({
+  task,
+  newMs,
+  onOccurrence,
+  onSeries,
+  onCancel,
+}: {
+  task: ApiTask;
+  newMs: number;
+  onOccurrence: () => void;
+  onSeries: () => void;
+  onCancel: () => void;
+}) {
+  const newTime = fmtTime(newMs);
+  const newDate = new Date(newMs).toLocaleDateString("en-IN", {
+    weekday: "short", month: "short", day: "numeric", timeZone: "Asia/Kolkata",
+  });
+  return (
+    <div style={{
+      position: "fixed",
+      bottom: 24,
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: "var(--paper)",
+      border: "1px solid var(--line)",
+      borderRadius: 10,
+      padding: "12px 16px",
+      boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+      zIndex: 200,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      minWidth: 320,
+      maxWidth: 480,
+    }}>
+      <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 500 }}>
+        Move <em style={{ fontStyle: "normal", color: "var(--ink-2)" }}>{task.text}</em> to {newDate} at {newTime}?
+      </div>
+      <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: -4 }}>
+        This is a recurring task.
+      </div>
+      <div className="row gap-2" style={{ justifyContent: "flex-end" }}>
+        <button
+          className="btn"
+          style={{ fontSize: 12, padding: "5px 12px", background: "none", color: "var(--ink-3)", border: "1px solid var(--line)" }}
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+        <button
+          className="btn"
+          style={{ fontSize: 12, padding: "5px 12px", background: "var(--paper-2)", color: "var(--ink)" }}
+          onClick={onSeries}
+        >
+          Shift series
+        </button>
+        <button
+          className="btn"
+          style={{ fontSize: 12, padding: "5px 12px", background: "var(--ink)", color: "var(--paper)" }}
+          onClick={onOccurrence}
+        >
+          This occurrence only
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
@@ -615,6 +691,7 @@ export default function CalendarPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<ApiTask | null>(null);
   const [dragTask, setDragTask] = useState<ApiTask | null>(null);
+  const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -634,15 +711,23 @@ export default function CalendarPage() {
 
   if (loading || !user) return null;
 
-  async function handleDropTask(task: ApiTask, newMs: number) {
-    if (newMs === task.scheduled_at) return;
+  async function applyDrop(taskId: number, patch: { scheduled_at: number; recurrence_anchor_ms?: number }) {
     try {
-      const updated = await api.updateTask(task.id, { scheduled_at: newMs });
+      const updated = await api.updateTask(taskId, patch);
       updateTaskInCache(updated);
       setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t));
     } catch {
       // silent — task stays in its original position
     }
+  }
+
+  function handleDropTask(task: ApiTask, newMs: number) {
+    if (newMs === task.scheduled_at) return;
+    if (task.recurrence || task.rrule) {
+      setPendingDrop({ task, newMs, origMs: task.scheduled_at! });
+      return;
+    }
+    void applyDrop(task.id, { scheduled_at: newMs });
   }
 
   async function handleImport(file: File) {
@@ -791,6 +876,24 @@ export default function CalendarPage() {
       {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
       {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
       {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} onTaskClick={setSelectedTask} dragTask={dragTask} onDropTask={handleDropTask} />}
+
+      {pendingDrop && (
+        <DropConfirmBanner
+          task={pendingDrop.task}
+          newMs={pendingDrop.newMs}
+          onOccurrence={() => {
+            const { task, newMs, origMs } = pendingDrop;
+            setPendingDrop(null);
+            void applyDrop(task.id, { scheduled_at: newMs, recurrence_anchor_ms: origMs });
+          }}
+          onSeries={() => {
+            const { task, newMs } = pendingDrop;
+            setPendingDrop(null);
+            void applyDrop(task.id, { scheduled_at: newMs });
+          }}
+          onCancel={() => setPendingDrop(null)}
+        />
+      )}
 
       {selectedTask && (
         <TaskDetailModal

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiTask, ApiBlackout } from "@/lib/api";
+import { getTaskCache, setTaskCache, updateTaskInCache, invalidateTaskCache } from "@/lib/task-cache";
 import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { useEnergyLevel } from "@/lib/use-energy-level";
 import { parseTaskText } from "@/lib/parse-task";
@@ -123,12 +124,21 @@ export default function TasksPage() {
 
   useEffect(() => {
     if (!user) return;
-    setFetching(true);
+    const cached = getTaskCache();
     const nowMs = Date.now();
+    if (cached) {
+      setTasks(cached);
+      api.listBlackouts().then((blackouts) => {
+        setActiveBlackouts(blackouts.filter(b => b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
+      }).catch(() => {});
+      return;
+    }
+    setFetching(true);
     Promise.all([
       api.listTasks(),
       api.listBlackouts(),
     ]).then(([taskList, blackouts]) => {
+      setTaskCache(taskList);
       setTasks(taskList);
       setActiveBlackouts(blackouts.filter(b => b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
     }).catch(() => {}).finally(() => setFetching(false));
@@ -179,25 +189,28 @@ export default function TasksPage() {
   async function handleToggle(t: ApiTask) {
     if (t.completed) {
       const updated = await api.updateTask(t.id, { completed: false });
+      updateTaskInCache(updated);
       setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
       return;
     }
     setCompletingIds((prev) => new Set([...prev, t.id]));
     await new Promise((r) => setTimeout(r, 360));
     const updated = await api.updateTask(t.id, { completed: true });
+    updateTaskInCache(updated);
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     setCompletingIds((prev) => { const s = new Set(prev); s.delete(t.id); return s; });
   }
 
   async function deleteTask(id: number) {
     await api.deleteTask(id);
+    invalidateTaskCache();
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }
 
   async function deleteSeriesTasks(id: number, fromScheduledAt?: number) {
     await api.deleteSeries(id, fromScheduledAt);
-    // Re-fetch rather than filter since we don't know all sibling ids client-side
     const updated = await api.listTasks();
+    setTaskCache(updated);
     setTasks(updated);
   }
 
@@ -214,6 +227,7 @@ export default function TasksPage() {
       }),
       api.logEvent(task.id, "skipped", { rescheduled_to: scheduledAt }).catch(() => {}),
     ]);
+    updateTaskInCache(updated);
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
   }
 
@@ -229,6 +243,7 @@ export default function TasksPage() {
       }),
       api.logEvent(task.id, "rescheduled", { scheduled_to: scheduledAt }).catch(() => {}),
     ]);
+    updateTaskInCache(updated);
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     setReschedulingTask(null);
   }
@@ -239,6 +254,7 @@ export default function TasksPage() {
       api.createTask({ text: `${task.text} (part 2)`, tag: task.tag, effort: "medium", duration: Math.ceil((task.duration ?? 30) / 2), urgency: task.urgency, importance: task.importance, tiny_step: "" }),
     ]);
     api.logEvent(task.id, "split", { child_text: `${task.text} (part 2)` }).catch(() => {});
+    invalidateTaskCache();
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)).concat(child));
   }
 

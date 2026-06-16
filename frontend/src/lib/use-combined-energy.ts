@@ -22,6 +22,9 @@ export interface CombinedEnergy {
   chef: number | null;
 }
 
+let _energyCache: { value: CombinedEnergy; ts: number } | null = null;
+const ENERGY_CACHE_MS = 60_000;
+
 async function fetchSiblingSync(baseUrl: string, token: string): Promise<number | null> {
   if (!baseUrl) return null;
   try {
@@ -58,7 +61,11 @@ export function useCombinedEnergy() {
   const [energy, setEnergy] = useState<CombinedEnergy | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function refresh() {
+  async function refresh(force = false) {
+    if (!force && _energyCache && Date.now() - _energyCache.ts < ENERGY_CACHE_MS) {
+      setEnergy(_energyCache.value);
+      return;
+    }
     setLoading(true);
     try {
       const token = getAuthToken() ?? "";
@@ -83,7 +90,7 @@ export function useCombinedEnergy() {
       if (canopyE !== null) sources.push("canopy");
       if (chefE   !== null) sources.push("chef");
 
-      setEnergy({
+      const value: CombinedEnergy = {
         composite:   Math.round(composite(circuitE, canopyE, chefE) * 1000) / 1000,
         stress:      sync.stress_level,
         startEnergy: Math.round(startEnergy * 1000) / 1000,
@@ -91,7 +98,9 @@ export function useCombinedEnergy() {
         circuit:   Math.round(circuitE * 1000) / 1000,
         canopy:    canopyE !== null ? Math.round(canopyE * 1000) / 1000 : null,
         chef:      chefE   !== null ? Math.round(chefE   * 1000) / 1000 : null,
-      });
+      };
+      _energyCache = { value, ts: Date.now() };
+      setEnergy(value);
     } catch {
       // silently degrade — suggestSlot falls back to defaults
     } finally {

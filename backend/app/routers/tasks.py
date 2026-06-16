@@ -126,6 +126,7 @@ class TaskPatch(BaseModel):
     day_time_overrides: Optional[dict] = None  # {"SA": "10:00", "SU": "10:00"}
     travel_buffer_before_mins: Optional[int] = None
     travel_buffer_after_mins: Optional[int] = None
+    recurrence_anchor_ms: Optional[int] = None
 
 
 def _adjust_for_blackouts(
