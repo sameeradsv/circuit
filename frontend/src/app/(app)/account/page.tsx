@@ -9,6 +9,11 @@ import { fmtDateIST } from "@/lib/tz";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
 
+function toLocalDT(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export default function AccountPage() {
   const { user, loading, logout } = useCircuitAuth();
   const router = useRouter();
@@ -31,8 +36,12 @@ export default function AccountPage() {
 
   // sleep state
   const [sleepLogs, setSleepLogs] = useState<ApiSleepLog[]>([]);
-  const [sleepBedtime, setSleepBedtime] = useState("");
-  const [sleepWake, setSleepWake] = useState("");
+  const [sleepBedtime, setSleepBedtime] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(23, 0, 0, 0); return toLocalDT(d);
+  });
+  const [sleepWake, setSleepWake] = useState(() => {
+    const d = new Date(); d.setHours(7, 0, 0, 0); return toLocalDT(d);
+  });
   const [sleepQuality, setSleepQuality] = useState<number | "">("");
   const [sleepDisturbed, setSleepDisturbed] = useState(false);
   const [sleepNotes, setSleepNotes] = useState("");
