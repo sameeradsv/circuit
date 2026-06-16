@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -65,12 +64,12 @@ def get_user_for_token(db: Session, token: str | None) -> User | None:
 
 
 def _validate_cortex_token(db: Session, token: str) -> User | None:
-    cortex_url = os.getenv("CORTEX_AUTH_URL", "").rstrip("/")
-    if not cortex_url:
+    from app.config import settings
+    if not settings.cortex_auth_url:
         return None
     try:
         resp = httpx.get(
-            f"{cortex_url}/auth/me",
+            f"{settings.cortex_auth_url.rstrip('/')}/auth/me",
             headers={"Authorization": f"Bearer {token}"},
             timeout=5,
         )
@@ -97,7 +96,7 @@ def _validate_cortex_token(db: Session, token: str) -> User | None:
         db.commit()
         db.refresh(user)
 
-    # Cache the Cortex token locally
+    # Cache the Cortex token locally so subsequent requests skip the Cortex round-trip
     existing = db.scalar(select(AuthSession).where(AuthSession.token == token))
     if not existing:
         local_session = AuthSession(

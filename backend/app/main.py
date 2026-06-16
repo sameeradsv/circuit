@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
+from app.config import settings
 from app.database import (
     Base, engine,
     _migrate_sqlite, _migrate_postgres, _migrate_webauthn_tables,
@@ -31,15 +30,10 @@ from app.routers.agent import router as agent_router
 
 app = FastAPI(title="Circuit API", version="1.0.0")
 
-origins = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000,https://sameeradsv.github.io",
-).split(",")
-
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in origins],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

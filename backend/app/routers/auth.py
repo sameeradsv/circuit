@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -11,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth_utils import create_session, hash_password, verify_password
+from app.config import settings
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import AuthSession, User
@@ -106,7 +106,7 @@ def debug_auth(authorization: Optional[str] = Header(None), db: Session = Depend
         return {"source": "local_session", "user_id": user.id if user else None, "username": user.username if user else None}
 
     # 2. Cortex probe — run the HTTP call manually and return raw details
-    cortex_url = os.getenv("CORTEX_AUTH_URL", "").rstrip("/")
+    cortex_url = settings.cortex_auth_url.rstrip("/")
     if not cortex_url:
         return {"error": "CORTEX_AUTH_URL is not set", "local_session": False}
 
