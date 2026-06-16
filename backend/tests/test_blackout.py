@@ -123,3 +123,20 @@ def test_catch_up_immediate_uses_day_after_blackout():
     new_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
     assert new_dt.date() == datetime(2026, 1, 15, tzinfo=_IST).date()
     assert new_dt.weekday() != 5
+
+
+def test_catch_up_imm_shift_uses_day_after_blackout_not_next_saturday():
+    sat = datetime(2026, 1, 10, 10, 0, tzinfo=_IST)
+    blackout = _blackout(
+        datetime(2026, 1, 8, 0, 0, tzinfo=_IST),
+        datetime(2026, 1, 14, 23, 59, tzinfo=_IST),
+    )
+    task = _task(
+        recurrence="every:26w",
+        scheduled_at=_ms(sat),
+        post_blackout_behavior="catch_up_imm_shift",
+    )
+    new_ms = adjust_for_blackouts(_ms(sat), task, [blackout], sat)
+    new_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
+    assert new_dt.date() == datetime(2026, 1, 15, tzinfo=_IST).date()
+    assert new_dt.weekday() != 5

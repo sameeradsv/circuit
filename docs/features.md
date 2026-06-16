@@ -44,7 +44,7 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 
 - Tasks opt in via **Skip this task when** flags in the task editor (`leave` auto-applies to `tag=work`)
 - During an active blackout: affected tasks move to **On hold** on the task list
-- **On create**: affected scheduled tasks are automatically moved per each task's post-blackout behavior (`resume` / `catch_up` / `catch_up_once` / `catch_up_immediate`). See task edit modal for slot vs immediate catch-up and series-anchor differences.
+- **On create**: affected scheduled tasks are automatically moved per each task's post-blackout behavior (`resume` / `catch_up` / `catch_up_once` / `catch_up_immediate` / `catch_up_imm_shift`). See task edit modal for slot vs immediate catch-up and series-anchor differences.
 - Calendar days in range are visually shaded
 
 ## Sleep & energy

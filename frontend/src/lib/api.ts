@@ -75,7 +75,7 @@ export interface ApiTask {
   rrule_dtstart_ms: number | null;
   is_recurring_template: boolean;
   recurrence_ends_at: number | null;
-  post_blackout_behavior: "resume" | "catch_up" | "catch_up_once" | "catch_up_immediate";
+  post_blackout_behavior: "resume" | "catch_up" | "catch_up_once" | "catch_up_immediate" | "catch_up_imm_shift";
   group_id: string | null;
   day_time_overrides: Record<string, string>;  // {"SA": "10:00", "SU": "10:00"}
   travel_buffer_before_mins: number | null;

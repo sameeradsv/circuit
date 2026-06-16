@@ -17,8 +17,9 @@ if TYPE_CHECKING:
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
 
-# catch_up / catch_up_once → next pattern slot; catch_up_immediate → day after blackout
+# catch_up / catch_up_once → next pattern slot; immediate modes → day after blackout
 _SUITABLE_SLOT_CATCHUP = frozenset({"catch_up", "catch_up_once"})
+_IMMEDIATE_CATCHUP = frozenset({"catch_up_immediate", "catch_up_imm_shift"})
 _ANCHOR_PRESERVING_CATCHUP = frozenset({"catch_up_once", "catch_up_immediate"})
 
 
@@ -112,7 +113,7 @@ def adjust_for_blackouts(
                 current_ms = _catch_up_after_ms(current_ms, hits, from_dt)
             continue
 
-        if behavior == "catch_up_immediate":
+        if behavior in _IMMEDIATE_CATCHUP:
             current_ms = _catch_up_after_ms(current_ms, hits, from_dt)
             continue
 

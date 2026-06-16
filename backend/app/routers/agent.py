@@ -246,6 +246,7 @@ Use `every:Nd` / `every:Nw` / `every:Nh` for intervals — e.g. every 4 days →
 | `catch_up` | Catch up on the next valid pattern slot after blackout; anchor whole series from that date |
 | `catch_up_once` | Next valid slot once, then resume original series; anchor slots within 2 days of catch-up are skipped |
 | `catch_up_immediate` | First day after blackout ends; original series preserved; next anchor slot kept even if close |
+| `catch_up_imm_shift` | First day after blackout ends; whole series re-anchors from that date |
 
 ## Response style
 

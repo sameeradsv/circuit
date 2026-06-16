@@ -264,7 +264,8 @@ The edit modal also has a quick-pick dropdown with the most common options.
 | Resume on next schedule | Skip to the next natural occurrence after the blackout — series unchanged |
 | Catch up next slot, shift series | Next valid pattern slot after the blackout (e.g. next Saturday); anchors the series from there |
 | Catch up next slot, keep schedule | Next valid slot once, original series preserved; anchor slots within 2 days of catch-up are skipped |
-| Catch up immediately, keep schedule | First day after blackout ends; original series preserved; next anchor slot kept even if close |`;
+| Catch up immediately, keep schedule | First day after blackout ends; original series preserved; next anchor slot kept even if close |
+| Catch up immediately, shift series | First day after blackout ends; whole series re-anchors from that date |`;
 
 function wantsRecurrenceHelp(text: string): boolean {
   return /recur|repeat|pattern|format|weekly|daily|monthly|hourly|\bhours?\b|interval|blackout|catch.?up|after.*blackout|every:\d+[dwh]|FREQ=|RRULE|friday|monday|working day|weekday|how.*set.*recur|\bevery\s+\d+\s+(day|days|week|weeks|hour|hours)\b/i.test(

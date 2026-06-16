@@ -106,17 +106,18 @@ export function TaskTimeFocusSection({
           <label className="flex items-center gap-3">
             <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
               After blackout
-              <FieldHint text="Resume: skips to the next natural schedule occurrence (missed instance is dropped). Catch up next slot, shift series: moves to the next valid pattern slot after the blackout and anchors the series there. Catch up next slot, keep schedule: same next-slot catch-up once, then resumes the original series; occurrences within 2 days of the catch-up date are skipped. Catch up immediately, keep schedule: moves to the first day after the blackout ends, keeps the original series, and does not skip the next anchor slot even if it is close." />
+              <FieldHint text="Resume: skips to the next natural schedule occurrence (missed instance is dropped). Catch up next slot, shift series: next valid pattern slot after the blackout; anchors the series there. Catch up next slot, keep schedule: same next-slot catch-up once, original series preserved; occurrences within 2 days of catch-up are skipped. Catch up immediately, keep schedule: first day after blackout, original series preserved. Catch up immediately, shift series: first day after blackout; whole series re-anchors from that date." />
             </span>
             <select
               value={merged.post_blackout_behavior ?? "resume"}
-              onChange={(e) => set("post_blackout_behavior", e.target.value as "resume" | "catch_up" | "catch_up_once" | "catch_up_immediate")}
+              onChange={(e) => set("post_blackout_behavior", e.target.value as "resume" | "catch_up" | "catch_up_once" | "catch_up_immediate" | "catch_up_imm_shift")}
               className="input-field flex-1 py-1 text-xs"
             >
               <option value="resume">Resume on next schedule</option>
               <option value="catch_up">Catch up next slot, shift series</option>
               <option value="catch_up_once">Catch up next slot, keep schedule</option>
               <option value="catch_up_immediate">Catch up immediately, keep schedule</option>
+              <option value="catch_up_imm_shift">Catch up immediately, shift series</option>
             </select>
           </label>
 
