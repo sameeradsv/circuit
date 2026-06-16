@@ -103,16 +103,26 @@ export type TaskPatch = Partial<Pick<ApiTask,
 >>;
 
 export interface ApiSleepLog {
-  id: number;
+  id: number | null;
   date: string;
   bedtime_ms: number | null;
   wake_ms: number | null;
   quality: number | null;       // 0–10
+  quality_is_default?: boolean;
   disturbed: boolean | null;
   notes: string | null;
   duration_h: number | null;
-  created_at: string;
-  updated_at: string;
+  source?: "task" | "manual" | "mixed";
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ApiSleepOverridePage {
+  items: ApiSleepLog[];
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
 }
 
 export interface ApiSleepFactor {
@@ -121,6 +131,7 @@ export interface ApiSleepFactor {
   notes: string[];
   has_sleep_log: boolean;
   sleep_log: ApiSleepLog | null;
+  default_sleep_quality?: number;
   work_signals: {
     work_end_hour_yesterday: number | null;
     work_span_hours_yesterday: number | null;
@@ -299,13 +310,13 @@ export const api = {
   // sleep
   logSleep: (payload: {
     date?: string;
-    bedtime_ms?: number | null;
-    wake_ms?: number | null;
     quality?: number | null;
-    disturbed?: boolean | null;
+    disturbed?: boolean;
     notes?: string | null;
   }) => req<ApiSleepLog>("POST", "/api/sleep", payload),
   listSleepLogs: (days = 7) => req<ApiSleepLog[]>("GET", `/api/sleep?days=${days}`),
+  listSleepOverrides: (page = 1, limit = 10) =>
+    req<ApiSleepOverridePage>("GET", `/api/sleep/overrides?page=${page}&limit=${limit}`),
   getSleepFactor: () => req<ApiSleepFactor>("GET", "/api/sleep/factor"),
 
   // blackouts

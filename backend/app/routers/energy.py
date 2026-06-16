@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import require_user
-from app.models import CircuitTask, SleepLog, TaskEvent, User, UserState
+from app.models import CircuitTask, TaskEvent, User, UserState
 
 _IST = ZoneInfo("Asia/Kolkata")
 
@@ -98,16 +98,11 @@ def energy_timeline(
         .all()
     )
 
-    # Compute sleep factor for this date
-    from app.routers.sleep import compute_sleep_factor, _get_work_signals
+    from app.routers.sleep import compute_sleep_factor, resolve_sleep_with_fallback, _get_work_signals
     date_str = target.isoformat()
-    prev_str  = (target - timedelta(days=1)).isoformat()
-    sleep_log = (
-        db.query(SleepLog).filter_by(user_id=user.id, date=date_str).first()
-        or db.query(SleepLog).filter_by(user_id=user.id, date=prev_str).first()
-    )
+    sleep_ctx = resolve_sleep_with_fallback(user.id, date_str, db)
     work_end_h, work_span_h, first_today_h = _get_work_signals(user.id, db)
-    sleep_factor, _ = compute_sleep_factor(sleep_log, work_end_h, work_span_h, first_today_h)
+    sleep_factor, _ = compute_sleep_factor(sleep_ctx, work_end_h, work_span_h, first_today_h)
 
     state = db.query(UserState).filter_by(user_id=user.id).first()
     s_energy = _start_energy(state, sleep_factor)
@@ -211,15 +206,11 @@ def energy_sync(
 
     state = db.query(UserState).filter_by(user_id=user.id).first()
 
-    from app.routers.sleep import compute_sleep_factor, _get_work_signals
-    today_str     = now_ist.strftime("%Y-%m-%d")
-    yesterday_str = (now_ist - timedelta(days=1)).strftime("%Y-%m-%d")
-    sleep_log = (
-        db.query(SleepLog).filter_by(user_id=user.id, date=today_str).first()
-        or db.query(SleepLog).filter_by(user_id=user.id, date=yesterday_str).first()
-    )
+    from app.routers.sleep import compute_sleep_factor, resolve_sleep_with_fallback, _get_work_signals
+    today_str = now_ist.strftime("%Y-%m-%d")
+    sleep_ctx = resolve_sleep_with_fallback(user.id, today_str, db)
     work_end_h, work_span_h, first_today_h = _get_work_signals(user.id, db)
-    sleep_factor, sleep_notes = compute_sleep_factor(sleep_log, work_end_h, work_span_h, first_today_h)
+    sleep_factor, sleep_notes = compute_sleep_factor(sleep_ctx, work_end_h, work_span_h, first_today_h)
 
     s_energy = _start_energy(state, sleep_factor)
 

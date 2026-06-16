@@ -505,7 +505,7 @@ function WeekView({
 
 function MonthView({
   year, month, tasks, today, onTaskClick,
-  dragTask, onDropTask,
+  dragTask, onDropTask, onDragStart, onDragEnd,
 }: {
   year: number;
   month: number;
@@ -514,11 +514,14 @@ function MonthView({
   onTaskClick: (t: ApiTask) => void;
   dragTask: ApiTask | null;
   onDropTask: (task: ApiTask, newMs: number) => void;
+  onDragStart: (t: ApiTask) => void;
+  onDragEnd: () => void;
 }) {
   const dim        = daysInMonth(year, month);
   const startWd    = new Date(year, month, 1).getDay();
   const totalCells = Math.ceil((dim + startWd) / 7) * 7;
   const [dropDay, setDropDay] = useState<number | null>(null);
+  const dragClickBlock = useRef(false);
 
   const tasksByDay: Record<number, ApiTask[]> = {};
   tasks.forEach((t) => {
@@ -586,9 +589,25 @@ function MonthView({
                   key={t.id}
                   className={`cal-task ${taskTypeCls(t)}`}
                   title={`${fmtTime(t.scheduled_at!)} · ${t.text}`}
-                  onClick={() => onTaskClick(t)}
+                  draggable
+                  onDragStart={(e) => {
+                    e.stopPropagation();
+                    dragClickBlock.current = true;
+                    e.dataTransfer.setData("text/plain", String(t.id));
+                    e.dataTransfer.effectAllowed = "move";
+                    onDragStart(t);
+                  }}
+                  onDragEnd={(e) => {
+                    e.stopPropagation();
+                    onDragEnd();
+                    window.setTimeout(() => { dragClickBlock.current = false; }, 0);
+                  }}
+                  onClick={() => {
+                    if (dragClickBlock.current) return;
+                    onTaskClick(t);
+                  }}
                   style={{
-                    cursor: dragTask ? "default" : "pointer",
+                    cursor: "grab",
                     opacity: dragTask?.id === t.id ? 0.35 : 1,
                   }}
                 >
@@ -875,7 +894,7 @@ export default function CalendarPage() {
       {/* View content */}
       {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
       {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
-      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} onTaskClick={setSelectedTask} dragTask={dragTask} onDropTask={handleDropTask} />}
+      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
 
       {pendingDrop && (
         <DropConfirmBanner

@@ -9,9 +9,9 @@ import { fmtDateIST } from "@/lib/tz";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
 
-function toLocalDT(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+function fmtSleepTime(ms: number | null): string {
+  if (ms == null) return "—";
+  return new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function AccountPage() {
@@ -34,20 +34,21 @@ export default function AccountPage() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  // sleep state
-  const [sleepLogs, setSleepLogs] = useState<ApiSleepLog[]>([]);
-  const [sleepBedtime, setSleepBedtime] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(23, 0, 0, 0); return toLocalDT(d);
-  });
-  const [sleepWake, setSleepWake] = useState(() => {
-    const d = new Date(); d.setHours(7, 0, 0, 0); return toLocalDT(d);
-  });
+  // sleep overrides (timing comes from the "Sleep" calendar task)
+  const [todaySleep, setTodaySleep] = useState<ApiSleepLog | null>(null);
   const [sleepQuality, setSleepQuality] = useState<number | "">("");
   const [sleepDisturbed, setSleepDisturbed] = useState(false);
   const [sleepNotes, setSleepNotes] = useState("");
   const [sleepSaving, setSleepSaving] = useState(false);
   const [sleepMsg, setSleepMsg] = useState<string | null>(null);
   const [sleepErr, setSleepErr] = useState<string | null>(null);
+  const [showSleepHistory, setShowSleepHistory] = useState(false);
+  const [sleepOverrides, setSleepOverrides] = useState<ApiSleepLog[]>([]);
+  const [sleepOverridePage, setSleepOverridePage] = useState(1);
+  const [sleepOverridePages, setSleepOverridePages] = useState(0);
+  const [sleepOverrideTotal, setSleepOverrideTotal] = useState(0);
+  const [sleepHistoryLoading, setSleepHistoryLoading] = useState(false);
+  const SLEEP_OVERRIDE_PAGE_SIZE = 10;
 
   // blackout state
   const [blackouts, setBlackouts] = useState<ApiBlackout[]>([]);
@@ -108,10 +109,50 @@ export default function AccountPage() {
     if (!loading && !user) router.replace("/login");
   }, [user, loading, router]);
 
+  async function loadSleepOverrides(page: number) {
+    setSleepHistoryLoading(true);
+    try {
+      const data = await api.listSleepOverrides(page, SLEEP_OVERRIDE_PAGE_SIZE);
+      setSleepOverrides(data.items);
+      setSleepOverridePage(data.page);
+      setSleepOverridePages(data.pages);
+      setSleepOverrideTotal(data.total);
+    } catch {
+      setSleepOverrides([]);
+      setSleepOverrideTotal(0);
+      setSleepOverridePages(0);
+    } finally {
+      setSleepHistoryLoading(false);
+    }
+  }
+
+  async function toggleSleepHistory() {
+    if (showSleepHistory) {
+      setShowSleepHistory(false);
+      return;
+    }
+    setShowSleepHistory(true);
+    await loadSleepOverrides(1);
+  }
+
   useEffect(() => {
     if (!user) return;
-    Promise.all([api.getSettings(), api.getUserState(), api.listBlackouts(), api.listSleepLogs(7)])
-      .then(([s, st, bl, sl]) => { setSettings(s); setState(st); setBlackouts(bl); setSleepLogs(sl); })
+    Promise.all([api.getSettings(), api.getUserState(), api.listBlackouts(), api.getSleepFactor()])
+      .then(([s, st, bl, factor]) => {
+        setSettings(s);
+        setState(st);
+        setBlackouts(bl);
+        const today = factor.sleep_log;
+        setTodaySleep(today);
+        if (today) {
+          if (today.quality != null && !today.quality_is_default) setSleepQuality(today.quality);
+          if (today.disturbed) setSleepDisturbed(true);
+          if (today.notes) setSleepNotes(today.notes);
+        }
+      })
+      .catch(() => {});
+    api.listSleepOverrides(1, 1)
+      .then((d) => setSleepOverrideTotal(d.total))
       .catch(() => {});
   }, [user]);
 
@@ -158,6 +199,7 @@ export default function AccountPage() {
         working_hours_start: Number(data.get("working_hours_start")),
         working_hours_end: Number(data.get("working_hours_end")),
         daily_capacity_minutes: Number(data.get("daily_capacity_minutes")),
+        default_sleep_quality: Number(data.get("default_sleep_quality")),
       });
       const newState = await api.setUserState({
         energy_level: Number(data.get("energy_level")),
@@ -217,20 +259,17 @@ export default function AccountPage() {
     setSleepErr(null);
     setSleepMsg(null);
     try {
-      const bedtime_ms = sleepBedtime ? new Date(sleepBedtime).getTime() : undefined;
-      const wake_ms    = sleepWake    ? new Date(sleepWake).getTime()    : undefined;
       const log = await api.logSleep({
-        bedtime_ms: bedtime_ms ?? null,
-        wake_ms:    wake_ms    ?? null,
-        quality:    sleepQuality !== "" ? sleepQuality : null,
-        disturbed:  sleepDisturbed || null,
-        notes:      sleepNotes.trim() || null,
+        quality: sleepQuality !== "" ? sleepQuality : null,
+        disturbed: sleepDisturbed,
+        notes: sleepNotes.trim() || null,
       });
-      setSleepLogs((prev) => [log, ...prev.filter((l) => l.date !== log.date)]);
-      const durLabel = log.duration_h ? ` (${log.duration_h.toFixed(1)}h)` : "";
-      setSleepMsg(`Logged${durLabel}.`);
+      setTodaySleep(log);
+      if (showSleepHistory) await loadSleepOverrides(sleepOverridePage);
+      const durLabel = log.duration_h ? ` (${log.duration_h.toFixed(1)}h from Sleep task)` : "";
+      setSleepMsg(`Saved overrides${durLabel}.`);
     } catch (e) {
-      setSleepErr(e instanceof Error ? e.message : "Failed to log sleep");
+      setSleepErr(e instanceof Error ? e.message : "Failed to save sleep overrides");
     } finally {
       setSleepSaving(false);
     }
@@ -296,6 +335,14 @@ export default function AccountPage() {
               <input
                 type="number" name="working_hours_end" min={1} max={24}
                 defaultValue={Number(vals.working_hours_end ?? 18)}
+                className="input-field"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Default sleep quality (0–10)</span>
+              <input
+                type="number" name="default_sleep_quality" min={0} max={10} step={1}
+                defaultValue={Number(vals.default_sleep_quality ?? 7)}
                 className="input-field"
               />
             </label>
@@ -430,39 +477,39 @@ export default function AccountPage() {
         </div>
       </section>
 
-      {/* Sleep log */}
+      {/* Sleep overrides */}
       <section className="space-y-4">
         <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Sleep &amp; recovery</h2>
         <div className="panel p-5 space-y-4">
           <p className="text-xs text-circuit-muted">
-            Log today's sleep to adjust your energy baseline. Late bedtimes, short sleep, poor quality, and yesterday's late work are all factored in automatically.
+            Bedtime and wake time are read from your <span className="font-medium text-circuit-text">Sleep</span> calendar event
+            (start time + duration). Override quality or disturbed sleep below when last night was unusual — otherwise your default quality applies.
           </p>
+
+          {todaySleep && (
+            <div className="rounded border border-circuit-border px-3 py-2 text-xs text-circuit-muted space-y-1">
+              <p className="text-circuit-text font-medium">Today&apos;s baseline ({todaySleep.date})</p>
+              <p>
+                {todaySleep.duration_h != null ? `${todaySleep.duration_h.toFixed(1)}h` : "—"}
+                {todaySleep.bedtime_ms != null && todaySleep.wake_ms != null
+                  ? ` · ${fmtSleepTime(todaySleep.bedtime_ms)} → ${fmtSleepTime(todaySleep.wake_ms)}`
+                  : ""}
+                {todaySleep.source === "task" && " · from Sleep task"}
+                {todaySleep.source === "mixed" && " · Sleep task + overrides"}
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <label className="space-y-1">
-              <span className="text-xs text-circuit-muted">Went to bed</span>
-              <input
-                type="datetime-local"
-                value={sleepBedtime}
-                onChange={(e) => setSleepBedtime(e.target.value)}
-                className="input-field"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="text-xs text-circuit-muted">Woke up</span>
-              <input
-                type="datetime-local"
-                value={sleepWake}
-                onChange={(e) => setSleepWake(e.target.value)}
-                className="input-field"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="text-xs text-circuit-muted">Sleep quality (0–10)</span>
+              <span className="text-xs text-circuit-muted">
+                Sleep quality override (0–10)
+              </span>
               <input
                 type="number" min={0} max={10} step={1}
                 value={sleepQuality}
                 onChange={(e) => setSleepQuality(e.target.value === "" ? "" : Number(e.target.value))}
-                placeholder="optional"
+                placeholder={`default ${Number(vals.default_sleep_quality ?? 7)}`}
                 className="input-field"
               />
             </label>
@@ -484,27 +531,76 @@ export default function AccountPage() {
             className="input-field w-full"
             maxLength={500}
           />
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <button onClick={handleLogSleep} disabled={sleepSaving} className="btn btn-primary">
-              {sleepSaving ? "Saving…" : "Log sleep"}
+              {sleepSaving ? "Saving…" : "Save overrides"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void toggleSleepHistory()}
+              className="btn text-xs"
+              style={{ background: "transparent", border: "1px solid var(--circuit-border, var(--line))" }}
+            >
+              {showSleepHistory ? "Hide sleep overrides" : "Show sleep overrides"}
+              {!showSleepHistory && sleepOverrideTotal > 0 ? ` (${sleepOverrideTotal})` : ""}
             </button>
             {sleepMsg && <span className="text-xs text-circuit-muted">{sleepMsg}</span>}
             {sleepErr && <span className="text-xs text-red-400">{sleepErr}</span>}
           </div>
 
-          {sleepLogs.length > 0 && (
-            <div className="space-y-1 pt-1 border-t border-circuit-border">
-              <p className="text-xs text-circuit-muted pt-2">Recent</p>
-              {sleepLogs.slice(0, 5).map((l) => (
-                <div key={l.id} className="flex items-center justify-between text-xs py-1.5 border-b border-circuit-border last:border-0">
-                  <span className="text-circuit-text font-medium">{l.date}</span>
-                  <span className="text-circuit-muted">
-                    {l.duration_h != null ? `${l.duration_h.toFixed(1)}h` : "—"}
-                    {l.quality != null ? ` · ${l.quality}/10` : ""}
-                    {l.disturbed ? " · disturbed" : ""}
-                  </span>
-                </div>
-              ))}
+          {showSleepHistory && (
+            <div className="space-y-2 pt-1 border-t border-circuit-border">
+              {sleepHistoryLoading ? (
+                <p className="text-xs text-circuit-muted pt-2">Loading…</p>
+              ) : sleepOverrides.length === 0 ? (
+                <p className="text-xs text-circuit-muted pt-2">No sleep overrides saved yet.</p>
+              ) : (
+                <>
+                  <p className="text-xs text-circuit-muted pt-2">
+                    Saved overrides · {sleepOverrideTotal} total
+                  </p>
+                  {sleepOverrides.map((l) => (
+                    <div key={l.id ?? l.date} className="flex items-center justify-between text-xs py-1.5 border-b border-circuit-border last:border-0">
+                      <span className="text-circuit-text font-medium">{l.date}</span>
+                      <span className="text-circuit-muted text-right">
+                        {l.duration_h != null ? `${l.duration_h.toFixed(1)}h` : "—"}
+                        {l.quality != null
+                          ? l.quality_is_default
+                            ? ` · ~${l.quality}/10`
+                            : ` · ${l.quality}/10`
+                          : ""}
+                        {l.disturbed ? " · disturbed" : ""}
+                        {l.notes ? ` · ${l.notes.slice(0, 40)}${l.notes.length > 40 ? "…" : ""}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                  {sleepOverridePages > 1 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <button
+                        type="button"
+                        disabled={sleepOverridePage <= 1 || sleepHistoryLoading}
+                        onClick={() => void loadSleepOverrides(sleepOverridePage - 1)}
+                        className="btn text-xs"
+                        style={{ background: "transparent", border: "1px solid var(--circuit-border, var(--line))" }}
+                      >
+                        Previous
+                      </button>
+                      <span className="text-xs text-circuit-muted">
+                        Page {sleepOverridePage} of {sleepOverridePages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={sleepOverridePage >= sleepOverridePages || sleepHistoryLoading}
+                        onClick={() => void loadSleepOverrides(sleepOverridePage + 1)}
+                        className="btn text-xs"
+                        style={{ background: "transparent", border: "1px solid var(--circuit-border, var(--line))" }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

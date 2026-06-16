@@ -1,44 +1,37 @@
 """Sleep + work-session context router.
 
 Endpoints:
-  POST /api/sleep          — upsert today's sleep log (idempotent, keyed by date)
-  GET  /api/sleep          — list recent sleep logs (?days=7)
+  POST /api/sleep          — upsert daily sleep overrides (quality, disturbed, notes)
+  GET  /api/sleep          — list recent resolved sleep logs (?days=7)
+  GET  /api/sleep/overrides — paginated manual sleep overrides
   GET  /api/sleep/factor   — computed energy factor for today (0–1) + breakdown
 
-Energy factor formula
----------------------
-base = 1.0, then penalties:
-  Sleep duration  < 4 h  → −0.35
-                 4–5 h  → −0.25
-                 5–6 h  → −0.15
-                 6–7 h  → −0.07
-  Late bedtime    2–6 AM → −0.12   (very late / all-nighter)
-                 0–2 AM → −0.06   (late)
-  Early wake    < 5 AM   → −0.08
-                 5–6 AM  → −0.04
-  Quality (0–10) blended: factor = factor*0.65 + (quality/10)*0.35
-  Disturbed sleep         → −0.10
-  Yesterday work ended   ≥23h → −0.12 | ≥22h → −0.08 | ≥21h → −0.04
-  Yesterday work span    >10h → −0.12 | >8h  → −0.06
-  Today first event      <6h  → −0.08 | <7h  → −0.04
-Result is clamped to [0.10, 1.00].
+Bedtime and wake time are read from a calendar/task event titled "Sleep"
+(scheduled_at = bedtime, wake = scheduled_at + duration). Users can override
+quality and disturbed sleep on the account page; quality defaults to the user's
+default_sleep_quality setting (7/10) when not overridden.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import json
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import require_user
-from app.models import SleepLog, TaskEvent, User
+from app.models import CircuitTask, SleepLog, TaskEvent, User, UserSettings
 
 _IST = ZoneInfo("Asia/Kolkata")
+
+DEFAULT_SLEEP_QUALITY = 7.0
+SETTINGS_KEY_DEFAULT_QUALITY = "default_sleep_quality"
 
 router = APIRouter(prefix="/api/sleep", tags=["sleep"])
 
@@ -46,12 +39,170 @@ router = APIRouter(prefix="/api/sleep", tags=["sleep"])
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class SleepLogWrite(BaseModel):
-    date: Optional[str] = None          # "YYYY-MM-DD" IST; defaults to today IST
-    bedtime_ms: Optional[int] = None    # epoch ms
-    wake_ms: Optional[int] = None       # epoch ms
+    date: Optional[str] = None          # "YYYY-MM-DD" IST wake-up date; defaults to today IST
+    bedtime_ms: Optional[int] = None    # optional manual override (legacy)
+    wake_ms: Optional[int] = None       # optional manual override (legacy)
     quality: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     disturbed: Optional[bool] = None
     notes: Optional[str] = Field(default=None, max_length=500)
+
+
+@dataclass
+class SleepContext:
+    date: str
+    bedtime_ms: int
+    wake_ms: int
+    quality: float
+    quality_is_default: bool
+    disturbed: bool
+    notes: Optional[str]
+    source: str  # "task" | "manual" | "mixed"
+    manual_log_id: Optional[int] = None
+
+
+# ── Sleep task resolution ───────────────────────────────────────────────────────
+
+def _is_sleep_task(task: CircuitTask) -> bool:
+    return task.text.strip().lower() == "sleep"
+
+
+def _get_default_sleep_quality(db: Session, user_id: int) -> float:
+    row = (
+        db.query(UserSettings)
+        .filter(UserSettings.user_id == user_id, UserSettings.key == SETTINGS_KEY_DEFAULT_QUALITY)
+        .first()
+    )
+    if not row:
+        return DEFAULT_SLEEP_QUALITY
+    try:
+        val = json.loads(row.value)
+        if isinstance(val, (int, float)) and 0 <= val <= 10:
+            return float(val)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return DEFAULT_SLEEP_QUALITY
+
+
+def _find_sleep_task_times(user_id: int, wake_date_str: str, db: Session) -> Optional[tuple[int, int]]:
+    """Return (bedtime_ms, wake_ms) from the Sleep task whose wake falls on wake_date (IST)."""
+    wake_date = date.fromisoformat(wake_date_str)
+    window_start = datetime(wake_date.year, wake_date.month, wake_date.day, tzinfo=_IST) - timedelta(days=2)
+    window_end = datetime(wake_date.year, wake_date.month, wake_date.day, tzinfo=_IST) + timedelta(days=1)
+    start_ms = int(window_start.timestamp() * 1000)
+    end_ms = int(window_end.timestamp() * 1000)
+
+    tasks = (
+        db.query(CircuitTask)
+        .filter(
+            CircuitTask.user_id == user_id,
+            CircuitTask.scheduled_at.isnot(None),
+            CircuitTask.scheduled_at >= start_ms,
+            CircuitTask.scheduled_at < end_ms,
+        )
+        .all()
+    )
+
+    best: Optional[tuple[int, int, int]] = None  # bedtime, wake, wake (sort key)
+    for task in tasks:
+        if not _is_sleep_task(task):
+            continue
+        bedtime_ms = task.scheduled_at
+        wake_ms = bedtime_ms + task.duration * 60_000
+        if wake_ms <= bedtime_ms:
+            continue
+        wake_ist = datetime.fromtimestamp(wake_ms / 1000, tz=_IST)
+        if wake_ist.date() != wake_date:
+            continue
+        if best is None or wake_ms > best[2]:
+            best = (bedtime_ms, wake_ms, wake_ms)
+
+    return (best[0], best[1]) if best else None
+
+
+def resolve_sleep_for_wake_date(
+    user_id: int,
+    wake_date_str: str,
+    db: Session,
+    default_quality: Optional[float] = None,
+) -> Optional[SleepContext]:
+    """Merge Sleep task timing with optional manual overrides for one wake-up date."""
+    if default_quality is None:
+        default_quality = _get_default_sleep_quality(db, user_id)
+
+    manual = db.query(SleepLog).filter_by(user_id=user_id, date=wake_date_str).first()
+    task_times = _find_sleep_task_times(user_id, wake_date_str, db)
+
+    has_manual_times = (
+        manual is not None
+        and manual.bedtime_ms is not None
+        and manual.wake_ms is not None
+        and manual.wake_ms > manual.bedtime_ms
+    )
+    if has_manual_times:
+        bedtime_ms, wake_ms = manual.bedtime_ms, manual.wake_ms  # type: ignore[union-attr]
+    elif task_times:
+        bedtime_ms, wake_ms = task_times
+    else:
+        return None
+
+    has_override = manual is not None and (
+        manual.quality is not None
+        or manual.disturbed is not None
+        or bool(manual.notes)
+        or has_manual_times
+    )
+    if has_manual_times and task_times:
+        source = "mixed"
+    elif has_manual_times:
+        source = "manual"
+    elif has_override and task_times:
+        source = "mixed"
+    else:
+        source = "task"
+
+    quality_is_default = manual is None or manual.quality is None
+    quality = manual.quality if manual and manual.quality is not None else default_quality
+    disturbed = bool(manual.disturbed) if manual and manual.disturbed is not None else False
+    notes = manual.notes if manual else None
+
+    return SleepContext(
+        date=wake_date_str,
+        bedtime_ms=bedtime_ms,
+        wake_ms=wake_ms,
+        quality=quality,
+        quality_is_default=quality_is_default,
+        disturbed=disturbed,
+        notes=notes,
+        source=source,
+        manual_log_id=manual.id if manual else None,
+    )
+
+
+def resolve_sleep_with_fallback(user_id: int, wake_date_str: str, db: Session) -> Optional[SleepContext]:
+    """Resolve sleep for wake_date, falling back to the previous day (legacy manual logs)."""
+    ctx = resolve_sleep_for_wake_date(user_id, wake_date_str, db)
+    if ctx:
+        return ctx
+    prev = (date.fromisoformat(wake_date_str) - timedelta(days=1)).isoformat()
+    return resolve_sleep_for_wake_date(user_id, prev, db)
+
+
+def _context_dict(ctx: SleepContext) -> dict:
+    duration_h = round((ctx.wake_ms - ctx.bedtime_ms) / 3_600_000, 2)
+    return {
+        "id": ctx.manual_log_id,
+        "date": ctx.date,
+        "bedtime_ms": ctx.bedtime_ms,
+        "wake_ms": ctx.wake_ms,
+        "quality": ctx.quality,
+        "quality_is_default": ctx.quality_is_default,
+        "disturbed": ctx.disturbed,
+        "notes": ctx.notes,
+        "duration_h": duration_h,
+        "source": ctx.source,
+        "created_at": None,
+        "updated_at": None,
+    }
 
 
 def _log_dict(log: SleepLog) -> dict:
@@ -64,9 +215,11 @@ def _log_dict(log: SleepLog) -> dict:
         "bedtime_ms": log.bedtime_ms,
         "wake_ms": log.wake_ms,
         "quality": log.quality,
+        "quality_is_default": log.quality is None,
         "disturbed": log.disturbed,
         "notes": log.notes,
         "duration_h": duration_h,
+        "source": "manual",
         "created_at": log.created_at.isoformat() + "Z",
         "updated_at": log.updated_at.isoformat() + "Z",
     }
@@ -80,7 +233,7 @@ def upsert_sleep_log(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Create or replace today's (or specified date's) sleep log."""
+    """Upsert sleep overrides for a wake-up date (quality, disturbed, notes)."""
     date_str = payload.date or datetime.now(_IST).strftime("%Y-%m-%d")
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
@@ -92,10 +245,15 @@ def upsert_sleep_log(
 
     row = db.query(SleepLog).filter_by(user_id=user.id, date=date_str).first()
     if row:
-        for field in ("bedtime_ms", "wake_ms", "quality", "disturbed", "notes"):
+        for field in ("bedtime_ms", "wake_ms"):
             val = getattr(payload, field)
             if val is not None:
                 setattr(row, field, val)
+        row.quality = payload.quality
+        if payload.disturbed is not None:
+            row.disturbed = payload.disturbed
+        if payload.notes is not None:
+            row.notes = payload.notes
         row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     else:
         row = SleepLog(
@@ -110,6 +268,10 @@ def upsert_sleep_log(
         db.add(row)
     db.commit()
     db.refresh(row)
+
+    ctx = resolve_sleep_for_wake_date(user.id, date_str, db)
+    if ctx:
+        return _context_dict(ctx)
     return _log_dict(row)
 
 
@@ -119,22 +281,73 @@ def list_sleep_logs(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Return the last `days` sleep logs (default 7), most recent first."""
+    """Return resolved sleep for the last `days` wake-up dates (most recent first)."""
     today_ist = datetime.now(_IST).date()
-    cutoff = (today_ist - timedelta(days=days)).isoformat()
-    logs = (
-        db.query(SleepLog)
-        .filter(SleepLog.user_id == user.id, SleepLog.date >= cutoff)
-        .order_by(SleepLog.date.desc())
-        .all()
+    results = []
+    for offset in range(days):
+        d = (today_ist - timedelta(days=offset)).isoformat()
+        ctx = resolve_sleep_for_wake_date(user.id, d, db)
+        if ctx:
+            results.append(_context_dict(ctx))
+    return results
+
+
+def _is_override_row(log: SleepLog) -> bool:
+    return (
+        log.quality is not None
+        or log.disturbed is True
+        or bool(log.notes and log.notes.strip())
+        or (log.bedtime_ms is not None and log.wake_ms is not None)
     )
-    return [_log_dict(l) for l in logs]
+
+
+@router.get("/overrides")
+def list_sleep_overrides(
+    page: int = 1,
+    limit: int = 10,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Paginated list of days with manual sleep overrides (quality, disturbed, notes)."""
+    page = max(1, page)
+    limit = max(1, min(50, limit))
+    offset = (page - 1) * limit
+
+    query = (
+        db.query(SleepLog)
+        .filter(SleepLog.user_id == user.id)
+        .filter(
+            or_(
+                SleepLog.quality.isnot(None),
+                SleepLog.disturbed.is_(True),
+                and_(SleepLog.notes.isnot(None), SleepLog.notes != ""),
+                and_(SleepLog.bedtime_ms.isnot(None), SleepLog.wake_ms.isnot(None)),
+            )
+        )
+    )
+    total = query.count()
+    rows = query.order_by(SleepLog.date.desc()).offset(offset).limit(limit).all()
+
+    items = []
+    for row in rows:
+        ctx = resolve_sleep_for_wake_date(user.id, row.date, db)
+        if ctx:
+            item = _context_dict(ctx)
+            item["id"] = row.id
+            item["created_at"] = row.created_at.isoformat() + "Z"
+            item["updated_at"] = row.updated_at.isoformat() + "Z"
+            items.append(item)
+        elif _is_override_row(row):
+            items.append(_log_dict(row))
+
+    pages = max(1, (total + limit - 1) // limit) if total else 0
+    return {"items": items, "total": total, "page": page, "limit": limit, "pages": pages}
 
 
 # ── Energy factor computation ─────────────────────────────────────────────────
 
 def compute_sleep_factor(
-    log: Optional[SleepLog],
+    ctx: Optional[SleepContext],
     work_end_hour_yesterday: Optional[int],
     work_span_hours_yesterday: Optional[float],
     first_event_hour_today: Optional[int],
@@ -143,10 +356,9 @@ def compute_sleep_factor(
     factor = 1.0
     notes: list[str] = []
 
-    if log and log.bedtime_ms and log.wake_ms and log.wake_ms > log.bedtime_ms:
-        duration_h = (log.wake_ms - log.bedtime_ms) / 3_600_000
+    if ctx and ctx.wake_ms > ctx.bedtime_ms:
+        duration_h = (ctx.wake_ms - ctx.bedtime_ms) / 3_600_000
 
-        # Duration penalty
         if duration_h < 4:
             factor -= 0.35
             notes.append(f"{duration_h:.1f}h sleep — severe deficit")
@@ -162,8 +374,7 @@ def compute_sleep_factor(
         else:
             notes.append(f"{duration_h:.1f}h sleep")
 
-        # Late bedtime — circadian disruption penalty
-        bedtime_ist = datetime.fromtimestamp(log.bedtime_ms / 1000, tz=_IST)
+        bedtime_ist = datetime.fromtimestamp(ctx.bedtime_ms / 1000, tz=_IST)
         bh = bedtime_ist.hour
         if 2 <= bh < 6:
             factor -= 0.12
@@ -172,8 +383,7 @@ def compute_sleep_factor(
             factor -= 0.06
             notes.append(f"late bedtime ({bedtime_ist.strftime('%H:%M')})")
 
-        # Early wake penalty
-        wake_ist = datetime.fromtimestamp(log.wake_ms / 1000, tz=_IST)
+        wake_ist = datetime.fromtimestamp(ctx.wake_ms / 1000, tz=_IST)
         wh = wake_ist.hour
         if wh < 5:
             factor -= 0.08
@@ -182,21 +392,19 @@ def compute_sleep_factor(
             factor -= 0.04
             notes.append(f"early wake ({wake_ist.strftime('%H:%M')})")
 
-        # Quality modifier (blended with duration-derived factor)
-        if log.quality is not None:
-            q = log.quality / 10.0
-            factor = factor * 0.65 + q * 0.35
-            if q < 0.3:
-                notes.append("poor quality sleep")
-            elif q < 0.6:
-                notes.append("fair quality sleep")
+        q = ctx.quality / 10.0
+        factor = factor * 0.65 + q * 0.35
+        if ctx.quality_is_default:
+            notes.append(f"quality assumed {ctx.quality:.0f}/10 (default)")
+        elif q < 0.3:
+            notes.append("poor quality sleep")
+        elif q < 0.6:
+            notes.append("fair quality sleep")
 
-        # Disturbed / fragmented
-        if log.disturbed:
+        if ctx.disturbed:
             factor -= 0.10
             notes.append("disturbed/fragmented sleep")
 
-    # Work session penalties (derived from task events, no user input required)
     if work_end_hour_yesterday is not None:
         weh = work_end_hour_yesterday
         if weh >= 23:
@@ -239,7 +447,6 @@ def _get_work_signals(user_id: int, db: Session) -> tuple[Optional[int], Optiona
     today_start_utc = today_start.astimezone(timezone.utc).replace(tzinfo=None)
     yesterday_start_utc = yesterday_start.astimezone(timezone.utc).replace(tzinfo=None)
 
-    # Yesterday's task events
     yesterday_events = (
         db.query(TaskEvent.occurred_at)
         .filter(
@@ -255,13 +462,12 @@ def _get_work_signals(user_id: int, db: Session) -> tuple[Optional[int], Optiona
     work_span_h: Optional[float] = None
     if yesterday_events:
         first_ev = yesterday_events[0][0].replace(tzinfo=timezone.utc).astimezone(_IST)
-        last_ev  = yesterday_events[-1][0].replace(tzinfo=timezone.utc).astimezone(_IST)
+        last_ev = yesterday_events[-1][0].replace(tzinfo=timezone.utc).astimezone(_IST)
         work_end_h = last_ev.hour
         span = (last_ev - first_ev).total_seconds() / 3600
-        if span > 1:  # ignore if all events in <1h (just a quick check-in)
+        if span > 1:
             work_span_h = round(span, 1)
 
-    # Today's first task event
     today_events = (
         db.query(TaskEvent.occurred_at)
         .filter(
@@ -285,23 +491,20 @@ def get_sleep_factor(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Return today's energy factor (0–1) derived from last sleep log + work session signals."""
+    """Return today's energy factor (0–1) from Sleep task + overrides + work signals."""
     today_str = datetime.now(_IST).strftime("%Y-%m-%d")
-    log = db.query(SleepLog).filter_by(user_id=user.id, date=today_str).first()
-    if not log:
-        # Fallback: check yesterday's log
-        yesterday_str = (datetime.now(_IST) - timedelta(days=1)).strftime("%Y-%m-%d")
-        log = db.query(SleepLog).filter_by(user_id=user.id, date=yesterday_str).first()
+    ctx = resolve_sleep_with_fallback(user.id, today_str, db)
 
     work_end_h, work_span_h, first_today_h = _get_work_signals(user.id, db)
-    factor, notes = compute_sleep_factor(log, work_end_h, work_span_h, first_today_h)
+    factor, notes = compute_sleep_factor(ctx, work_end_h, work_span_h, first_today_h)
 
     return {
         "date": today_str,
         "sleep_factor": factor,
         "notes": notes,
-        "has_sleep_log": log is not None,
-        "sleep_log": _log_dict(log) if log else None,
+        "has_sleep_log": ctx is not None,
+        "sleep_log": _context_dict(ctx) if ctx else None,
+        "default_sleep_quality": _get_default_sleep_quality(db, user.id),
         "work_signals": {
             "work_end_hour_yesterday": work_end_h,
             "work_span_hours_yesterday": work_span_h,

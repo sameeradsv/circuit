@@ -283,3 +283,58 @@ def test_delete_user_data(client, auth):
     assert r.status_code == 204
     tasks = client.get("/api/tasks", headers=auth).json()
     assert tasks == []
+
+
+# ── Sleep from task ───────────────────────────────────────────────────────────
+
+
+def _sleep_task_times():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    ist = ZoneInfo("Asia/Kolkata")
+    now = datetime.now(ist)
+    wake = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if wake > now:
+        wake -= timedelta(days=1)
+    bedtime = wake - timedelta(hours=8)
+    return int(bedtime.timestamp() * 1000), wake.strftime("%Y-%m-%d")
+
+
+def test_sleep_from_task_default_quality(client, auth):
+    bedtime_ms, wake_date = _sleep_task_times()
+    client.post(
+        "/api/tasks",
+        json={"text": "Sleep", "scheduled_at": bedtime_ms, "duration": 480},
+        headers=auth,
+    )
+
+    r = client.get("/api/sleep/factor", headers=auth)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["has_sleep_log"] is True
+    log = data["sleep_log"]
+    assert log["source"] == "task"
+    assert log["date"] == wake_date
+    assert log["quality"] == 7.0
+    assert log["quality_is_default"] is True
+    assert log["duration_h"] == 8.0
+    assert data["sleep_factor"] < 1.0
+
+
+def test_sleep_quality_override(client, auth):
+    bedtime_ms, _ = _sleep_task_times()
+    client.post(
+        "/api/tasks",
+        json={"text": "Sleep", "scheduled_at": bedtime_ms, "duration": 480},
+        headers=auth,
+    )
+    client.post("/api/sleep", json={"quality": 4, "disturbed": True}, headers=auth)
+
+    r = client.get("/api/sleep/factor", headers=auth)
+    log = r.json()["sleep_log"]
+    assert log["quality"] == 4.0
+    assert log["quality_is_default"] is False
+    assert log["disturbed"] is True
+    assert log["source"] == "mixed"
+
