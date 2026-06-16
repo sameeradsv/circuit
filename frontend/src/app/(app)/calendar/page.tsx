@@ -343,7 +343,7 @@ function WeekView({ weekStart, tasks, today, onTaskClick }: { weekStart: Date; t
 
 // ── Month view ────────────────────────────────────────────────────────────────
 
-function MonthView({ year, month, tasks, today }: { year: number; month: number; tasks: ApiTask[]; today: Date }) {
+function MonthView({ year, month, tasks, today, onTaskClick }: { year: number; month: number; tasks: ApiTask[]; today: Date; onTaskClick: (t: ApiTask) => void }) {
   const dim        = daysInMonth(year, month);
   const startWd    = new Date(year, month, 1).getDay();
   const totalCells = Math.ceil((dim + startWd) / 7) * 7;
@@ -385,7 +385,8 @@ function MonthView({ year, month, tasks, today }: { year: number; month: number;
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               {dayTasks.slice(0, 3).map((t) => (
-                <div key={t.id} className={`cal-task ${taskTypeCls(t)}`} title={`${fmtTime(t.scheduled_at!)} · ${t.text}`}>
+                <div key={t.id} className={`cal-task ${taskTypeCls(t)}`} title={`${fmtTime(t.scheduled_at!)} · ${t.text}`}
+                  onClick={() => onTaskClick(t)} style={{ cursor: "pointer" }}>
                   <span style={{ fontSize: 9, opacity: 0.7, marginRight: 3 }}>{fmtTime(t.scheduled_at!)}</span>
                   {t.text}
                 </div>
@@ -565,7 +566,7 @@ export default function CalendarPage() {
       {/* View content */}
       {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} onTaskClick={setSelectedTask} />}
       {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} onTaskClick={setSelectedTask} />}
-      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} />}
+      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} onTaskClick={setSelectedTask} />}
 
       {selectedTask && (
         <TaskDetailModal
