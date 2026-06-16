@@ -245,7 +245,12 @@ def _parse_duration(value: str) -> int:
 def _expand_rrule(dtstart_ms: int, rrule_str: str, exdate_set: set[int], cutoff_ms: Optional[int] = None) -> list[int]:
     """Expand RRULE into a list of occurrence timestamps (ms) from cutoff to horizon (now + 2yr).
     Generates only occurrences within [cutoff, horizon] to avoid wasting cycles on ancient events."""
-    start = datetime.fromtimestamp(dtstart_ms / 1000, tz=timezone.utc)
+    # orig_start preserves the event's original time-of-day (UTC) for use in candidate placement.
+    # start is the iteration anchor and may be advanced to cutoff — but the time-of-day must not
+    # change: midnight-IST cutoffs land at 18:30 UTC, which would shift weekly candidates by 5:30h
+    # and land them on the wrong IST weekday.
+    orig_start = datetime.fromtimestamp(dtstart_ms / 1000, tz=timezone.utc)
+    start = orig_start
     now = datetime.now(timezone.utc)
     horizon = now + timedelta(days=_RRULE_HORIZON_DAYS)
 
@@ -296,7 +301,7 @@ def _expand_rrule(dtstart_ms: int, rrule_str: str, exdate_set: set[int], cutoff_
             past_horizon = False
             for wd in byday:
                 candidate = (week_mon + timedelta(days=wd)).replace(
-                    hour=start.hour, minute=start.minute, second=start.second,
+                    hour=orig_start.hour, minute=orig_start.minute, second=orig_start.second,
                     microsecond=0, tzinfo=timezone.utc,
                 )
                 if candidate < start:

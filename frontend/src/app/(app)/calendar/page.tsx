@@ -31,6 +31,10 @@ function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
 }
 
+function snapMs(ms: number, snapMins = 15): number {
+  return Math.round(ms / (snapMins * 60_000)) * (snapMins * 60_000);
+}
+
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
@@ -81,6 +85,16 @@ function inRange(scheduledAt: number): boolean {
   return h >= START_H && h < END_H;
 }
 
+// Compute drop time from Y position within a grid column
+function yToMs(relY: number, dayStart: number): number {
+  const totalMins = Math.max(0, Math.min(23 * 60 + 45, Math.round(relY / HOUR_H * 60 / 15) * 15));
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  const d = new Date(dayStart);
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
+}
+
 const DAY_SHORT   = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_FULL    = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -108,9 +122,41 @@ function HourLines() {
   );
 }
 
+// ── Drop indicator line ───────────────────────────────────────────────────────
+
+function DropLine({ top }: { top: number }) {
+  return (
+    <div style={{
+      position: "absolute",
+      top,
+      left: 0,
+      right: 0,
+      height: 2,
+      background: "var(--circuit-accent, var(--terra))",
+      zIndex: 10,
+      pointerEvents: "none",
+      borderRadius: 1,
+    }} />
+  );
+}
+
 // ── Task block ────────────────────────────────────────────────────────────────
 
-function TaskBlock({ task, compact = false, onClick }: { task: ApiTask; compact?: boolean; onClick?: () => void }) {
+function TaskBlock({
+  task,
+  compact = false,
+  onClick,
+  onDragStart,
+  onDragEnd,
+  isDragging,
+}: {
+  task: ApiTask;
+  compact?: boolean;
+  onClick?: () => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  isDragging?: boolean;
+}) {
   const top    = taskTop(task.scheduled_at!);
   const height = taskHeight(task.duration ?? 30);
   const bufBefore = task.travel_buffer_before_mins ?? 0;
@@ -137,7 +183,14 @@ function TaskBlock({ task, compact = false, onClick }: { task: ApiTask; compact?
       )}
       <div
         title={`${task.text} · ${fmtTime(task.scheduled_at!)} · ${task.duration ?? 30}m`}
+        draggable={!!onDragStart}
         onClick={onClick}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", String(task.id));
+          e.dataTransfer.effectAllowed = "move";
+          onDragStart?.();
+        }}
+        onDragEnd={onDragEnd}
         style={{
           position: "absolute",
           top,
@@ -154,7 +207,9 @@ function TaskBlock({ task, compact = false, onClick }: { task: ApiTask; compact?
           justifyContent: "center",
           boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
           zIndex: 1,
-          cursor: onClick ? "pointer" : "default",
+          cursor: onDragStart ? "grab" : (onClick ? "pointer" : "default"),
+          opacity: isDragging ? 0.35 : 1,
+          transition: "opacity 0.1s",
         }}
       >
         <span style={{
@@ -186,15 +241,30 @@ function TaskBlock({ task, compact = false, onClick }: { task: ApiTask; compact?
 
 // ── Day view ──────────────────────────────────────────────────────────────────
 
-function DayView({ date, tasks, today, onTaskClick }: { date: Date; tasks: ApiTask[]; today: Date; onTaskClick: (t: ApiTask) => void }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+function DayView({
+  date, tasks, today, onTaskClick,
+  dragTask, onDropTask, onDragStart, onDragEnd,
+}: {
+  date: Date;
+  tasks: ApiTask[];
+  today: Date;
+  onTaskClick: (t: ApiTask) => void;
+  dragTask: ApiTask | null;
+  onDropTask: (task: ApiTask, newMs: number) => void;
+  onDragStart: (t: ApiTask) => void;
+  onDragEnd: () => void;
+}) {
+  const scrollRef  = useRef<HTMLDivElement>(null);
+  const taskColRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = SCROLL_TO_7AM; }, []);
 
-  const start = startOfDay(date).getTime();
-  const end   = start + 86_400_000;
+  const [dropTop, setDropTop] = useState<number | null>(null);
+
+  const dayStart = startOfDay(date).getTime();
+  const end      = dayStart + 86_400_000;
 
   const dayTasks = tasks
-    .filter((t) => t.scheduled_at && t.scheduled_at >= start && t.scheduled_at < end)
+    .filter((t) => t.scheduled_at && t.scheduled_at >= dayStart && t.scheduled_at < end)
     .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0));
 
   const visible    = dayTasks.filter((t) => inRange(t.scheduled_at!));
@@ -203,6 +273,11 @@ function DayView({ date, tasks, today, onTaskClick }: { date: Date; tasks: ApiTa
 
   const isToday = date.toDateString() === today.toDateString();
   const nowMins = isToday ? (today.getHours() - START_H) * 60 + today.getMinutes() : -1;
+
+  function getRelY(e: React.DragEvent): number {
+    const rect = taskColRef.current!.getBoundingClientRect();
+    return e.clientY - rect.top;
+  }
 
   return (
     <div className="col gap-4">
@@ -218,8 +293,26 @@ function DayView({ date, tasks, today, onTaskClick }: { date: Date; tasks: ApiTa
             </div>
           ))}
 
-          {/* Grid lines */}
-          <div style={{ position: "absolute", top: 0, bottom: 0, left: LABEL_W, right: 0 }}>
+          {/* Task column */}
+          <div
+            ref={taskColRef}
+            style={{ position: "absolute", top: 0, bottom: 0, left: LABEL_W, right: 0 }}
+            onDragOver={(e) => {
+              if (!dragTask) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDropTop(getRelY(e));
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTop(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (!dragTask) return;
+              onDropTask(dragTask, snapMs(yToMs(getRelY(e), dayStart)));
+              setDropTop(null);
+            }}
+          >
             <HourLines />
 
             {/* Current time indicator */}
@@ -230,8 +323,18 @@ function DayView({ date, tasks, today, onTaskClick }: { date: Date; tasks: ApiTa
               </div>
             )}
 
-            {/* Task blocks */}
-            {visible.map((t) => <TaskBlock key={t.id} task={t} onClick={() => onTaskClick(t)} />)}
+            {dropTop !== null && <DropLine top={dropTop} />}
+
+            {visible.map((t) => (
+              <TaskBlock
+                key={t.id}
+                task={t}
+                onClick={() => onTaskClick(t)}
+                onDragStart={() => onDragStart(t)}
+                onDragEnd={onDragEnd}
+                isDragging={dragTask?.id === t.id}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -272,9 +375,24 @@ function DayView({ date, tasks, today, onTaskClick }: { date: Date; tasks: ApiTa
 
 // ── Week view ─────────────────────────────────────────────────────────────────
 
-function WeekView({ weekStart, tasks, today, onTaskClick }: { weekStart: Date; tasks: ApiTask[]; today: Date; onTaskClick: (t: ApiTask) => void }) {
+function WeekView({
+  weekStart, tasks, today, onTaskClick,
+  dragTask, onDropTask, onDragStart, onDragEnd,
+}: {
+  weekStart: Date;
+  tasks: ApiTask[];
+  today: Date;
+  onTaskClick: (t: ApiTask) => void;
+  dragTask: ApiTask | null;
+  onDropTask: (task: ApiTask, newMs: number) => void;
+  onDragStart: (t: ApiTask) => void;
+  onDragEnd: () => void;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = SCROLL_TO_7AM; }, []);
+
+  // Track which column is being dragged over and at what Y
+  const [dropInfo, setDropInfo] = useState<{ dayIdx: number; top: number } | null>(null);
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -319,15 +437,38 @@ function WeekView({ weekStart, tasks, today, onTaskClick }: { weekStart: Date; t
 
           {/* Day columns */}
           {days.map((day, di) => {
-            const start    = startOfDay(day).getTime();
-            const end      = start + 86_400_000;
+            const dayStart = startOfDay(day).getTime();
+            const end      = dayStart + 86_400_000;
             const isToday  = di === todayIdx;
             const dayTasks = tasks
-              .filter((t) => t.scheduled_at && t.scheduled_at >= start && t.scheduled_at < end && inRange(t.scheduled_at))
+              .filter((t) => t.scheduled_at && t.scheduled_at >= dayStart && t.scheduled_at < end && inRange(t.scheduled_at))
               .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0));
 
             return (
-              <div key={di} style={{ position: "relative", height: TOTAL_H, borderLeft: "1px solid var(--line)", background: isToday ? "rgba(0,0,0,0.02)" : undefined }}>
+              <div
+                key={di}
+                style={{ position: "relative", height: TOTAL_H, borderLeft: "1px solid var(--line)", background: isToday ? "rgba(0,0,0,0.02)" : undefined }}
+                onDragOver={(e) => {
+                  if (!dragTask) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setDropInfo({ dayIdx: di, top: e.clientY - rect.top });
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDropInfo((prev) => prev?.dayIdx === di ? null : prev);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (!dragTask) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const relY = e.clientY - rect.top;
+                  onDropTask(dragTask, snapMs(yToMs(relY, dayStart)));
+                  setDropInfo(null);
+                }}
+              >
                 <HourLines />
 
                 {/* Current time bar */}
@@ -335,7 +476,19 @@ function WeekView({ weekStart, tasks, today, onTaskClick }: { weekStart: Date; t
                   <div style={{ position: "absolute", top: nowMins / 60 * HOUR_H, left: 0, right: 0, height: 2, background: "var(--terra)", zIndex: 5 }} />
                 )}
 
-                {dayTasks.map((t) => <TaskBlock key={t.id} task={t} compact onClick={() => onTaskClick(t)} />)}
+                {dropInfo?.dayIdx === di && <DropLine top={dropInfo.top} />}
+
+                {dayTasks.map((t) => (
+                  <TaskBlock
+                    key={t.id}
+                    task={t}
+                    compact
+                    onClick={() => onTaskClick(t)}
+                    onDragStart={() => onDragStart(t)}
+                    onDragEnd={onDragEnd}
+                    isDragging={dragTask?.id === t.id}
+                  />
+                ))}
               </div>
             );
           })}
@@ -347,10 +500,22 @@ function WeekView({ weekStart, tasks, today, onTaskClick }: { weekStart: Date; t
 
 // ── Month view ────────────────────────────────────────────────────────────────
 
-function MonthView({ year, month, tasks, today, onTaskClick }: { year: number; month: number; tasks: ApiTask[]; today: Date; onTaskClick: (t: ApiTask) => void }) {
+function MonthView({
+  year, month, tasks, today, onTaskClick,
+  dragTask, onDropTask,
+}: {
+  year: number;
+  month: number;
+  tasks: ApiTask[];
+  today: Date;
+  onTaskClick: (t: ApiTask) => void;
+  dragTask: ApiTask | null;
+  onDropTask: (task: ApiTask, newMs: number) => void;
+}) {
   const dim        = daysInMonth(year, month);
   const startWd    = new Date(year, month, 1).getDay();
   const totalCells = Math.ceil((dim + startWd) / 7) * 7;
+  const [dropDay, setDropDay] = useState<number | null>(null);
 
   const tasksByDay: Record<number, ApiTask[]> = {};
   tasks.forEach((t) => {
@@ -373,9 +538,34 @@ function MonthView({ year, month, tasks, today, onTaskClick }: { year: number; m
         const isToday  = inMonth && dayNum === today.getDate() && year === today.getFullYear() && month === today.getMonth();
         const dayTasks = inMonth ? (tasksByDay[dayNum] ?? []) : [];
         const overflow = dayTasks.length > 3;
+        const isDropTarget = inMonth && dropDay === dayNum;
 
         return (
-          <div key={i} className={"cal-cell" + (!inMonth ? " is-other" : "") + (isToday ? " is-today" : "")}>
+          <div
+            key={i}
+            className={"cal-cell" + (!inMonth ? " is-other" : "") + (isToday ? " is-today" : "")}
+            style={isDropTarget ? { outline: "2px solid var(--circuit-accent, var(--terra))", outlineOffset: -2 } : undefined}
+            onDragOver={(e) => {
+              if (!dragTask || !inMonth) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDropDay(dayNum);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDropDay((prev) => prev === dayNum ? null : prev);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (!dragTask || !inMonth) return;
+              // Keep original time-of-day, only change the date
+              const orig = dragTask.scheduled_at ? new Date(dragTask.scheduled_at) : new Date();
+              const newDate = new Date(year, month, dayNum, orig.getHours(), orig.getMinutes(), 0, 0);
+              onDropTask(dragTask, newDate.getTime());
+              setDropDay(null);
+            }}
+          >
             <div className="between" style={{ marginBottom: 4 }}>
               <span className="cal-num">{inMonth ? String(dayNum).padStart(2, "0") : ""}</span>
               <div className="row gap-2 aic">
@@ -389,8 +579,16 @@ function MonthView({ year, month, tasks, today, onTaskClick }: { year: number; m
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               {dayTasks.slice(0, 3).map((t) => (
-                <div key={t.id} className={`cal-task ${taskTypeCls(t)}`} title={`${fmtTime(t.scheduled_at!)} · ${t.text}`}
-                  onClick={() => onTaskClick(t)} style={{ cursor: "pointer" }}>
+                <div
+                  key={t.id}
+                  className={`cal-task ${taskTypeCls(t)}`}
+                  title={`${fmtTime(t.scheduled_at!)} · ${t.text}`}
+                  onClick={() => onTaskClick(t)}
+                  style={{
+                    cursor: dragTask ? "default" : "pointer",
+                    opacity: dragTask?.id === t.id ? 0.35 : 1,
+                  }}
+                >
                   <span style={{ fontSize: 9, opacity: 0.7, marginRight: 3 }}>{fmtTime(t.scheduled_at!)}</span>
                   {t.text}
                 </div>
@@ -419,6 +617,7 @@ export default function CalendarPage() {
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<ApiTask | null>(null);
+  const [dragTask, setDragTask] = useState<ApiTask | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -439,6 +638,20 @@ export default function CalendarPage() {
   }, [user]);
 
   if (loading || !user) return null;
+
+  async function handleDropTask(task: ApiTask, newMs: number) {
+    if (newMs === task.scheduled_at) return;
+    try {
+      const updated = await api.updateTask(task.id, { scheduled_at: newMs });
+      setTasks((prev) => {
+        const next = prev.map((t) => t.id === updated.id ? updated : t);
+        _taskCache = { tasks: next, ts: Date.now() };
+        return next;
+      });
+    } catch {
+      // silent — task stays in its original position
+    }
+  }
 
   async function handleImport(file: File) {
     setImporting(true);
@@ -495,6 +708,13 @@ export default function CalendarPage() {
 
   const scheduledCount   = tasks.filter((t) => t.scheduled_at && !t.completed).length;
   const unscheduledCount = tasks.filter((t) => !t.scheduled_at && !t.completed).length;
+
+  const dragHandlers = {
+    dragTask,
+    onDropTask: handleDropTask,
+    onDragStart: (t: ApiTask) => setDragTask(t),
+    onDragEnd: () => setDragTask(null),
+  };
 
   return (
     <div className="col gap-5">
@@ -576,9 +796,9 @@ export default function CalendarPage() {
       {fetching && <p className="serif" style={{ color: "var(--ink-3)" }}>Loading…</p>}
 
       {/* View content */}
-      {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} onTaskClick={setSelectedTask} />}
-      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} onTaskClick={setSelectedTask} />}
-      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} onTaskClick={setSelectedTask} />}
+      {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
+      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} onTaskClick={setSelectedTask} {...dragHandlers} />}
+      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} onTaskClick={setSelectedTask} dragTask={dragTask} onDropTask={handleDropTask} />}
 
       {selectedTask && (
         <TaskDetailModal
