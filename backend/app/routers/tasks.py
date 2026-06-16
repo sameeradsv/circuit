@@ -130,6 +130,7 @@ class TaskPatch(BaseModel):
     travel_buffer_before_mins: Optional[int] = None
     travel_buffer_after_mins: Optional[int] = None
     recurrence_anchor_ms: Optional[int] = None
+    import_review_pending: Optional[bool] = None
 
 
 def _task_to_dict(t: CircuitTask) -> dict:
@@ -183,6 +184,7 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "day_time_overrides": json.loads(t.day_time_overrides) if t.day_time_overrides else {},
         "travel_buffer_before_mins": t.travel_buffer_before_mins,
         "travel_buffer_after_mins": t.travel_buffer_after_mins,
+        "import_review_pending": bool(t.import_review_pending),
     }
 
 
@@ -385,6 +387,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                         day_time_overrides=task.day_time_overrides,
                         travel_buffer_before_mins=task.travel_buffer_before_mins,
                         travel_buffer_after_mins=task.travel_buffer_after_mins,
+                        import_review_pending=False,
                     )
                     db.add(next_task)
             except Exception:

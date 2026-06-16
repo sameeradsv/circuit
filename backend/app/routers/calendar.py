@@ -344,6 +344,7 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         rrule=rrule,
         rrule_dtstart_ms=rrule_dtstart,
         is_recurring_template=bool(rrule),
+        import_review_pending=True,
     )
 
 

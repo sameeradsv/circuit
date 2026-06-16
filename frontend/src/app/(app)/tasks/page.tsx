@@ -160,9 +160,10 @@ export default function TasksPage() {
   const open = tasks.filter((t) => !t.completed);
   const done = tasks.filter((t) => t.completed);
 
-  // Score and rank open tasks — blacked-out tasks are separated into "On hold"
+  // Score and rank open tasks — blacked-out and import-review tasks are separated
+  const needsImportReview = open.filter((t) => t.import_review_pending);
   const onHold = open.filter(isBlackedOut);
-  const active = open.filter((t) => !isBlackedOut(t));
+  const active = open.filter((t) => !isBlackedOut(t) && !t.import_review_pending);
 
   const ranked = [...active]
     .map((t) => { const { score, reason } = scoreForRank(t, energy, timeAvail); return { ...t, score, reason }; })
@@ -247,6 +248,12 @@ export default function TasksPage() {
     updateTaskInCache(updated);
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     setReschedulingTask(null);
+  }
+
+  async function markImportReviewed(t: ApiTask) {
+    const updated = await api.updateTask(t.id, { import_review_pending: false });
+    updateTaskInCache(updated);
+    setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
   }
 
   async function splitTask(task: ApiTask) {
@@ -433,10 +440,19 @@ export default function TasksPage() {
         </TaskGroup>
       )}
 
+      {/* After import — calendar events needing setup tweaks */}
+      {needsImportReview.length > 0 && (
+        <ImportReviewSection
+          tasks={needsImportReview}
+          onDetail={setDetailTask}
+          onMarkDone={markImportReviewed}
+        />
+      )}
+
       {/* On hold — tasks skipped due to active blackouts */}
       {onHold.length > 0 && <OnHoldSection tasks={onHold} onDetail={setDetailTask} />}
 
-      {!fetching && ranked.length === 0 && (
+      {!fetching && ranked.length === 0 && needsImportReview.length === 0 && onHold.length === 0 && (
         <div className="card col" style={{ padding: 40, alignItems: "center", gap: 12, textAlign: "center" }}>
           <p className="display" style={{ fontSize: 20, margin: 0 }}>Nothing here yet.</p>
           <p className="serif" style={{ color: "var(--ink-3)", fontSize: 15 }}>
@@ -490,6 +506,79 @@ export default function TasksPage() {
         />
       )}
     </div>
+  );
+}
+
+// ── ImportReviewSection ───────────────────────────────────────────────────────
+
+function ImportReviewSection({
+  tasks,
+  onDetail,
+  onMarkDone,
+}: {
+  tasks: ApiTask[];
+  onDetail: (t: ApiTask) => void;
+  onMarkDone: (t: ApiTask) => Promise<void>;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [markingId, setMarkingId] = useState<number | null>(null);
+
+  return (
+    <section>
+      <button
+        className="row aic gap-2"
+        style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 10 }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <h3 className="display" style={{ margin: 0, fontSize: 22, color: "var(--mustard)" }}>After import</h3>
+        <span className="serif" style={{ color: "var(--ink-3)", fontSize: 14 }}>
+          {tasks.length} event{tasks.length !== 1 ? "s" : ""} to review
+        </span>
+        <span style={{ color: "var(--ink-3)", fontSize: 13 }}>{expanded ? "▲" : "▼"}</span>
+      </button>
+      {expanded && (
+        <div className="card col" style={{ padding: 12, gap: 8 }}>
+          <p className="serif" style={{ margin: 0, fontSize: 14, color: "var(--ink-3)" }}>
+            Tweak blackout behavior, cognitive load, recurrence, and other settings — then mark setup done.
+          </p>
+          <div style={{ padding: 0 }}>
+            {tasks.map((t) => (
+              <div key={t.id} className="task" style={{ opacity: 0.85 }}>
+                <div className="rank" style={{ fontSize: 12 }}>↗</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="row aic gap-2">
+                    <span className={`type-dot type-${taskTypeMeta(t).cls}`} />
+                    <span className="title" style={{ cursor: "pointer" }} onClick={() => onDetail(t)}>{t.text}</span>
+                    {t.recurrence && (
+                      <span style={{ fontSize: 11, color: "var(--ink-3)" }} title={`Repeats: ${t.recurrence}`}>↻</span>
+                    )}
+                  </div>
+                  <div className="meta">
+                    <span><b>{fmtDue(t)}</b></span>
+                    <span>· {fmtTime(t.duration ?? 30)}</span>
+                    {t.rrule && <span style={{ color: "var(--ink-3)" }}>· calendar series</span>}
+                  </div>
+                </div>
+                <div className="row gap-2">
+                  <button className="btn" style={{ fontSize: 12 }} onClick={() => onDetail(t)}>Review</button>
+                  <button
+                    className="btn btn-primary"
+                    style={{ fontSize: 12 }}
+                    disabled={markingId === t.id}
+                    onClick={async () => {
+                      setMarkingId(t.id);
+                      try { await onMarkDone(t); } finally { setMarkingId(null); }
+                    }}
+                  >
+                    {markingId === t.id ? "…" : "Done"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

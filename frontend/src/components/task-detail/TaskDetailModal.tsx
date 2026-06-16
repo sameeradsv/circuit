@@ -101,6 +101,21 @@ export function TaskDetailModal({
     }
   }
 
+  async function handleMarkImportDone() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const payload: TaskPatch = { ...patch, import_review_pending: false };
+      const updated = await api.updateTask(task.id, payload);
+      onSave(updated);
+      onClose();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const sectionProps = { merged, set };
 
   return (
@@ -120,6 +135,11 @@ export function TaskDetailModal({
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-6">
+          {task.import_review_pending && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Imported from calendar — review blackout flags, recurrence, and cognitive load, then mark setup done.
+            </div>
+          )}
           {!task.completed && <TaskScorePreview scored={scored} />}
           <TaskPrioritySection {...sectionProps} />
           <TaskCognitiveSection {...sectionProps} />
@@ -155,6 +175,16 @@ export function TaskDetailModal({
           )}
 
           <div className="flex gap-3">
+            {task.import_review_pending && (
+              <button
+                onClick={handleMarkImportDone}
+                disabled={saving || propagating}
+                className="btn flex-1"
+                title="Save changes and remove from After import"
+              >
+                {saving ? "Saving…" : "Mark setup done"}
+              </button>
+            )}
             <button onClick={handleSave} disabled={saving || propagating} className="btn btn-primary flex-1">
               {saving ? "Saving…" : "Save"}
             </button>

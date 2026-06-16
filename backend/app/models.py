@@ -108,6 +108,9 @@ class CircuitTask(Base):
     travel_buffer_before_mins: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     travel_buffer_after_mins: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # Set true on calendar ICS import until user marks setup complete in Tasks
+    import_review_pending: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Timestamps
     client_created_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     client_updated_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

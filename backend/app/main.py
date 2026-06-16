@@ -11,7 +11,7 @@ from app.database import (
     _migrate_sqlite, _migrate_postgres, _migrate_webauthn_tables,
     _migrate_blackout_and_rrule, _migrate_recurrence_extra,
     _migrate_sleep_log, _migrate_energy_eod, _migrate_task_groups,
-    _migrate_recurrence_anchor,
+    _migrate_recurrence_anchor, _migrate_import_review_pending,
     _ensure_migrations_table, _migration_done, _mark_done,
 )
 from app.routers.auth import router as auth_router
@@ -87,6 +87,7 @@ def on_startup():
         ("energy_eod_column",      _migrate_energy_eod),
         ("task_groups_columns",    _migrate_task_groups),
         ("recurrence_anchor_ms",   _migrate_recurrence_anchor),
+        ("import_review_pending",  _migrate_import_review_pending),
     ]:
         if not _migration_done(name):
             fn()

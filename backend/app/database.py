@@ -298,6 +298,22 @@ def _mark_done(name: str) -> None:
         conn.commit()
 
 
+def _migrate_import_review_pending() -> None:
+    inspector = inspect(engine)
+    existing_cols = {c["name"] for c in inspector.get_columns("circuit_tasks")}
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    col_def = "BOOLEAN DEFAULT 0" if is_sqlite else "BOOLEAN DEFAULT FALSE"
+    with engine.connect() as conn:
+        if "import_review_pending" not in existing_cols:
+            if is_sqlite:
+                conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN import_review_pending {col_def}"))
+            else:
+                conn.execute(text(
+                    f"ALTER TABLE circuit_tasks ADD COLUMN IF NOT EXISTS import_review_pending {col_def}"
+                ))
+        conn.commit()
+
+
 def get_db():
     db = SessionLocal()
     try:

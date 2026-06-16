@@ -81,6 +81,7 @@ export interface ApiTask {
   travel_buffer_before_mins: number | null;
   travel_buffer_after_mins: number | null;
   recurrence_anchor_ms: number | null;
+  import_review_pending: boolean;
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
@@ -99,7 +100,7 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "blackout_skip_flags"
   | "group_id" | "day_time_overrides"
   | "travel_buffer_before_mins" | "travel_buffer_after_mins"
-  | "recurrence_anchor_ms"
+  | "recurrence_anchor_ms" | "import_review_pending"
 >>;
 
 export interface ApiSleepLog {
