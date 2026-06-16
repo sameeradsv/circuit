@@ -5,7 +5,13 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, _migrate_sqlite, _migrate_postgres, _migrate_webauthn_tables, _migrate_blackout_and_rrule, _migrate_recurrence_extra, _migrate_sleep_log, _migrate_energy_eod, _migrate_task_groups, engine
+from app.database import (
+    Base, engine,
+    _migrate_sqlite, _migrate_postgres, _migrate_webauthn_tables,
+    _migrate_blackout_and_rrule, _migrate_recurrence_extra,
+    _migrate_sleep_log, _migrate_energy_eod, _migrate_task_groups,
+    _ensure_migrations_table, _migration_done, _mark_done,
+)
 from app.routers.auth import router as auth_router
 from app.routers.tasks import router as tasks_router
 from app.routers import settings as settings_router
@@ -53,14 +59,20 @@ app.include_router(sleep_router)
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
-    _migrate_sqlite()
-    _migrate_postgres()
-    _migrate_webauthn_tables()
-    _migrate_blackout_and_rrule()
-    _migrate_recurrence_extra()
-    _migrate_sleep_log()
-    _migrate_energy_eod()
-    _migrate_task_groups()
+    _ensure_migrations_table()
+    for name, fn in [
+        ("sqlite_auth_sessions",   _migrate_sqlite),
+        ("postgres_base_columns",  _migrate_postgres),
+        ("webauthn_tables",        _migrate_webauthn_tables),
+        ("blackout_and_rrule",     _migrate_blackout_and_rrule),
+        ("recurrence_extra",       _migrate_recurrence_extra),
+        ("sleep_log_table",        _migrate_sleep_log),
+        ("energy_eod_column",      _migrate_energy_eod),
+        ("task_groups_columns",    _migrate_task_groups),
+    ]:
+        if not _migration_done(name):
+            fn()
+            _mark_done(name)
 
 
 @app.get("/health")

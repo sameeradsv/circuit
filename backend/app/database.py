@@ -12,7 +12,12 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'circuit.db'}")
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+pool_kwargs = (
+    {}
+    if DATABASE_URL.startswith("sqlite")
+    else {"pool_pre_ping": True, "pool_recycle": 280}
+)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, **pool_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -250,6 +255,32 @@ def _migrate_recurrence_extra() -> None:
                     conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN {col_name} {col_def}"))
                 else:
                     conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
+        conn.commit()
+
+
+def _ensure_migrations_table() -> None:
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS schema_migrations "
+            "(name VARCHAR(100) PRIMARY KEY, "
+            "applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        conn.commit()
+
+
+def _migration_done(name: str) -> bool:
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT 1 FROM schema_migrations WHERE name = :n"), {"n": name}
+        ).fetchone() is not None
+
+
+def _mark_done(name: str) -> None:
+    with engine.connect() as conn:
+        if DATABASE_URL.startswith("sqlite"):
+            conn.execute(text("INSERT OR IGNORE INTO schema_migrations (name) VALUES (:n)"), {"n": name})
+        else:
+            conn.execute(text("INSERT INTO schema_migrations (name) VALUES (:n) ON CONFLICT DO NOTHING"), {"n": name})
         conn.commit()
 
 

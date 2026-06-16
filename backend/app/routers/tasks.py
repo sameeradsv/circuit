@@ -131,16 +131,14 @@ class TaskPatch(BaseModel):
 def _adjust_for_blackouts(
     next_ms: int,
     task: CircuitTask,
-    user_id: int,
-    db: Session,
+    blackouts: list,
     from_dt: datetime,
 ) -> int:
     """Advance next_ms past any relevant blackout periods per task.post_blackout_behavior.
     catch_up → first slot after the blackout ends, recurrence anchors from there.
     resume   → keep advancing through the recurrence pattern until clear of all blackouts.
+    Blackouts are passed in pre-fetched to avoid a DB query per task completion.
     """
-    from app.models import Blackout
-    blackouts = db.query(Blackout).filter(Blackout.user_id == user_id).all()
     if not blackouts:
         return next_ms
 
@@ -346,6 +344,8 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
         # If task is being completed, create next occurrence if recurring
         if payload.completed and task.scheduled_at:
             try:
+                from app.models import Blackout
+                user_blackouts = db.query(Blackout).filter(Blackout.user_id == user.id).all()
                 from_dt = datetime.fromtimestamp(task.scheduled_at / 1000, tz=_IST)
                 next_ms: Optional[int] = None
 
@@ -382,7 +382,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
 
                 # Skip over blackout periods per task's post_blackout_behavior
                 if next_ms:
-                    next_ms = _adjust_for_blackouts(next_ms, task, user.id, db, from_dt)
+                    next_ms = _adjust_for_blackouts(next_ms, task, user_blackouts, from_dt)
                     if task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
                         next_ms = None
                     # Re-apply day-time override after blackout may have shifted the date
