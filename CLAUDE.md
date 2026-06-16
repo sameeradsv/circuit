@@ -91,7 +91,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 - Priority: `importance`, `urgency`, `consequence_of_delay`, `momentum_value`
 - Behavioral: `historical_completion_rate`, `skipped_count`, `delay_pattern`
 - Grouping: `group_id` (String, nullable, indexed) — tasks sharing the same label shift together when any one is rescheduled
-- Weekend override: `day_time_overrides` (JSON `{"SA": "10:00", "SU": "10:00"}`) — overrides recurrence time on Sat/Sun only
+- Weekend override: `day_time_overrides` (JSON `{"SA": "10:00", "SU": "10:00"}`) — overrides recurrence time on Sat/Sun, but **only for morning tasks** (original `scheduled_at` hour < 12); afternoon/evening tasks are never shifted
 - Travel: `travel_buffer_before_mins`, `travel_buffer_after_mins` (Integer, nullable) — travel/transit time blocked before/after; shown as hatched buffer zones in calendar
 
 **`Blackout`** — date ranges when user is unavailable (`blackout_type`: `travelling` / `period` / `sickness` / `leave` / `wfh`)
