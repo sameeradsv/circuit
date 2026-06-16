@@ -60,7 +60,7 @@ export function TabBar() {
           {/* Sheet */}
           <div style={{
             position: "fixed",
-            bottom: "calc(56px + env(safe-area-inset-bottom, 0px))",
+            bottom: "var(--content-bottom-inset)",
             left: 0, right: 0,
             zIndex: 91,
             background: "var(--paper)",

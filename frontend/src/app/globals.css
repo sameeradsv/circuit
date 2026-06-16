@@ -27,6 +27,8 @@
   --pad-card: 20px;
   --pad-page: 28px;
   --row-h: 56px;
+  --mobile-tab-bar-height: 58px;
+  --content-bottom-inset: 0px;
 
   --font-display: "Bricolage Grotesque", system-ui, sans-serif;
   --font-body:    "Bricolage Grotesque", system-ui, sans-serif;
@@ -204,19 +206,35 @@ body {
 
 /* ── Task row ── */
 .task {
-  display: grid; grid-template-columns: 44px 1fr auto;
-  gap: 16px; align-items: center;
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 16px; align-items: start;
   padding: 14px 16px; border-radius: 12px;
   border: 1px solid transparent;
   transition: background .12s, border-color .12s;
 }
 .task:hover           { background: var(--paper-2); }
 .task.is-now          { background: var(--paper); border-color: var(--ink); box-shadow: 4px 4px 0 var(--ink); }
-.task .rank           { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; }
+.task .rank           { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; padding-top: 2px; }
 .task.is-now .rank    { color: var(--terra); font-weight: 600; }
 .task .title          { font-size: 16px; font-weight: 500; color: var(--ink); }
 .task .meta           { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); display: flex; gap: 10px; margin-top: 3px; flex-wrap: wrap; }
 .task .meta b         { color: var(--ink-2); font-weight: 500; }
+.task-actions {
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0; align-self: start; padding-top: 2px;
+}
+.task-actions-extra { display: none; align-items: center; gap: 4px; }
+@media (hover: hover) and (pointer: fine) {
+  .task:hover .task-actions-extra { display: flex; }
+}
+.task-action-delete {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: none; cursor: pointer;
+  color: var(--ink-3); opacity: 0.5; font-size: 14px;
+  border-radius: 999px; transition: background .15s, opacity .15s;
+}
+.task-action-delete:hover { background: var(--paper-2); opacity: 1; }
 
 /* Type swatches */
 .type-dot      { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
@@ -309,6 +327,8 @@ body {
 .app-content {
   flex: 1; min-width: 0;
   padding: var(--pad-page);
+  padding-top: max(var(--pad-page), env(safe-area-inset-top, 0px));
+  padding-bottom: calc(var(--pad-page) + var(--content-bottom-inset));
   margin-left: 220px;
   display: flex; flex-direction: column;
 }
@@ -316,10 +336,41 @@ body {
 /* Calendar grid fills whatever height is left after the page header */
 .cal-scroll-grid {
   overflow-y: auto;
-  height: calc(100dvh - 200px);
+  height: calc(100dvh - 200px - var(--content-bottom-inset));
 }
 @media (max-width: 768px) {
-  .cal-scroll-grid { height: calc(100dvh - 260px); }
+  .cal-scroll-grid { height: calc(100dvh - 260px - var(--content-bottom-inset)); }
+}
+
+/* Full-height embedded chat (Tasks/Chat pages inside app shell) */
+.terminal-chat {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 7.5rem - var(--content-bottom-inset));
+  max-height: 100%;
+  overflow: hidden;
+}
+
+/* Fixed overlays — keep actions above mobile tab bar */
+.modal-scrim,
+.safe-overlay-pad {
+  padding: 16px;
+  padding-bottom: calc(16px + var(--content-bottom-inset));
+}
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+.above-tab-bar {
+  bottom: calc(var(--content-bottom-inset) + 12px) !important;
+}
+.terminal-chat-input {
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
 }
 
 /* ── Sidebar ── */
@@ -389,8 +440,12 @@ body {
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
+  :root {
+    --content-bottom-inset: calc(var(--mobile-tab-bar-height) + env(safe-area-inset-bottom, 0px));
+  }
+
   .sidenav                     { display: none; }
-  .app-content                 { margin-left: 0; padding-bottom: 88px; padding-top: env(safe-area-inset-top, 0px); }
+  .app-content                 { margin-left: 0; }
   .tabbar                      { display: flex; }
 
   /* Home page — stack header and energy card vertically on mobile */
@@ -406,6 +461,12 @@ body {
   /* Task page header stacks on mobile */
   .tasks-header                { flex-direction: column; align-items: flex-start; gap: 12px; }
   .tasks-header h1             { font-size: 26px !important; }
+
+  .task                        { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; padding: 12px 10px; }
+  .task .rank                  { font-size: 18px; }
+  .task-actions                { gap: 4px; }
+  .task .btn-icon,
+  .task-action-delete          { width: 32px; height: 32px; }
 }
 
 /* ── Completion animation ── */

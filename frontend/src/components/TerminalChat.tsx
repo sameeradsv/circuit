@@ -413,8 +413,7 @@ export function TerminalChat() {
 
   return (
     <div
-      className="flex flex-col rounded-lg border border-circuit-border bg-circuit-bg overflow-hidden"
-      style={{ height: "calc(100dvh - 7.5rem)" }}
+      className="terminal-chat rounded-lg border border-circuit-border bg-circuit-bg overflow-hidden"
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 bg-circuit-surface border-b border-circuit-border flex-shrink-0">
@@ -510,7 +509,7 @@ export function TerminalChat() {
       </div>
 
       {/* Input */}
-      <div className="flex items-end gap-2 px-4 py-3 bg-circuit-surface border-t border-circuit-border flex-shrink-0">
+      <div className="flex items-end gap-2 px-4 py-3 bg-circuit-surface border-t border-circuit-border flex-shrink-0 terminal-chat-input">
         <textarea
           ref={inputRef}
           className="flex-1 bg-circuit-bg border border-circuit-border rounded px-3 py-2 text-sm text-circuit-text placeholder:text-circuit-muted resize-none outline-none focus:border-circuit-accent transition-colors"

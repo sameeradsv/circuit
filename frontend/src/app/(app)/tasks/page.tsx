@@ -545,7 +545,7 @@ function ImportReviewSection({
             {tasks.map((t) => (
               <div key={t.id} className="task" style={{ opacity: 0.85 }}>
                 <div className="rank" style={{ fontSize: 12 }}>↗</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ minWidth: 0 }}>
                   <div className="row aic gap-2">
                     <span className={`type-dot type-${taskTypeMeta(t).cls}`} />
                     <span className="title" style={{ cursor: "pointer" }} onClick={() => onDetail(t)}>{t.text}</span>
@@ -559,7 +559,7 @@ function ImportReviewSection({
                     {t.rrule && <span style={{ color: "var(--ink-3)" }}>· calendar series</span>}
                   </div>
                 </div>
-                <div className="row gap-2">
+                <div className="task-actions">
                   <button className="btn" style={{ fontSize: 12 }} onClick={() => onDetail(t)}>Review</button>
                   <button
                     className="btn btn-primary"
@@ -712,8 +712,8 @@ function TaskRow({
         </div>
       </div>
 
-      <div className="row gap-2 aic">
-        <div className="row gap-1 aic" style={{ opacity: 0 }} onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")} onMouseLeave={(e) => (e.currentTarget.style.opacity = "0")}>
+      <div className="task-actions">
+        <div className="task-actions-extra">
           <button
             onClick={onDetail}
             style={{ fontSize: 13, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
@@ -750,7 +750,7 @@ function TaskRow({
           onClick={onToggle}
           className="btn-icon"
           title="Complete"
-          style={{ width: 28, height: 28 }}
+          aria-label="Complete"
         >
           <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12l5 5L20 7" />
@@ -758,8 +758,9 @@ function TaskRow({
         </button>
         <button
           onClick={onDelete}
-          style={{ fontSize: 12, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", opacity: 0.5 }}
+          className="task-action-delete"
           title="Delete"
+          aria-label="Delete"
         >✕</button>
       </div>
     </div>
@@ -775,9 +776,9 @@ function DoneRow({ task, onToggle, onDelete }: { task: ApiTask; onToggle: () => 
       <div>
         <span className="title" style={{ textDecoration: "line-through", fontSize: 14 }}>{task.text}</span>
       </div>
-      <div className="row gap-2 aic">
-        <button onClick={onToggle} style={{ fontSize: 11, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer" }}>undo</button>
-        <button onClick={onDelete} style={{ fontSize: 11, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer" }}>✕</button>
+      <div className="task-actions">
+        <button onClick={onToggle} className="task-action-delete" style={{ opacity: 1, fontSize: 11 }} title="Undo">undo</button>
+        <button onClick={onDelete} className="task-action-delete" title="Delete" aria-label="Delete">✕</button>
       </div>
     </div>
   );
@@ -899,7 +900,7 @@ function RescheduleModal({
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
+      className="modal-scrim"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="card col gap-5" style={{ maxWidth: 380, width: "100%", margin: "0 16px" }}>

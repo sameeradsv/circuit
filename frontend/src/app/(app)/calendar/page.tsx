@@ -656,23 +656,25 @@ function DropConfirmBanner({
     weekday: "short", month: "short", day: "numeric", timeZone: "Asia/Kolkata",
   });
   return (
-    <div style={{
-      position: "fixed",
-      bottom: 24,
-      left: "50%",
-      transform: "translateX(-50%)",
-      background: "var(--paper)",
-      border: "1px solid var(--line)",
-      borderRadius: 10,
-      padding: "12px 16px",
-      boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-      zIndex: 200,
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-      minWidth: 320,
-      maxWidth: 480,
-    }}>
+    <div
+      className="above-tab-bar"
+      style={{
+        position: "fixed",
+        left: "50%",
+        transform: "translateX(-50%)",
+        background: "var(--paper)",
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        padding: "12px 16px",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+        zIndex: 200,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        minWidth: 320,
+        maxWidth: 480,
+      }}
+    >
       <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 500 }}>
         Move <em style={{ fontStyle: "normal", color: "var(--ink-2)" }}>{task.text}</em> to {newDate} at {newTime}?
       </div>
