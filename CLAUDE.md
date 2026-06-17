@@ -316,6 +316,7 @@ Four modes — `normal | deep | low | social` — shift how the scoring algorith
 - **Additive migrations only** — never drop columns or tables; always add `IF NOT EXISTS` / inspector guards.
 - **Fail-safe recurrence** — recurrence auto-creation is wrapped in `try/except`; failures must never block task completion.
 - **Sleep factor is advisory** — a low `sleep_factor` should surface warnings and de-prioritize demanding tasks, but must never block the user from doing anything.
+- **`slowapi` + FastAPI body injection incompatibility**: `@limiter.limit` wraps the route function, hiding Pydantic model type annotations from FastAPI's dependency injector — FastAPI treats the parameter as a query param and returns 422 "Field required". Using `= Body()` as default is worse: FastAPI injects the raw `FieldInfo` object, causing `AttributeError` that escapes past `CORSMiddleware` to `ServerErrorMiddleware` (outside CORS) → 500 with no CORS headers → "Failed to fetch" in browser. **Fix**: all rate-limited endpoints that take a JSON body must use `async def` + `await request.json()` + `Model.model_validate()` via the `_parse_body` helper in `routers/auth.py`. Never add a typed Pydantic parameter to a `@limiter.limit`-decorated route.
 
 ## UI & Responsive Standards
 
