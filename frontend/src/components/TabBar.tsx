@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useTheme } from "@/lib/use-theme";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 
 const TABS = [
   { href: "/",         label: "Now",   glyph: "•" },
@@ -23,7 +23,7 @@ export function TabBar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
-  const { user } = useCircuitAuth();
+  const { user } = useAuth();
 
   const moreActive = MORE_LINKS.some((l) => pathname.startsWith(l.href));
 

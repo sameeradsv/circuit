@@ -3,9 +3,9 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiBlackout, ApiSettings, ApiSleepLog, ApiUserState } from "@/lib/api";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 import { usePasskey } from "@/lib/usePasskey";
-import { fmtDateIST, todayIST } from "@/lib/tz";
+import { dateStrToISTEndMs, dateStrToISTMs, fmtDateIST, todayIST } from "@/lib/tz";
 import { invalidateTaskCache } from "@/lib/task-cache";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
@@ -16,7 +16,7 @@ function fmtSleepTime(ms: number | null): string {
 }
 
 export default function AccountPage() {
-  const { user, loading, logout } = useCircuitAuth();
+  const { user, loading, logout } = useAuth();
   const router = useRouter();
 
   const [settings, setSettings] = useState<ApiSettings | null>(null);
@@ -61,6 +61,14 @@ export default function AccountPage() {
   const [addingBlackout, setAddingBlackout] = useState(false);
   const [blackoutMsg, setBlackoutMsg] = useState<string | null>(null);
   const [blackoutErr, setBlackoutErr] = useState<string | null>(null);
+  const [showBlackoutList, setShowBlackoutList] = useState(false);
+  const [blackoutListPage, setBlackoutListPage] = useState(1);
+  const [editingBlackoutId, setEditingBlackoutId] = useState<number | null>(null);
+  const [editBlackoutType, setEditBlackoutType] = useState("travelling");
+  const [editBlackoutStart, setEditBlackoutStart] = useState(today);
+  const [editBlackoutEnd, setEditBlackoutEnd] = useState(today);
+  const [savingBlackout, setSavingBlackout] = useState(false);
+  const BLACKOUT_PAGE_SIZE = 5;
 
   // cleanup state
   const sixMonthsAhead = new Date();
@@ -214,8 +222,8 @@ export default function AccountPage() {
     setBlackoutErr(null);
     setBlackoutMsg(null);
     try {
-      const startMs = new Date(newBlackoutStart).getTime();
-      const endMs = new Date(newBlackoutEnd).getTime() + 86_399_999; // end of day
+      const startMs = dateStrToISTMs(newBlackoutStart);
+      const endMs = dateStrToISTEndMs(newBlackoutEnd);
       const b = await api.createBlackout({ blackout_type: newBlackoutType, start_date_ms: startMs, end_date_ms: endMs });
       setBlackouts((prev) => [...prev, b].sort((a, b) => a.start_date_ms - b.start_date_ms));
       invalidateTaskCache();
@@ -236,8 +244,40 @@ export default function AccountPage() {
     try {
       await api.deleteBlackout(id);
       setBlackouts((prev) => prev.filter((b) => b.id !== id));
+      if (editingBlackoutId === id) setEditingBlackoutId(null);
     } catch (e) {
       setBlackoutErr(e instanceof Error ? e.message : "Failed to remove blackout");
+    }
+  }
+
+  function startEditBlackout(b: ApiBlackout) {
+    setEditingBlackoutId(b.id);
+    setEditBlackoutType(b.blackout_type);
+    const startStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(b.start_date_ms));
+    const endStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(b.end_date_ms));
+    setEditBlackoutStart(startStr);
+    setEditBlackoutEnd(endStr);
+    setBlackoutErr(null);
+    setBlackoutMsg(null);
+  }
+
+  async function handleSaveBlackout(id: number) {
+    if (!editBlackoutStart || !editBlackoutEnd) return;
+    setSavingBlackout(true);
+    setBlackoutErr(null);
+    try {
+      const updated = await api.updateBlackout(id, {
+        blackout_type: editBlackoutType,
+        start_date_ms: dateStrToISTMs(editBlackoutStart),
+        end_date_ms: dateStrToISTEndMs(editBlackoutEnd),
+      });
+      setBlackouts((prev) => prev.map((b) => b.id === id ? updated : b).sort((a, b) => a.start_date_ms - b.start_date_ms));
+      setEditingBlackoutId(null);
+      setBlackoutMsg("Blackout updated.");
+    } catch (e) {
+      setBlackoutErr(e instanceof Error ? e.message : "Failed to update blackout");
+    } finally {
+      setSavingBlackout(false);
     }
   }
 
@@ -258,6 +298,8 @@ export default function AccountPage() {
         working_hours_end: Number(data.get("working_hours_end")),
         daily_capacity_minutes: Number(data.get("daily_capacity_minutes")),
         default_sleep_quality: Number(data.get("default_sleep_quality")),
+        default_bedtime: data.get("default_bedtime") as string,
+        default_wake_time: data.get("default_wake_time") as string,
       });
       const newState = await api.setUserState({
         energy_level: Number(data.get("energy_level")),
@@ -363,7 +405,7 @@ export default function AccountPage() {
         <p className="mt-1 text-sm text-circuit-muted">
           {user.username}
           <button
-            onClick={() => { logout(); router.push("/login"); }}
+            onClick={logout}
             className="ml-4 text-xs text-circuit-muted hover:text-circuit-text transition-colors"
           >
             Sign out
@@ -413,6 +455,22 @@ export default function AccountPage() {
               <input
                 type="number" name="default_sleep_quality" min={0} max={10} step={1}
                 defaultValue={Number(vals.default_sleep_quality ?? 7)}
+                className="input-field"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Default bedtime</span>
+              <input
+                type="time" name="default_bedtime"
+                defaultValue={String(vals.default_bedtime ?? "23:00")}
+                className="input-field"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Default wake time</span>
+              <input
+                type="time" name="default_wake_time"
+                defaultValue={String(vals.default_wake_time ?? "07:00")}
                 className="input-field"
               />
             </label>
@@ -522,27 +580,102 @@ export default function AccountPage() {
           {blackoutErr && <p className="text-sm text-red-400">{blackoutErr}</p>}
           {blackoutMsg && <p className="text-xs text-circuit-muted">{blackoutMsg}</p>}
 
-          {blackouts.length > 0 && (
-            <div className="space-y-1 pt-1">
-              {blackouts.map((b) => {
-                const start = fmtDateIST(b.start_date_ms, { month: "short", day: "numeric", year: "numeric" });
-                const end = fmtDateIST(b.end_date_ms, { month: "short", day: "numeric", year: "numeric" });
-                const label = b.blackout_type.charAt(0).toUpperCase() + b.blackout_type.slice(1);
-                return (
-                  <div key={b.id} className="flex items-center justify-between text-xs py-2 border-b border-circuit-border last:border-0">
-                    <span className="text-circuit-text">
-                      <span className="font-medium">{label}</span>
-                      <span className="text-circuit-muted ml-2">{start} — {end}</span>
-                    </span>
-                    <button
-                      onClick={() => handleDeleteBlackout(b.id)}
-                      className="text-circuit-muted hover:text-red-400 transition-colors ml-4 shrink-0"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                );
-              })}
+          <div className="flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              onClick={() => { setShowBlackoutList((v) => !v); setBlackoutListPage(1); }}
+              className="btn text-xs"
+              style={{ background: "transparent", border: "1px solid var(--circuit-border, var(--line))" }}
+            >
+              {showBlackoutList ? "Hide blackout history" : "Show blackout history"}
+              {!showBlackoutList && blackouts.length > 0 ? ` (${blackouts.length})` : ""}
+            </button>
+          </div>
+
+          {showBlackoutList && (
+            <div className="space-y-2 pt-1 border-t border-circuit-border">
+              {blackouts.length === 0 ? (
+                <p className="text-xs text-circuit-muted pt-2">No blackouts saved yet.</p>
+              ) : (
+                <>
+                  <p className="text-xs text-circuit-muted pt-2">
+                    Saved blackouts · {blackouts.length} total
+                  </p>
+                  {blackouts.slice((blackoutListPage - 1) * BLACKOUT_PAGE_SIZE, blackoutListPage * BLACKOUT_PAGE_SIZE).map((b) => {
+                    const start = fmtDateIST(b.start_date_ms, { month: "short", day: "numeric", year: "numeric" });
+                    const end = fmtDateIST(b.end_date_ms, { month: "short", day: "numeric", year: "numeric" });
+                    const label = b.blackout_type.charAt(0).toUpperCase() + b.blackout_type.slice(1);
+                    const isEditing = editingBlackoutId === b.id;
+                    return (
+                      <div key={b.id} className={`text-xs py-2 border-b border-circuit-border last:border-0 space-y-2 ${isEditing ? "bg-circuit-accent/5 -mx-1 px-1 rounded" : ""}`}>
+                        {isEditing ? (
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap gap-2 items-end">
+                              <select
+                                value={editBlackoutType}
+                                onChange={(e) => setEditBlackoutType(e.target.value)}
+                                className="input-field text-xs"
+                              >
+                                <option value="travelling">Travelling</option>
+                                <option value="period">Period</option>
+                                <option value="sickness">Sickness</option>
+                                <option value="leave">On leave</option>
+                                <option value="wfh">Working from home</option>
+                              </select>
+                              <input type="date" value={editBlackoutStart} onChange={(e) => setEditBlackoutStart(e.target.value)} className="input-field text-xs" />
+                              <input type="date" value={editBlackoutEnd} onChange={(e) => setEditBlackoutEnd(e.target.value)} className="input-field text-xs" />
+                            </div>
+                            <div className="flex gap-3">
+                              <button onClick={() => void handleSaveBlackout(b.id)} disabled={savingBlackout} className="btn btn-primary text-xs py-1">
+                                {savingBlackout ? "Saving…" : "Save"}
+                              </button>
+                              <button onClick={() => setEditingBlackoutId(null)} className="btn text-xs py-1" style={{ background: "transparent", border: "1px solid var(--circuit-border, var(--line))" }}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-circuit-text">
+                              <span className="font-medium">{label}</span>
+                              <span className="text-circuit-muted ml-2">{start} — {end}</span>
+                            </span>
+                            <div className="flex gap-3 shrink-0">
+                              <button onClick={() => startEditBlackout(b)} className="text-circuit-muted hover:text-circuit-text transition-colors">
+                                Edit
+                              </button>
+                              <button onClick={() => void handleDeleteBlackout(b.id)} className="text-circuit-muted hover:text-red-400 transition-colors">
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {blackouts.length > BLACKOUT_PAGE_SIZE && (
+                    <div className="flex items-center gap-3 pt-2 text-xs text-circuit-muted">
+                      <button
+                        disabled={blackoutListPage <= 1}
+                        onClick={() => setBlackoutListPage((p) => p - 1)}
+                        className="btn text-xs py-0.5 px-2 disabled:opacity-40"
+                        style={{ background: "transparent", border: "1px solid var(--circuit-border, var(--line))" }}
+                      >
+                        ← Prev
+                      </button>
+                      <span>Page {blackoutListPage} of {Math.ceil(blackouts.length / BLACKOUT_PAGE_SIZE)}</span>
+                      <button
+                        disabled={blackoutListPage >= Math.ceil(blackouts.length / BLACKOUT_PAGE_SIZE)}
+                        onClick={() => setBlackoutListPage((p) => p + 1)}
+                        className="btn text-xs py-0.5 px-2 disabled:opacity-40"
+                        style={{ background: "transparent", border: "1px solid var(--circuit-border, var(--line))" }}
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -567,6 +700,7 @@ export default function AccountPage() {
                   : ""}
                 {todaySleep.source === "task" && " · from Sleep task"}
                 {todaySleep.source === "mixed" && " · Sleep task + overrides"}
+                {todaySleep.source === "default" && " · from default schedule"}
               </p>
             </div>
           )}

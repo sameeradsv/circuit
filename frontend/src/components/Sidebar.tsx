@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 import { useEnergyLevel, energyDescriptor } from "@/lib/use-energy-level";
 import { useTheme } from "@/lib/use-theme";
 import { useNotificationToggle } from "@/lib/use-notifications";
@@ -61,7 +61,7 @@ const NAV = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user } = useCircuitAuth();
+  const { user } = useAuth();
   const [energy] = useEnergyLevel();
   const { theme, setTheme } = useTheme();
   const { permission, enabled, toggle } = useNotificationToggle();

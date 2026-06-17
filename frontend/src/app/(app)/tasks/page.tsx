@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiTask, ApiBlackout } from "@/lib/api";
 import { getTaskCache, setTaskCache, updateTaskInCache, invalidateTaskCache } from "@/lib/task-cache";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 import { useEnergyLevel } from "@/lib/use-energy-level";
 import { parseTaskText } from "@/lib/parse-task";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
@@ -106,7 +106,7 @@ function toInputValue(ts: number) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TasksPage() {
-  const { user, loading } = useCircuitAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const [mode, setMode]   = useEnergyMode();
   const [energy]          = useEnergyLevel();

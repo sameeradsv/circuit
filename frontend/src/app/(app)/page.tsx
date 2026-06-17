@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, ApiTask } from "@/lib/api";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 import { useEnergyLevel, energyDescriptor } from "@/lib/use-energy-level";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ function EnergyRail({
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
-  const { user } = useCircuitAuth();
+  const { user } = useAuth();
   const [energy, setEnergy] = useEnergyLevel();
   const [timeAvail, setTimeAvail] = useState(120);
   const [tasks, setTasks] = useState<ApiTask[]>([]);

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 import { api, ApiTask } from "@/lib/api";
 import { useNotificationScheduler } from "@/lib/use-notifications";
 
@@ -96,7 +96,7 @@ function useIcsRenewalBanner() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, loading } = useCircuitAuth();
+  const { user, loading } = useAuth();
   const [notifTasks, setNotifTasks] = useState<ApiTask[]>([]);
   useNotificationScheduler(notifTasks);
   const { banner, dismiss } = useIcsRenewalBanner();

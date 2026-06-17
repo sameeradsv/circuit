@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiSummary } from "@/lib/api";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 
 export default function AnalyticsPage() {
-  const { user, loading } = useCircuitAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const [summary, setSummary] = useState<ApiSummary | null>(null);
   const [fetching, setFetching] = useState(false);

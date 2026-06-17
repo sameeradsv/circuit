@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiTask } from "@/lib/api";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 import { parseTaskText } from "@/lib/parse-task";
 import { useVoiceInput } from "@/lib/use-voice-input";
 import { suggestSlot, formatSlot } from "@/lib/suggest-slot";
@@ -87,7 +87,7 @@ function toDatetimeLocal(ms: number): string {
 }
 
 export default function AddPage() {
-  const { user, loading } = useCircuitAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const [text, setText] = useState("");
   const [scheduledAt, setScheduledAt] = useState<number | null>(null);

@@ -1,4 +1,4 @@
-import { getAuthToken, setAuthToken, setLocalUser } from "./auth";
+import { getAuthToken, setAuthToken } from "./auth";
 
 const apiBase =
   (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
@@ -19,7 +19,6 @@ async function req<T>(
   });
   if (res.status === 401) {
     setAuthToken(null);
-    setLocalUser(null);
     if (typeof window !== "undefined") window.location.replace("/login");
     throw new Error("Session expired");
   }
@@ -113,7 +112,7 @@ export interface ApiSleepLog {
   disturbed: boolean | null;
   notes: string | null;
   duration_h: number | null;
-  source?: "task" | "manual" | "mixed";
+  source?: "task" | "manual" | "mixed" | "default";
   created_at: string | null;
   updated_at: string | null;
 }
@@ -133,6 +132,8 @@ export interface ApiSleepFactor {
   has_sleep_log: boolean;
   sleep_log: ApiSleepLog | null;
   default_sleep_quality?: number;
+  default_bedtime?: string | null;
+  default_wake_time?: string | null;
   work_signals: {
     work_end_hour_yesterday: number | null;
     work_span_hours_yesterday: number | null;
@@ -365,6 +366,8 @@ export const api = {
   listBlackouts: () => req<ApiBlackout[]>("GET", "/api/blackouts"),
   createBlackout: (payload: { blackout_type: string; start_date_ms: number; end_date_ms: number }) =>
     req<ApiBlackout>("POST", "/api/blackouts", payload),
+  updateBlackout: (id: number, payload: { blackout_type: string; start_date_ms: number; end_date_ms: number }) =>
+    req<ApiBlackout>("PATCH", `/api/blackouts/${id}`, payload),
   deleteBlackout: (id: number) => req<void>("DELETE", `/api/blackouts/${id}`),
 
   // history events

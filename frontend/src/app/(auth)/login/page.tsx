@@ -2,17 +2,16 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CortexSignIn } from "@shared/cortex";
+import { CortexSignIn, useAuth } from "@shared/cortex";
 import { api } from "@/lib/api";
 import { setAuthToken } from "@/lib/auth";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
 import { usePasskey } from "@/lib/usePasskey";
 
 const CORTEX_URL = (process.env.NEXT_PUBLIC_CORTEX_URL ?? "").replace(/\/$/, "");
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, loading, setUser } = useCircuitAuth();
+  const { user, loading, refetch } = useAuth();
   const { supported, loginWithPasskey } = usePasskey();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -44,7 +43,7 @@ export default function LoginPage() {
     try {
       const result = await loginWithPasskey();
       setAuthToken(result.token);
-      setUser(result.user);
+      await refetch();
       router.push("/");
     } catch (err) {
       setPasskeyError(err instanceof Error ? err.message : "Biometric login failed");
@@ -63,7 +62,7 @@ export default function LoginPage() {
           ? await api.register(username.trim(), password)
           : await api.login(username.trim(), password);
       setAuthToken(result.token);
-      setUser(result.user);
+      await refetch();
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
@@ -114,7 +113,7 @@ export default function LoginPage() {
             appName="Circuit"
             showHeader={false}
             onSuccess={async () => {
-              try { setUser(await api.me()); } catch { /* ignore */ }
+              await refetch();
               router.push("/");
             }}
             onLocalMode={() => setShowLocal(true)}

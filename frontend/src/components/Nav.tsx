@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
 const links = [
@@ -16,7 +16,7 @@ const links = [
 
 export function Nav() {
   const pathname = usePathname();
-  const { user } = useCircuitAuth();
+  const { user } = useAuth();
 
   return (
     <nav className="border-b border-circuit-border bg-circuit-surface px-4 py-3">

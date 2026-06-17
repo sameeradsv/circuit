@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiBlackout, ApiTask } from "@/lib/api";
-import { useCircuitAuth } from "@/lib/use-circuit-auth";
+import { useAuth } from "@shared/cortex";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { BlackoutDayOverlay, BlackoutMonthBadge, blackoutCellStyle } from "@/components/calendar/BlackoutLayers";
 import { useEnergyMode } from "@/lib/use-energy-mode";
@@ -741,7 +741,7 @@ function DropConfirmBanner({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
-  const { user, loading } = useCircuitAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const [tasks, setTasks]   = useState<ApiTask[]>([]);
   const [blackouts, setBlackouts] = useState<ApiBlackout[]>([]);
