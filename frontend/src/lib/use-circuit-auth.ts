@@ -10,7 +10,9 @@ const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 export function useCircuitAuth() {
   const [user, setUserState] = useState<LocalUser | null>(() => getLocalUser());
-  const [loading, setLoading] = useState(() => !!getAuthToken());
+  // Only show loading when we have a token but no cache — i.e. the user has never seen data yet.
+  // A cache hit means we can render immediately; the background fetch is a silent revalidation.
+  const [loading, setLoading] = useState(() => !!getAuthToken() && !getLocalUser());
 
   useEffect(() => {
     const token = getAuthToken();
