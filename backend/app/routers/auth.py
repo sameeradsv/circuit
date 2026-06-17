@@ -89,7 +89,13 @@ def me(user: User = Depends(require_user)):
 @router.get("/status")
 def auth_status(db: Session = Depends(get_db)):
     has_users = db.query(User).first() is not None
-    return {"has_users": has_users, "sync_ready": True}
+    return {"has_users": has_users}
+
+
+@router.delete("/account", status_code=204)
+def delete_account(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    db.delete(user)
+    db.commit()
 
 
 @router.get("/debug")

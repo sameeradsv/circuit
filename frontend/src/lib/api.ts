@@ -252,7 +252,7 @@ export type ListTasksPageOpts = {
 
 export const api = {
   // auth
-  authStatus: () => req<{ has_users: boolean; sync_ready: boolean }>("GET", "/api/auth/status"),
+  authStatus: () => req<{ has_users: boolean }>("GET", "/api/auth/status"),
   register: (username: string, password: string) =>
     req<{ token: string; user: { id: number; username: string } }>("POST", "/api/auth/register", { username, password }),
   login: (username: string, password: string) =>
