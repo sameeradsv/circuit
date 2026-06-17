@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -47,9 +47,19 @@ class AuthResponse(BaseModel):
     user: dict
 
 
+async def _parse_body(request: Request, model: type):
+    try:
+        return model.model_validate(await request.json())
+    except ValidationError as exc:
+        raise HTTPException(422, detail=exc.errors())
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+
+
 @router.post("/register", status_code=201)
 @limiter.limit("3/minute")
-def register(request: Request, payload: RegisterRequest = Body(), db: Session = Depends(get_db)):
+async def register(request: Request, db: Session = Depends(get_db)):
+    payload: RegisterRequest = await _parse_body(request, RegisterRequest)
     username = payload.username.strip().lower()
     if not re.fullmatch(r'[a-z0-9_.-]+', username):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username may only contain letters, numbers, underscores, hyphens, and dots")
@@ -65,7 +75,8 @@ def register(request: Request, payload: RegisterRequest = Body(), db: Session = 
 
 @router.post("/login")
 @limiter.limit("5/minute")
-def login(request: Request, payload: LoginRequest = Body(), db: Session = Depends(get_db)):
+async def login(request: Request, db: Session = Depends(get_db)):
+    payload: LoginRequest = await _parse_body(request, LoginRequest)
     user = db.query(User).filter(User.username == payload.username.lower()).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
