@@ -991,7 +991,7 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
           )}
           <button
             onClick={submit}
-            disabled={submitting || !parsed.text.trim()}
+            disabled={submitting || !utterance?.text.trim()}
             className="btn btn-primary"
             style={{ padding: "6px 14px", fontSize: 13 }}
           >
