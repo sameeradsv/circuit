@@ -89,6 +89,7 @@ Auth supports **passkey / biometric sign-in** via WebAuthn. Enable or check stat
 ## Docs
 
 - [Architecture](docs/architecture.md)
+- [Decisions](docs/DECISIONS.md)
 - [Task model](docs/task-model.md)
 - [App features](docs/features.md)
 - [Backlog](docs/BACKLOG.md)

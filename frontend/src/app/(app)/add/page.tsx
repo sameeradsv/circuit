@@ -157,16 +157,36 @@ export default function AddPage() {
     setSubmitting(true);
     setError(null);
     try {
+      const parsedFields = taskParsed as {
+        text: string;
+        tag?: string;
+        urgency?: number;
+        duration?: number;
+      };
+      let tag = parsedFields.tag ?? "general";
+      let urgency = parsedFields.urgency ?? 0.5;
+      let effort = "medium";
+      let cognitiveLoad: number | undefined;
+      try {
+        const ai = await api.classifyTask(taskText);
+        tag = ai.tag;
+        urgency = ai.urgency;
+        effort = ai.effort;
+        cognitiveLoad = ai.cognitive_load;
+      } catch {
+        /* regex parse + defaults */
+      }
       await api.createTask({
         text: taskText,
-        tag: (taskParsed as { text: string; tag?: string }).tag ?? "general",
-        urgency: (taskParsed as { text: string; urgency?: number }).urgency ?? 0.5,
+        tag,
+        urgency,
         importance: 0.5,
         tiny_step: "",
-        effort: "medium",
+        effort,
+        ...(cognitiveLoad !== undefined ? { cognitive_load: cognitiveLoad } : {}),
         ...(finalScheduledAt ? { scheduled_at: finalScheduledAt } : {}),
         ...(recurrence ? { recurrence } : {}),
-        ...((taskParsed as { text: string; duration?: number }).duration ? { duration: (taskParsed as { text: string; duration?: number }).duration } : {}),
+        ...(parsedFields.duration ? { duration: parsedFields.duration } : {}),
       });
       router.push("/tasks");
     } catch (e) {

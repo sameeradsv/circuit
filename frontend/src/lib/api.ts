@@ -178,6 +178,26 @@ export interface ApiSearchResult {
   total: number;
 }
 
+export interface EnergyTimelineEvent {
+  occurred_at: string;
+  time: string;
+  energy: number;
+  delta?: number;
+  running_energy?: number;
+  label: "draining" | "neutral" | "energising";
+  note: string;
+  source: string;
+}
+
+export interface EnergyTimeline {
+  date: string;
+  source: string;
+  start_energy: number;
+  end_energy: number;
+  events: EnergyTimelineEvent[];
+  avg_energy: number | null;
+}
+
 export interface ApiSummary {
   total_tasks: number;
   completed_tasks: number;
@@ -232,7 +252,6 @@ export type ListTasksPageOpts = {
 export const api = {
   // auth
   authStatus: () => req<{ has_users: boolean; sync_ready: boolean }>("GET", "/api/auth/status"),
-  me: () => req<{ id: number; username: string }>("GET", "/api/auth/me"),
   register: (username: string, password: string) =>
     req<{ token: string; user: { id: number; username: string } }>("POST", "/api/auth/register", { username, password }),
   login: (username: string, password: string) =>
@@ -256,6 +275,8 @@ export const api = {
     return req<ApiTaskPage>("GET", `/api/tasks?${params}`);
   },
   createTask: (payload: TaskIn) => req<ApiTask>("POST", "/api/tasks", payload),
+  migrateTasks: (payload: TaskIn[]) =>
+    req<{ created: number; skipped: number }>("POST", "/api/tasks/migrate", payload),
   updateTask: (id: number, patch: TaskPatch) => req<ApiTask>("PATCH", `/api/tasks/${id}`, patch),
   batchUpdate: (ids: number[], patch: TaskPatch) =>
     req<{ updated: number; ids: number[] }>("POST", "/api/tasks/batch-update", { ids, patch }),
@@ -276,18 +297,10 @@ export const api = {
       return res.json() as Promise<{ deleted: number }>;
     });
   },
-  migrateTasks: (tasks: TaskIn[]) =>
-    req<{ created: number; skipped: number }>("POST", "/api/tasks/migrate", tasks),
-
   // settings
   getSettings: () => req<ApiSettings>("GET", "/api/settings"),
   updateSettings: (values: Record<string, unknown>) =>
     req<ApiSettings>("PUT", "/api/settings", { values }),
-  getSetting: (key: string) =>
-    req<{ key: string; value: unknown }>("GET", `/api/settings/${key}`),
-  setSetting: (key: string, value: unknown) =>
-    req<{ key: string; value: unknown }>("PUT", `/api/settings/${key}`, { value }),
-
   // user state
   getSyncEnergy: () => req<{
     energy_so_far: number; drain_so_far: number;
@@ -313,6 +326,9 @@ export const api = {
   // search & summary
   search: (q: string) => req<ApiSearchResult>("GET", `/api/search?q=${encodeURIComponent(q)}`),
   getSummary: () => req<ApiSummary>("GET", "/api/summary"),
+
+  getEnergyTimeline: (date?: string) =>
+    req<EnergyTimeline>("GET", `/api/energy/timeline${date ? `?date=${date}` : ""}`),
 
   // AI classify
   classifyTask: (text: string, context?: string) =>
@@ -357,7 +373,6 @@ export const api = {
     disturbed?: boolean;
     notes?: string | null;
   }) => req<ApiSleepLog>("POST", "/api/sleep", payload),
-  listSleepLogs: (days = 7) => req<ApiSleepLog[]>("GET", `/api/sleep?days=${days}`),
   listSleepOverrides: (page = 1, limit = 10) =>
     req<ApiSleepOverridePage>("GET", `/api/sleep/overrides?page=${page}&limit=${limit}`),
   deleteSleepOverride: (date: string) => req<void>("DELETE", `/api/sleep/${date}`),
@@ -374,6 +389,4 @@ export const api = {
   // history events
   logEvent: (taskId: number, eventType: string, metadata: Record<string, unknown> = {}) =>
     req<ApiTaskEvent>("POST", "/api/history/events", { task_id: taskId, event_type: eventType, metadata }),
-  getEvents: (taskId?: number) =>
-    req<ApiTaskEvent[]>("GET", taskId ? `/api/history/events?task_id=${taskId}` : "/api/history/events"),
 };

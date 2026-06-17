@@ -40,7 +40,10 @@ Key routers: see `CLAUDE.md` router table.
 | `app/(app)/` | Authenticated pages — tasks, calendar, account, chat |
 | `components/task-detail/` | TaskDetailModal sections (priority, cognitive, time, blackouts, series) |
 | `components/calendar/` | Blackout calendar overlays |
-| `lib/api.ts` | Typed fetch wrapper for all endpoints |
+| `components/` | `AppShell`, `TabBar`, `Sidebar`, `WorkloadBar`, `BehavioralInsights`, `EnergyModeSwitcher`, `TerminalChat`, `task-detail/*`, `calendar/BlackoutLayers` |
+| `lib/task-ranking.ts` | Shared Home/Tasks ranking → engine `scoreTasks` |
+| `lib/vanilla-migrate.ts` | Detect/import `localStorage` `circuit_tasks_v1*` → `POST /api/tasks/migrate` |
+| `lib/api.ts` | Typed fetch — `migrateTasks`, `getSummary`, search, classify, energy, tasks |
 | `lib/engine-adapter.ts` | `ApiTask` → engine `Task` |
 | `lib/blackout-utils.ts` | Calendar blackout overlap + tint colors |
 | `lib/calendar-layout.ts` | Side-by-side columns for overlapping day/week events |
@@ -82,4 +85,4 @@ Sleep **work signals** in Circuit (`sleep.py`) still use raw task-event completi
 
 ## Docs
 
-Product reference: `CLAUDE.md` (agent/developer guide). User-facing feature list: [features.md](./features.md). Task fields: [task-model.md](./task-model.md).
+Product reference: `CLAUDE.md` (agent/developer guide). Decisions: [DECISIONS.md](./DECISIONS.md). User-facing feature list: [features.md](./features.md). Task fields: [task-model.md](./task-model.md).

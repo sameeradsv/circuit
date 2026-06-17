@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const API_BASE =
-  (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "") ||
-  "http://localhost:8000";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 const PASSKEY_KEY = "circuit_passkey_registered";
 const TOKEN_KEY = "circuit_auth_token";

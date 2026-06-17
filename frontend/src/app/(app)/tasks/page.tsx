@@ -1,16 +1,16 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiTask, ApiBlackout } from "@/lib/api";
-import { getTaskCache, setTaskCache, updateTaskInCache, invalidateTaskCache } from "@/lib/task-cache";
+import { getTaskCache, updateTaskInCache, invalidateTaskCache } from "@/lib/task-cache";
 import { useAuth } from "@shared/cortex";
 import { useEffectiveEnergy } from "@/lib/use-effective-energy";
 import { parseTaskText } from "@/lib/parse-task";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
+import { EnergyModeSwitcher } from "@/components/EnergyModeSwitcher";
 import { useEnergyMode } from "@/lib/use-energy-mode";
-import { apiTaskToTask } from "@/lib/engine-adapter";
-import { scoreTasks } from "@/engines/src/scheduling-engine/scoring";
+import { rankApiTasks } from "@/lib/task-ranking";
 import { useVoiceInput } from "@/lib/use-voice-input";
 import { suggestSlot, updateDelayPattern, formatSlot, SlotSuggestion } from "@/lib/suggest-slot";
 import { BLACKOUT_LABELS } from "@/lib/blackout-utils";
@@ -44,15 +44,13 @@ function fmtTime(min: number): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
-function effortToEnergyReq(effort: string | null | undefined): number {
-  if (effort === "high") return 8;
-  if (effort === "low")  return 2;
-  return 5;
-}
-
 function taskTypeMeta(task: ApiTask): { label: string; color: string; cls: string } {
   const tag    = task.tag    ?? "general";
   const effort = task.effort ?? "medium";
+  if (tag === "errand" || tag === "shopping" || tag === "travel")
+    return { label: "Errand", color: "var(--rose)", cls: "errand" };
+  if (tag === "general" && task.location_dependency)
+    return { label: "Errand", color: "var(--rose)", cls: "errand" };
   if (tag === "work" && effort === "high") return { label: "Creative",  color: "var(--terra)",   cls: "creative" };
   if (tag === "work")                      return { label: "Deep work", color: "var(--sage)",    cls: "deep"     };
   if (tag === "social")                    return { label: "Comms",     color: "var(--mustard)", cls: "comms"    };
@@ -71,32 +69,6 @@ const TYPE_FILTERS = [
 
 const DONE_PAGE_SIZE = 20;
 
-interface ScoredTask extends ApiTask {
-  score: number;
-  reason: string;
-}
-
-function scoreForRank(task: ApiTask, energy: number, timeAvail: number): { score: number; reason: string } {
-  const dueIn      = dueInDays(task);
-  const energyReq  = effortToEnergyReq(task.effort);
-  const urgency    = dueIn <= 0 ? 1 : Math.max(0, 1 - dueIn / 7);
-  const energyMatch= 1 - Math.min(1, Math.abs(energyReq - energy) / 5);
-  const timeFit    = timeAvail >= (task.duration ?? 30) ? 1 : Math.max(0, timeAvail / (task.duration ?? 30));
-  const segs = [
-    { k: "urgency", v: urgency * 30,      max: 30 },
-    { k: "energy",  v: energyMatch * 28,  max: 28 },
-    { k: "time",    v: timeFit * 18,      max: 18 },
-  ];
-  const score = segs.reduce((a, s) => a + s.v, 0);
-  const top = [...segs].sort((a, b) => b.v / b.max - a.v / a.max)[0];
-  const reasons: Record<string, string> = {
-    urgency: dueIn < 0 ? "overdue" : dueIn === 0 ? "due today" : `due in ${dueIn}d`,
-    energy:  `matches your energy (${energyReq}/10)`,
-    time:    `fits your ${fmtTime(timeAvail)} window`,
-  };
-  return { score, reason: reasons[top.k] ?? "" };
-}
-
 function toInputValue(ts: number) {
   const d = new Date(ts);
   const p = (n: number) => String(n).padStart(2, "0");
@@ -109,7 +81,7 @@ export default function TasksPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [mode, setMode]   = useEnergyMode();
-  const { value: energy } = useEffectiveEnergy();
+  const { value: energy, userState } = useEffectiveEnergy();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
   const [doneTasks, setDoneTasks] = useState<ApiTask[]>([]);
@@ -123,6 +95,7 @@ export default function TasksPage() {
   const [showDone, setShowDone] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [textFilter, setTextFilter] = useState("");
+  const [searchIds, setSearchIds] = useState<Set<number> | null>(null);
   const [activeBlackouts, setActiveBlackouts] = useState<ApiBlackout[]>([]);
 
   useEffect(() => {
@@ -175,6 +148,20 @@ export default function TasksPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, showDone, donePage]);
 
+  useEffect(() => {
+    const q = textFilter.trim();
+    if (!q) {
+      setSearchIds(null);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      api.search(q)
+        .then((res) => setSearchIds(new Set(res.tasks.map((t) => t.id))))
+        .catch(() => setSearchIds(null));
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [textFilter]);
+
   if (loading || !user) return null;
 
   const activeTypes = new Set(activeBlackouts.map(b => b.blackout_type));
@@ -184,7 +171,7 @@ export default function TasksPage() {
     return flags.some(f => activeTypes.has(f));
   }
 
-  const timeAvail = 120;
+  const timeAvail = userState?.time_available_minutes ?? 480;
   const open = tasks;
 
   // Score and rank open tasks — blacked-out and import-review tasks are separated
@@ -192,15 +179,17 @@ export default function TasksPage() {
   const onHold = open.filter(isBlackedOut);
   const active = open.filter((t) => !isBlackedOut(t) && !t.import_review_pending);
 
-  const ranked = [...active]
-    .map((t) => { const { score, reason } = scoreForRank(t, energy, timeAvail); return { ...t, score, reason }; })
-    .sort((a, b) => b.score - a.score);
+  const ranked = rankApiTasks(active, { mode, availableMinutes: timeAvail });
 
   // Apply type + text filters
   const lowerText = textFilter.toLowerCase();
   const filtered = ranked
     .filter((t) => typeFilter === "all" || taskTypeMeta(t).cls === typeFilter)
-    .filter((t) => !lowerText || t.text.toLowerCase().includes(lowerText) || (t.tiny_step ?? "").toLowerCase().includes(lowerText));
+    .filter((t) => {
+      if (!lowerText) return true;
+      if (searchIds) return searchIds.has(t.id);
+      return t.text.toLowerCase().includes(lowerText) || (t.tiny_step ?? "").toLowerCase().includes(lowerText);
+    });
 
   // Tasks with a specific future time > 2h away should never appear in "Right now"
   // or "Soon" regardless of score — surface them in "Later" sorted by time.
@@ -331,6 +320,7 @@ export default function TasksPage() {
           </h1>
         </div>
         <div className="row gap-2 aic tasks-toolbar">
+          <EnergyModeSwitcher mode={mode} onChange={setMode} />
           <button
             className={"btn" + (showSearch ? " btn-primary" : "")}
             style={{ fontSize: 13 }}

@@ -15,6 +15,7 @@ const TABS = [
 
 const MORE_LINKS = [
   { href: "/analytics", label: "Analytics", glyph: "↗" },
+  { href: "/energy",     label: "Energy",    glyph: "⚡" },
   { href: "/chat",      label: "Chat",      glyph: "◌" },
   { href: "/account",   label: "Account",   glyph: "○" },
 ];

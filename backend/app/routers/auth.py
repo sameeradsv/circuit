@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -86,7 +87,9 @@ def auth_status(db: Session = Depends(get_db)):
 
 @router.get("/debug")
 def debug_auth(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
-    """Diagnose why a bearer token is being rejected. Never use in prod — remove once fixed."""
+    """Diagnose why a bearer token is being rejected. Set CIRCUIT_AUTH_DEBUG=true to enable."""
+    if os.getenv("CIRCUIT_AUTH_DEBUG") != "true":
+        raise HTTPException(status_code=404, detail="Not found")
     token = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()

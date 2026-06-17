@@ -27,7 +27,7 @@ npx jest tests/unit/engines.test.ts
 ```bash
 cd frontend
 npm install
-npm run dev      # dev server at localhost:3000
+npm run dev      # dev server at localhost:3000 — set NEXT_PUBLIC_API_URL in .env.local for API proxy
 npm run build
 npm run start
 ```
@@ -66,7 +66,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 
 | Router | Prefix | Purpose |
 |--------|--------|---------|
-| `auth.py` | `/api/auth` | Register, login, JWT, WebAuthn begin/complete |
+| `auth.py` | `/api/auth` | Register, login, JWT, WebAuthn begin/complete. `GET /api/auth/debug` only when `CIRCUIT_AUTH_DEBUG=true`. |
 | `tasks.py` | `/api/tasks` | Task CRUD, recurrence auto-creation on completion, blackout-aware next-occurrence, batch-update. Range filter includes overnight overlap: tasks where `scheduled_at < from_ms AND scheduled_at + duration*60000 > from_ms` (e.g. a Sleep task at 11 PM spanning into the next day) |
 | `calendar.py` | `/api/calendar` | ICS import (lazy-load RRULE, first-future-occurrence), series propagation, expiry |
 | `blackouts.py` | `/api/blackouts` | Blackout date-range CRUD + `PATCH /{id}` update |
@@ -129,6 +129,7 @@ app/(app)/          # Authenticated routes
   account/page.tsx  # Preferences (default bedtime/wake on shared row; form waits for API load), sleep overrides, blackouts, energy manual override, export/import, passkey
   add/page.tsx
   analytics/page.tsx
+  energy/page.tsx   # Per-day task-event timeline (GET /api/energy/timeline); cross-app chart on Canopy
   chat/page.tsx     # TerminalChat — command parser + native Circuit agent (Claude) + client-side help
 app/(auth)/login/   # Login page
 components/
@@ -138,19 +139,22 @@ components/
                         # Recurrence fields (Repeat until, After blackout, Weekend time) are hidden behind a "+ Make recurring" disclosure; collapsed by default for one-off tasks, expanded when recurrence/rrule is set. ✕ button clears recurrence (suppressed for rrule/calendar-import tasks).
   calendar/BlackoutLayers.tsx  # Calendar blackout tint overlays
   TerminalChat.tsx      # Command parsing + ActionPreview + client-side recurrence/blackout help + Circuit native agent fallback
-  AppShell.tsx / TabBar.tsx / Sidebar.tsx / Nav.tsx
+  EnergyModeSwitcher.tsx # Energy mode pills (Tasks header); syncs with UserState.focus_mode
+  WorkloadBar.tsx / BehavioralInsights.tsx  # Analytics workload + behavioral insights
+  AppShell.tsx / TabBar.tsx / Sidebar.tsx
 lib/
-  api.ts                  # Typed fetch wrapper for all backend endpoints (includes sleep, batchUpdate, updateBlackout)
+  task-ranking.ts         # Home/Tasks ranking → engine scoreTasks
+  vanilla-migrate.ts      # localStorage circuit_tasks_v1* → POST /api/tasks/migrate
+  api.ts                  # Typed fetch wrapper — `NEXT_PUBLIC_API_URL` (empty = relative `/api` in dev). Search, classify, settings, energy, tasks, etc.
   recurrence.ts           # formatRecurrence(), QUICK_PATTERNS
-  use-circuit-auth.ts
   engine-adapter.ts       # Converts ApiTask → engine Task type
   tz.ts                   # IST helpers: todayIST(), fmtTimeIST(), fmtDateIST(), dateStrToISTMs(), dateStrToISTEndMs()
   calendar-layout.ts      # Side-by-side column layout for overlapping day/week calendar events
   use-combined-energy.ts  # Fetches Circuit /api/energy/sync, Canopy /api/sync/energy, Chef /sync/energy (separate paths).
                           # Returns per-source breakdown + composite blend (used by Add page slot suggest).
   use-effective-energy.ts # Effective 1–10 energy for Home/Tasks/Sidebar: Canopy total by default, Account manual override when enabled.
-  use-energy-level.ts     # energyDescriptor() helper; legacy localStorage slider (no longer used for scoring)
-  use-energy-mode.ts      # Energy mode (normal/deep/low/social) localStorage
+  use-energy-level.ts     # energyDescriptor() helper only (no localStorage slider)
+  use-energy-mode.ts      # Energy mode (normal/deep/low/social); syncs localStorage + UserState.focus_mode via API
 ```
 
 ### Recurrence system
@@ -291,11 +295,17 @@ Tasks with `travel_buffer_before_mins` / `travel_buffer_after_mins` render hatch
 
 ### Home page (`frontend/src/app/(app)/page.tsx`)
 
-Read-only **energy** display (Canopy preset or Account manual override via `use-effective-energy.ts`). **Focus window** shows time until the next scheduled calendar task (updates every minute); no manual duration override buttons. Task ranking uses effective energy + calendar window (480 min fallback when no upcoming event).
+Read-only **energy** display (Canopy preset or Account manual override via `use-effective-energy.ts`). **Focus window** shows time until the next scheduled calendar task (updates every minute). Task ranking uses effective energy + calendar window, with `UserState.time_available_minutes` as fallback when no upcoming event.
+
+**Top pick actions:** Snooze 2h (reschedules + logs skip), Not now why? (inline score rationale), Start focus block (opens `TaskDetailModal`). **After that** rows show fit % with hover rationale; click opens task detail.
 
 ### Energy modes
 
-Four modes — `normal | deep | low | social` — shift how the scoring algorithm weights tasks. Mode state lives in `app/modes.ts` (vanilla PWA) and `UserState.focus_mode` (backend).
+Four modes — `normal | deep | low | social` — shift how the scoring algorithm weights tasks. **Next.js:** `use-energy-mode.ts` syncs `UserState.focus_mode` (Account + Tasks `EnergyModeSwitcher`). **Vanilla PWA:** `app/modes.ts` + localStorage.
+
+### Analytics
+
+`/analytics` uses `WorkloadBar` + `BehavioralInsights` (`analyzeBehavior` on open tasks) alongside `GET /api/summary`. Home and Tasks rank via shared `lib/task-ranking.ts` → engine `scoreTasks`. Account → **Import from browser (vanilla PWA)** migrates `localStorage` via `POST /api/tasks/migrate`. Product decisions: `docs/DECISIONS.md`.
 
 ## Key constraints
 

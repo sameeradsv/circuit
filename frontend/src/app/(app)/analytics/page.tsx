@@ -4,11 +4,19 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiSummary } from "@/lib/api";
 import { useAuth } from "@shared/cortex";
+import { WorkloadBar } from "@/components/WorkloadBar";
+import { BehavioralInsights } from "@/components/BehavioralInsights";
+import { apiTaskToTask } from "@/lib/engine-adapter";
+import { analyzeBehavior } from "@/engines/src/behavioral-engine";
+import type { BehavioralInsight } from "@/engines/src/types/task";
+import { useEnergyMode } from "@/lib/use-energy-mode";
 
 export default function AnalyticsPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const [mode] = useEnergyMode();
   const [summary, setSummary] = useState<ApiSummary | null>(null);
+  const [insights, setInsights] = useState<BehavioralInsight[]>([]);
   const [fetching, setFetching] = useState(false);
 
   useEffect(() => {
@@ -18,8 +26,15 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (!user) return;
     setFetching(true);
-    api.getSummary().then(setSummary).catch(() => {}).finally(() => setFetching(false));
-  }, [user]);
+    Promise.all([api.getSummary(), api.listTasks({ completed: false })])
+      .then(([s, tasks]) => {
+        setSummary(s);
+        const engineTasks = tasks.map(apiTaskToTask);
+        setInsights(analyzeBehavior(engineTasks, mode));
+      })
+      .catch(() => {})
+      .finally(() => setFetching(false));
+  }, [user, mode]);
 
   if (loading || !user) return null;
 
@@ -34,6 +49,14 @@ export default function AnalyticsPage() {
 
       {summary && (
         <>
+          <WorkloadBar pendingMinutes={summary.total_pending_minutes} />
+
+          {insights.length > 0 && (
+            <section className="panel p-4">
+              <BehavioralInsights insights={insights} />
+            </section>
+          )}
+
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <StatCard label="Completion rate" value={`${Math.round(summary.completion_rate * 100)}%`} accent />
             <StatCard label="Pending tasks" value={String(summary.pending_tasks)} />

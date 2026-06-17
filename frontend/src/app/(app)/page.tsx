@@ -3,13 +3,29 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiTask } from "@/lib/api";
+import { updateDelayPattern } from "@/lib/suggest-slot";
+import { TaskDetailModal } from "@/components/TaskDetailModal";
+import { useEnergyMode } from "@/lib/use-energy-mode";
 import { useAuth } from "@shared/cortex";
 import { energyDescriptor } from "@/lib/use-energy-level";
 import { energySourceLabel, useEffectiveEnergy } from "@/lib/use-effective-energy";
+import {
+  fitPercent,
+  rankApiTasks,
+  type RankedApiTask,
+} from "@/lib/task-ranking";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const DAY_MS = 86_400_000;
+const SNOOZE_MS = 2 * 60 * 60 * 1000;
+
+const SEG_LABELS: Record<string, string> = {
+  urgency: "urgent",
+  energy: "energy fit",
+  time: "time fit",
+  momentum: "in flight",
+};
 
 function dueInDays(task: ApiTask): number {
   if (!task.scheduled_at) return 14;
@@ -59,48 +75,31 @@ function taskTypeMeta(task: ApiTask): { label: string; color: string; cls: strin
   return                                          { label: "Task",      color: "var(--sage)",    cls: "deep" };
 }
 
-interface ScoredTask extends ApiTask {
-  score: number;
-  reason: string;
-  segs: { k: string; v: number; max: number }[];
-}
+type ScoredTask = RankedApiTask;
 
-function scoreTask(task: ApiTask, energy: number, timeAvail: number): ScoredTask {
+function segDetail(task: ScoredTask, k: string): string {
   const dueIn = dueInDays(task);
   const energyReq = effortToEnergyReq(task.effort);
-  const urgency     = dueIn <= 0 ? 1 : Math.max(0, 1 - dueIn / 7);
-  const energyMatch = 1 - Math.min(1, Math.abs(energyReq - energy) / 5);
-  const timeFit     = timeAvail >= (task.duration ?? 30) ? 1 : Math.max(0, timeAvail / (task.duration ?? 30));
-  const momentum    = (task.skipped_count ?? 0) > 0 ? 0 : task.urgency > 0.7 ? 0.5 : 0;
-  const segs = [
-    { k: "urgency",  v: urgency * 30,      max: 30 },
-    { k: "energy",   v: energyMatch * 28,  max: 28 },
-    { k: "time",     v: timeFit * 18,      max: 18 },
-    { k: "momentum", v: momentum * 12,     max: 12 },
-  ];
-  const score = segs.reduce((a, s) => a + s.v, 0);
-  const top = [...segs].sort((a, b) => b.v / b.max - a.v / a.max)[0];
-  const reasons: Record<string, string> = {
-    urgency:  dueIn < 0 ? "overdue" : dueIn === 0 ? "due today" : `due in ${dueIn}d`,
-    energy:   `matches your energy (${energyReq}/10)`,
-    time:     `fits your ${fmtTime(timeAvail)} window`,
-    momentum: `high priority`,
-  };
-  return { ...task, score, reason: reasons[top.k] ?? "", segs };
+  if (k === "urgency") return dueIn < 0 ? "overdue" : dueIn === 0 ? "due today" : `due in ${dueIn}d`;
+  if (k === "energy") return `needs ~${energyReq}/10 energy`;
+  if (k === "time") return `needs ${fmtTime(task.duration ?? 30)}`;
+  if (k === "momentum") return task.urgency > 0.7 ? "high urgency flag" : "building momentum";
+  return "";
 }
 
-function rankTasks(tasks: ApiTask[], energy: number, timeAvail: number): ScoredTask[] {
-  return tasks
-    .filter((t) => !t.completed)
-    .map((t) => scoreTask(t, energy, timeAvail))
-    .sort((a, b) => b.score - a.score);
+function buildRationale(task: ScoredTask): string {
+  return [...task.segs]
+    .filter((s) => s.v > 0)
+    .sort((a, b) => b.v / b.max - a.v / a.max)
+    .map((s) => `${SEG_LABELS[s.k] ?? s.k} ${Math.round((s.v / s.max) * 100)}% (${segDetail(task, s.k)})`)
+    .join(" · ");
 }
+
 
 // ── Components ────────────────────────────────────────────────────────────────
 
 function ScoreBreakdown({ segs }: { segs: { k: string; v: number; max: number }[] }) {
   const total = segs.reduce((a, s) => a + s.max, 0);
-  const labels: Record<string, string> = { urgency: "urgent", energy: "energy fit", time: "time fit", momentum: "in flight" };
   const colors: Record<string, string> = { urgency: "var(--terra)", energy: "var(--sage)", time: "var(--mustard)", momentum: "var(--rose)" };
   return (
     <div>
@@ -115,7 +114,7 @@ function ScoreBreakdown({ segs }: { segs: { k: string; v: number; max: number }[
           .map((s) => (
             <span key={s.k} className="mono dim">
               <span className="dot" style={{ background: colors[s.k], marginRight: 4 }} />
-              {labels[s.k]} {Math.round((s.v / s.max) * 100)}%
+              {SEG_LABELS[s.k]} {Math.round((s.v / s.max) * 100)}%
             </span>
           ))}
       </div>
@@ -123,8 +122,29 @@ function ScoreBreakdown({ segs }: { segs: { k: string; v: number; max: number }[
   );
 }
 
-function TopPickCard({ task, energy, timeAvail }: { task: ScoredTask; energy: number; timeAvail: number }) {
+function TopPickCard({
+  task,
+  onSnooze,
+  onOpenTask,
+}: {
+  task: ScoredTask;
+  onSnooze: () => Promise<void>;
+  onOpenTask: () => void;
+}) {
+  const [showWhy, setShowWhy] = useState(false);
+  const [snoozing, setSnoozing] = useState(false);
   const type = taskTypeMeta(task);
+
+  async function handleSnooze() {
+    setSnoozing(true);
+    try {
+      await onSnooze();
+      setShowWhy(false);
+    } finally {
+      setSnoozing(false);
+    }
+  }
+
   return (
     <div className="card" style={{ padding: 28, borderColor: "var(--ink)", boxShadow: "6px 6px 0 var(--ink)" }}>
       <div className="row gap-6 top-pick-row">
@@ -143,28 +163,35 @@ function TopPickCard({ task, energy, timeAvail }: { task: ScoredTask; energy: nu
             </p>
           )}
           <ScoreBreakdown segs={task.segs} />
+          {showWhy && (
+            <p className="serif" style={{ fontSize: 15, color: "var(--ink-2)", margin: "12px 0 0", maxWidth: 480 }}>
+              {buildRationale(task)}
+            </p>
+          )}
         </div>
         <div className="col gap-2 top-pick-actions" style={{ minWidth: 180, alignItems: "stretch" }}>
-          <Link
-            href="/tasks"
+          <button
+            type="button"
             className="btn btn-primary"
             style={{ padding: "14px 18px", fontSize: 15, justifyContent: "center" }}
+            onClick={onOpenTask}
           >
             Start a focus block →
-          </Link>
-          <button
-            className="btn"
-            style={{ justifyContent: "center" }}
-            onClick={() => {}}
-          >
-            Snooze 2h
           </button>
           <button
             className="btn"
             style={{ justifyContent: "center" }}
-            onClick={() => {}}
+            disabled={snoozing}
+            onClick={handleSnooze}
           >
-            Not now, why?
+            {snoozing ? "Snoozing…" : "Snooze 2h"}
+          </button>
+          <button
+            className="btn"
+            style={{ justifyContent: "center" }}
+            onClick={() => setShowWhy((v) => !v)}
+          >
+            {showWhy ? "Hide rationale" : "Not now, why?"}
           </button>
         </div>
       </div>
@@ -172,10 +199,22 @@ function TopPickCard({ task, energy, timeAvail }: { task: ScoredTask; energy: nu
   );
 }
 
-function TaskRow({ task, rank }: { task: ScoredTask; rank: number }) {
+function TaskRow({ task, rank, onOpen }: { task: ScoredTask; rank: number; onOpen: () => void }) {
   const type = taskTypeMeta(task);
   return (
-    <Link href="/tasks" className="task" style={{ textDecoration: "none" }}>
+    <div
+      className="task"
+      style={{ cursor: "pointer" }}
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+    >
       <div className="rank">{String(rank).padStart(2, "0")}</div>
       <div>
         <div className="row aic gap-2">
@@ -189,22 +228,21 @@ function TaskRow({ task, rank }: { task: ScoredTask; rank: number }) {
         </div>
       </div>
       <div className="row gap-2 aic">
-        {task.urgency > 0.6 && (
-          <span className="pill ghost mono" style={{ fontSize: 10 }}>
-            {Math.round(task.urgency * 100)}%
-          </span>
-        )}
-        <button
-          className="btn-icon"
-          onClick={(e) => { e.preventDefault(); }}
-          aria-label="Open"
+        <span
+          className="pill ghost mono"
+          style={{ fontSize: 10, cursor: "help" }}
+          title={buildRationale(task)}
+          onClick={(e) => e.stopPropagation()}
         >
+          {fitPercent(task)}%
+        </span>
+        <span className="btn-icon" aria-hidden style={{ opacity: 0.45 }}>
           <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12h14M13 5l7 7-7 7" />
           </svg>
-        </button>
+        </span>
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -212,14 +250,32 @@ function TaskRow({ task, rank }: { task: ScoredTask; rank: number }) {
 
 export default function HomePage() {
   const { user } = useAuth();
-  const { value: energy, source, loading: energyLoading } = useEffectiveEnergy();
+  const [mode] = useEnergyMode();
+  const { value: energy, source, loading: energyLoading, userState } = useEffectiveEnergy();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
+  const [detailTask, setDetailTask] = useState<ApiTask | null>(null);
   const [calendarExpiry, setCalendarExpiry] = useState<{ expires_at_ms: number | null; expires_at_iso: string | null; days_until_expiry: number | null } | null>(null);
   const [nextMeeting, setNextMeeting] = useState<ApiTask | null>(null);
   const [timeAvail, setTimeAvail] = useState<number | null>(null);
 
-  const scoringTimeAvail = timeAvail ?? 480;
+  const scoringTimeAvail = timeAvail ?? userState?.time_available_minutes ?? 480;
+
+  async function snoozeTask(task: ApiTask) {
+    const now = Date.now();
+    const scheduledAt = now + SNOOZE_MS;
+    const newPattern = updateDelayPattern(task, now);
+    const [updated] = await Promise.all([
+      api.updateTask(task.id, {
+        scheduled_at: scheduledAt,
+        skipped_count: (task.skipped_count ?? 0) + 1,
+        last_skipped_at: now,
+        ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
+      }),
+      api.logEvent(task.id, "skipped", { rescheduled_to: scheduledAt, snooze_hours: 2 }).catch(() => {}),
+    ]);
+    setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -247,7 +303,7 @@ export default function HomePage() {
   if (!user) return null;
 
   const desc = energyDescriptor(energy);
-  const ranked = rankTasks(tasks, energy, scoringTimeAvail);
+  const ranked = rankApiTasks(tasks, { mode, availableMinutes: scoringTimeAvail });
   const top = ranked[0];
   const next = ranked.slice(1, 4);
   const completedToday = tasks.filter((t) => {
@@ -394,7 +450,11 @@ export default function HomePage() {
               the highest-leverage thing right now
             </span>
           </div>
-          <TopPickCard task={top} energy={energy} timeAvail={scoringTimeAvail} />
+          <TopPickCard
+            task={top}
+            onSnooze={() => snoozeTask(top)}
+            onOpenTask={() => setDetailTask(top)}
+          />
         </div>
       )}
 
@@ -409,7 +469,7 @@ export default function HomePage() {
           </div>
           <div className="card" style={{ padding: 6 }}>
             {next.map((t, i) => (
-              <TaskRow key={t.id} task={t} rank={i + 2} />
+              <TaskRow key={t.id} task={t} rank={i + 2} onOpen={() => setDetailTask(t)} />
             ))}
           </div>
         </div>
@@ -441,6 +501,18 @@ export default function HomePage() {
           <p className="tiny muted">patterns & stats</p>
         </Link>
       </div>
+
+      {detailTask && (
+        <TaskDetailModal
+          task={detailTask}
+          mode={mode}
+          onSave={(updated) => {
+            setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+            setDetailTask(updated);
+          }}
+          onClose={() => setDetailTask(null)}
+        />
+      )}
     </div>
   );
 }

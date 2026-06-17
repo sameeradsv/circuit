@@ -9,6 +9,7 @@ import { dateStrToISTEndMs, dateStrToISTMs, fmtDateIST, todayIST } from "@/lib/t
 import { invalidateTaskCache } from "@/lib/task-cache";
 import { useCombinedEnergy } from "@/lib/use-combined-energy";
 import { canopyPresetZeroOne, notifyUserStateUpdated } from "@/lib/use-effective-energy";
+import { discoverVanillaTaskStores, vanillaTasksFromKey } from "@/lib/vanilla-migrate";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
 
@@ -37,6 +38,12 @@ export default function AccountPage() {
   const [importErr, setImportErr] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+
+  // vanilla PWA localStorage migration
+  const [vanillaStores, setVanillaStores] = useState<{ key: string; count: number }[]>([]);
+  const [migratingKey, setMigratingKey] = useState<string | null>(null);
+  const [migrateResult, setMigrateResult] = useState<string | null>(null);
+  const [migrateErr, setMigrateErr] = useState<string | null>(null);
 
   // sleep overrides (timing comes from the "Sleep" calendar task)
   const [todaySleep, setTodaySleep] = useState<ApiSleepLog | null>(null);
@@ -124,6 +131,11 @@ export default function AccountPage() {
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    setVanillaStores(discoverVanillaTaskStores());
+  }, [user]);
 
   async function loadSleepOverrides(page: number) {
     setSleepHistoryLoading(true);
@@ -372,6 +384,23 @@ export default function AccountPage() {
       setImportErr(err instanceof Error ? err.message : "Import failed. Check passphrase and file.");
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleVanillaMigrate(key: string) {
+    setMigrateErr(null);
+    setMigrateResult(null);
+    setMigratingKey(key);
+    try {
+      const payload = vanillaTasksFromKey(key);
+      const result = await api.migrateTasks(payload);
+      setMigrateResult(`Migrated ${result.created} tasks (${result.skipped} already on account).`);
+      invalidateTaskCache();
+      setVanillaStores(discoverVanillaTaskStores());
+    } catch (err) {
+      setMigrateErr(err instanceof Error ? err.message : "Migration failed");
+    } finally {
+      setMigratingKey(null);
     }
   }
 
@@ -943,6 +972,35 @@ export default function AccountPage() {
           {importErr && <p className="text-sm text-red-400">{importErr}</p>}
         </form>
       </section>
+
+      {vanillaStores.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Import from browser (vanilla PWA)</h2>
+          <div className="panel p-5 space-y-3">
+            <p className="text-xs text-circuit-muted">
+              Found tasks saved in this browser from the standalone Circuit app. Import merges by client ID — duplicates are skipped.
+            </p>
+            <ul className="space-y-2">
+              {vanillaStores.map((store) => (
+                <li key={store.key} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-circuit-muted font-mono text-xs truncate">{store.key}</span>
+                  <span className="text-circuit-text shrink-0">{store.count} tasks</span>
+                  <button
+                    type="button"
+                    disabled={migratingKey !== null}
+                    onClick={() => void handleVanillaMigrate(store.key)}
+                    className="btn btn-primary shrink-0 text-xs"
+                  >
+                    {migratingKey === store.key ? "Importing…" : "Import"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {migrateErr && <p className="text-sm text-red-400">{migrateErr}</p>}
+            {migrateResult && <p className="text-xs text-circuit-muted">{migrateResult}</p>}
+          </div>
+        </section>
+      )}
 
       {/* Data management */}
       <section className="space-y-4">
