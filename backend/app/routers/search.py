@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_
@@ -53,6 +54,9 @@ def search_tasks(
     return SearchResult(query=q, tasks=items, total=len(items))
 
 
+_IST = ZoneInfo("Asia/Kolkata")
+
+
 @router.get("/summary", response_model=SummaryResponse)
 def get_summary(user: User = Depends(require_user), db: Session = Depends(get_db)):
     tasks = db.query(CircuitTask).filter(CircuitTask.user_id == user.id).all()
@@ -60,7 +64,16 @@ def get_summary(user: User = Depends(require_user), db: Session = Depends(get_db
     open_tasks = [t for t in tasks if not t.completed]
     completed = total - len(open_tasks)
     pending = len(open_tasks)
-    total_pending_minutes = sum(t.duration for t in open_tasks)
+
+    # Pending time: only tasks scheduled today (IST) — used by WorkloadBar vs 8h capacity
+    _now_ist = datetime.now(_IST)
+    _day_start_ms = int(_now_ist.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    _day_end_ms = _day_start_ms + 86_400_000
+    total_pending_minutes = sum(
+        (t.duration or 0)
+        for t in open_tasks
+        if t.scheduled_at and _day_start_ms <= t.scheduled_at < _day_end_ms
+    )
     avg_skip = sum(t.skipped_count for t in open_tasks) / pending if pending else 0.0
     by_tag: dict[str, int] = {}
     for t in open_tasks:

@@ -303,7 +303,12 @@ export default function HomePage() {
   if (!user) return null;
 
   const desc = energyDescriptor(energy);
-  const ranked = rankApiTasks(tasks, { mode, availableMinutes: scoringTimeAvail });
+  const nowMs = Date.now();
+  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+  const nearTermTasks = tasks.filter(
+    (t) => !t.scheduled_at || t.scheduled_at <= nowMs + THREE_DAYS_MS,
+  );
+  const ranked = rankApiTasks(nearTermTasks, { mode, availableMinutes: scoringTimeAvail });
   const top = ranked[0];
   const next = ranked.slice(1, 4);
   const completedToday = tasks.filter((t) => {

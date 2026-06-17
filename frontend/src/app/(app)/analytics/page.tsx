@@ -74,7 +74,7 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <StatCard label="Completion rate" value={`${Math.round(summary.completion_rate * 100)}%`} accent />
             <StatCard label="Pending tasks" value={String(summary.pending_tasks)} />
-            <StatCard label="Pending time" value={`${totalHours}h`} />
+            <StatCard label="Today's time" value={`${totalHours}h`} />
             <StatCard label="Avg skips" value={summary.avg_skip_count.toFixed(1)} warn={summary.avg_skip_count > 1} />
           </div>
 

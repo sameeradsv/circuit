@@ -25,18 +25,24 @@ def _task_delta(event_type: str, task: CircuitTask) -> float:
 
     Completing a high-reward task can be net-positive because the sense of
     accomplishment offsets the cognitive cost. Low-reward/heavy tasks drain.
+    Duration scales the cost linearly (30 min = 0.5×, 60 min = 1.0×, 120 min = 2.0×).
     """
+    duration_mins = max(5, task.duration or 30)
+    dur_factor = min(2.0, max(0.5, duration_mins / 60))
+
     if event_type == "completed":
-        reward = task.energy_to_reward_ratio        # 0–1
-        cost   = task.cognitive_load * 0.15         # 0–0.15
-        delta  = reward * 0.12 - cost               # −0.15 to +0.12
+        reward = task.energy_to_reward_ratio        # 0–1; sense of accomplishment is fixed
+        cost   = task.cognitive_load * 0.15 * dur_factor   # effort cost scales with duration
+        delta  = reward * 0.12 - cost
     elif event_type == "skipped":
-        delta = -(task.activation_energy * 0.15 + 0.05)   # −0.05 to −0.20
+        base  = task.activation_energy * 0.15 + 0.05
+        delta = -min(0.30, base * min(1.5, dur_factor))
     elif event_type == "uncompleted":
-        delta = -(task.recovery_cost * 0.20 + 0.05)       # −0.05 to −0.25
+        base  = task.recovery_cost * 0.20 + 0.05
+        delta = -min(0.35, base * min(1.5, dur_factor))
     else:
         delta = -0.02   # created/rescheduled: tiny planning overhead
-    return round(max(-0.30, min(0.15, delta)), 3)
+    return round(max(-0.35, min(0.15, delta)), 3)
 
 
 def _task_label(delta: float) -> str:

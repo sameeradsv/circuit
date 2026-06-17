@@ -16,7 +16,7 @@ export function WorkloadBar({ pendingMinutes }: { pendingMinutes: number }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs text-circuit-muted">
-        <span>Workload — {timeLabel} pending</span>
+        <span>Today's workload — {timeLabel} scheduled</span>
         <span className={pct >= 100 ? "text-red-400" : ""}>{label}</span>
       </div>
       <div className="h-2 w-full rounded-full bg-circuit-surface border border-circuit-border overflow-hidden">

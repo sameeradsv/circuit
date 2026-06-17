@@ -239,7 +239,7 @@ Energy is modelled as a **running balance** (0–1) that accumulates through the
    - `running_energy` — cumulative balance after this event (0–1)
    - `start_energy` / `end_energy` — opening and closing balance for the day
    
-   Task deltas: completing a high `energy_to_reward_ratio` task can be net-positive; skipping costs willpower (−0.05 to −0.20); uncompleting costs recovery (−0.05 to −0.25); heavy cognitive-load completions drain even if "done".
+   Task deltas: completing a high `energy_to_reward_ratio` task can be net-positive; skipping costs willpower (−0.05 to −0.30); uncompleting costs recovery (−0.05 to −0.35); heavy cognitive-load completions drain even if "done". **Duration scales the cost** (30 min = 0.5×, 60 min = 1.0×, 120 min = 2.0×, capped at 2.0×) — the effort drain grows with task length, while the reward/accomplishment bonus stays fixed.
 
    **Event time on the timeline** uses the task's **scheduled slot** (`scheduled_at`) when present, not wall-clock completion time (`app/task_event_time.py`). New `TaskEvent` rows are written the same way; the timeline read path also maps existing rows via `effective_event_time()` so historical data aligns without migration. Unscheduled tasks and explicit `POST /api/history/events` `occurred_at` still use actual/log time. **Sleep work signals** (`sleep.py → _get_work_signals`) intentionally keep raw `TaskEvent.occurred_at` (actual work hours matter for late-night penalties).
 
@@ -295,7 +295,7 @@ Tasks with `travel_buffer_before_mins` / `travel_buffer_after_mins` render hatch
 
 ### Home page (`frontend/src/app/(app)/page.tsx`)
 
-Read-only **energy** display (Canopy preset or Account manual override via `use-effective-energy.ts`). **Focus window** shows time until the next scheduled calendar task (updates every minute). Task ranking uses effective energy + calendar window, with `UserState.time_available_minutes` as fallback when no upcoming event.
+Read-only **energy** display (Canopy preset or Account manual override via `use-effective-energy.ts`). **Focus window** shows time until the next scheduled calendar task (updates every minute). Task ranking uses effective energy + calendar window, with `UserState.time_available_minutes` as fallback when no upcoming event. **Only tasks due within 3 days** (or with no `scheduled_at`) are ranked for top picks — tasks scheduled further out are excluded so suggestions stay actionable.
 
 **Top pick actions:** Snooze 2h (reschedules + logs skip), Not now why? (inline score rationale), Start focus block (opens `TaskDetailModal`). **After that** rows show fit % with hover rationale; click opens task detail.
 
@@ -306,6 +306,8 @@ Four modes — `normal | deep | low | social` — shift how the scoring algorith
 ### Analytics
 
 `/analytics` uses `WorkloadBar` + `BehavioralInsights` (`analyzeBehavior` on open tasks) alongside `GET /api/summary`. Home and Tasks rank via shared `lib/task-ranking.ts` → engine `scoreTasks`. Account → **Import from browser (vanilla PWA)** migrates `localStorage` via `POST /api/tasks/migrate`. Product decisions: `docs/DECISIONS.md`.
+
+`WorkloadBar` shows **today's scheduled workload** vs an 8-hour capacity — `total_pending_minutes` in `GET /api/summary` sums only tasks with `scheduled_at` falling within today (IST), not the total backlog. The by-tag breakdown and pending task count still cover all open tasks.
 
 ## Key constraints
 
