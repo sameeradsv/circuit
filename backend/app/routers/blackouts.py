@@ -59,6 +59,23 @@ def create_blackout(payload: BlackoutIn, user: User = Depends(require_user), db:
     return _to_dict(b, tasks_rescheduled=moved)
 
 
+@router.patch("/{blackout_id}", status_code=200)
+def update_blackout(blackout_id: int, payload: BlackoutIn, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    b = db.get(Blackout, blackout_id)
+    if not b or b.user_id != user.id:
+        raise HTTPException(404, "Blackout not found")
+    if payload.blackout_type not in _VALID_TYPES:
+        raise HTTPException(400, f"blackout_type must be one of: {', '.join(sorted(_VALID_TYPES))}")
+    if payload.end_date_ms <= payload.start_date_ms:
+        raise HTTPException(400, "end_date_ms must be after start_date_ms")
+    b.blackout_type = payload.blackout_type
+    b.start_date_ms = payload.start_date_ms
+    b.end_date_ms = payload.end_date_ms
+    db.commit()
+    db.refresh(b)
+    return _to_dict(b)
+
+
 @router.delete("/{blackout_id}", status_code=204)
 def delete_blackout(blackout_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)):
     b = db.get(Blackout, blackout_id)

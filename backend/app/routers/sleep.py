@@ -33,6 +33,8 @@ _IST = ZoneInfo("Asia/Kolkata")
 
 DEFAULT_SLEEP_QUALITY = 7.0
 SETTINGS_KEY_DEFAULT_QUALITY = "default_sleep_quality"
+SETTINGS_KEY_DEFAULT_BEDTIME = "default_bedtime"   # "HH:MM", e.g. "23:00"
+SETTINGS_KEY_DEFAULT_WAKE_TIME = "default_wake_time"  # "HH:MM", e.g. "07:00"
 
 router = APIRouter(prefix="/api/sleep", tags=["sleep"])
 
@@ -82,6 +84,40 @@ def _get_default_sleep_quality(db: Session, user_id: int) -> float:
     except (json.JSONDecodeError, TypeError):
         pass
     return DEFAULT_SLEEP_QUALITY
+
+
+def _get_str_setting(db: Session, user_id: int, key: str) -> Optional[str]:
+    row = db.query(UserSettings).filter(UserSettings.user_id == user_id, UserSettings.key == key).first()
+    if not row:
+        return None
+    try:
+        val = json.loads(row.value)
+        return val if isinstance(val, str) else None
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _get_default_sleep_window(db: Session, user_id: int, wake_date_str: str) -> Optional[tuple[int, int]]:
+    """Return (bedtime_ms, wake_ms) from default_bedtime/default_wake_time settings for wake_date."""
+    bedtime_str = _get_str_setting(db, user_id, SETTINGS_KEY_DEFAULT_BEDTIME)
+    wake_str = _get_str_setting(db, user_id, SETTINGS_KEY_DEFAULT_WAKE_TIME)
+    if not bedtime_str or not wake_str:
+        return None
+    try:
+        bh, bm = (int(p) for p in bedtime_str.split(":"))
+        wh, wm = (int(p) for p in wake_str.split(":"))
+    except (ValueError, AttributeError):
+        return None
+    wake_date = date.fromisoformat(wake_date_str)
+    wake_dt = datetime(wake_date.year, wake_date.month, wake_date.day, wh, wm, tzinfo=_IST)
+    wake_ms = int(wake_dt.timestamp() * 1000)
+    # Evening bedtime (≥ noon) is on the prior calendar day
+    bed_date = wake_date - timedelta(days=1) if bh >= 12 else wake_date
+    bed_dt = datetime(bed_date.year, bed_date.month, bed_date.day, bh, bm, tzinfo=_IST)
+    bedtime_ms = int(bed_dt.timestamp() * 1000)
+    if wake_ms <= bedtime_ms:
+        return None
+    return bedtime_ms, wake_ms
 
 
 def _find_sleep_task_times(user_id: int, wake_date_str: str, db: Session) -> Optional[tuple[int, int]]:
@@ -180,12 +216,33 @@ def resolve_sleep_for_wake_date(
 
 
 def resolve_sleep_with_fallback(user_id: int, wake_date_str: str, db: Session) -> Optional[SleepContext]:
-    """Resolve sleep for wake_date, falling back to the previous day (legacy manual logs)."""
+    """Resolve sleep for wake_date. Falls back to default_bedtime/default_wake_time settings,
+    then to yesterday's task-derived times (not manual overrides) as a last resort."""
     ctx = resolve_sleep_for_wake_date(user_id, wake_date_str, db)
     if ctx:
         return ctx
+    # Use the user's configured default sleep window when no Sleep task exists for the date
+    default_window = _get_default_sleep_window(db, user_id, wake_date_str)
+    if default_window:
+        bedtime_ms, wake_ms = default_window
+        quality = _get_default_sleep_quality(db, user_id)
+        return SleepContext(
+            date=wake_date_str,
+            bedtime_ms=bedtime_ms,
+            wake_ms=wake_ms,
+            quality=quality,
+            quality_is_default=True,
+            disturbed=False,
+            notes=None,
+            source="default",
+            manual_log_id=None,
+        )
+    # Legacy fallback: yesterday's task-derived times only (skip manual overrides that were date-specific)
     prev = (date.fromisoformat(wake_date_str) - timedelta(days=1)).isoformat()
-    return resolve_sleep_for_wake_date(user_id, prev, db)
+    prev_ctx = resolve_sleep_for_wake_date(user_id, prev, db)
+    if prev_ctx and prev_ctx.source == "task":
+        return prev_ctx
+    return None
 
 
 def _context_dict(ctx: SleepContext) -> dict:
@@ -528,6 +585,8 @@ def get_sleep_factor(
         "has_sleep_log": ctx is not None,
         "sleep_log": _context_dict(ctx) if ctx else None,
         "default_sleep_quality": _get_default_sleep_quality(db, user.id),
+        "default_bedtime": _get_str_setting(db, user.id, SETTINGS_KEY_DEFAULT_BEDTIME),
+        "default_wake_time": _get_str_setting(db, user.id, SETTINGS_KEY_DEFAULT_WAKE_TIME),
         "work_signals": {
             "work_end_hour_yesterday": work_end_h,
             "work_span_hours_yesterday": work_span_h,

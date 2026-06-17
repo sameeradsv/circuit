@@ -69,7 +69,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 | `auth.py` | `/api/auth` | Register, login, JWT, WebAuthn begin/complete |
 | `tasks.py` | `/api/tasks` | Task CRUD, recurrence auto-creation on completion, blackout-aware next-occurrence, batch-update |
 | `calendar.py` | `/api/calendar` | ICS import (lazy-load RRULE, first-future-occurrence), series propagation, expiry |
-| `blackouts.py` | `/api/blackouts` | Blackout date-range CRUD |
+| `blackouts.py` | `/api/blackouts` | Blackout date-range CRUD + `PATCH /{id}` update |
 | `sleep.py` | `/api/sleep` | Sleep overrides + factor; timing from **Sleep** calendar task |
 | `settings.py` | `/api/settings` | Per-user key-value settings |
 | `user.py` | `/api/user` | User state (energy/stress/focus mode), delete account |
@@ -103,6 +103,12 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 - Default quality from `UserSettings.default_sleep_quality` (7/10) when not overridden
 - `GET /api/sleep/overrides` — paginated list of saved override rows
 
+**Sleep resolution priority** (`resolve_sleep_with_fallback` in `sleep.py`):
+1. Sleep task for today (primary — `scheduled_at` = bedtime, wake = bedtime + duration)
+2. Manual `SleepLog` times for today (if `bedtime_ms`/`wake_ms` set)
+3. `default_bedtime` / `default_wake_time` user settings (e.g. "23:00" / "07:00") — set in Account → Preferences
+4. Yesterday's Sleep task times only (legacy fallback; manual overrides from prior days are **not** carried forward)
+
 **`UserState`** — `energy_level` (manual 0–1 slider), `stress_level`, `focus_mode`, `energy_eod` (nullable float — closing energy balance of the previous day, used for cross-day carry-over in `_start_energy()`).
 
 **`User`**, **`AuthSession`**, **`WebAuthnCredential`**, **`WebAuthnChallenge`**, **`UserSettings`**, **`TaskEvent`**
@@ -120,7 +126,7 @@ app/(app)/          # Authenticated routes
   page.tsx          # Tasks dashboard (home)
   tasks/page.tsx    # Task list with scoring, On hold section for blacked-out tasks
   calendar/page.tsx # Day / week / month views, drag-and-drop reschedule, blackout shading, ICS import
-  account/page.tsx  # Preferences, sleep overrides, blackouts, export/import, passkey
+  account/page.tsx  # Preferences (incl. default_bedtime/default_wake_time), sleep overrides, blackouts (collapsed list, paginated, editable), export/import, passkey
   add/page.tsx
   analytics/page.tsx
   chat/page.tsx     # TerminalChat — command parser + native Circuit agent (Claude) + client-side help
@@ -132,10 +138,11 @@ components/
   TerminalChat.tsx      # Command parsing + ActionPreview + client-side recurrence/blackout help + Circuit native agent fallback
   AppShell.tsx / TabBar.tsx / Sidebar.tsx / Nav.tsx
 lib/
-  api.ts                  # Typed fetch wrapper for all backend endpoints (includes sleep, batchUpdate)
+  api.ts                  # Typed fetch wrapper for all backend endpoints (includes sleep, batchUpdate, updateBlackout)
   recurrence.ts           # formatRecurrence(), QUICK_PATTERNS
   use-circuit-auth.ts
   engine-adapter.ts       # Converts ApiTask → engine Task type
+  tz.ts                   # IST helpers: todayIST(), fmtTimeIST(), fmtDateIST(), dateStrToISTMs(), dateStrToISTEndMs()
   use-combined-energy.ts  # Cross-app energy hook. Fetches Circuit /api/energy/sync, Canopy /api/sync/energy, Chef /sync/energy.
                           # Returns composite (weighted blend) + per-source breakdown + startEnergy (sleep-derived opening balance).
                           # Circuit energy = running_energy (start_energy + today's task deltas); falls back to manual_energy×0.7 + energy_so_far×0.3.
@@ -182,7 +189,9 @@ Tasks carry `blackout_skip_flags` specifying which types cause them to be skippe
 
 **Calendar**: blackout date ranges render as tinted day backgrounds (day/week/month views) via `lib/blackout-utils.ts`.
 
-**On blackout create**: `POST /api/blackouts` calls `services/blackout.py → reschedule_tasks_for_blackout()` — affected open tasks scheduled inside the range are moved per each task's `post_blackout_behavior`. Response includes `tasks_rescheduled` count.
+**On blackout create**: `POST /api/blackouts` calls `services/blackout.py → reschedule_tasks_for_blackout()` — affected open tasks scheduled inside the range are moved per each task's `post_blackout_behavior`. Response includes `tasks_rescheduled` count. `PATCH /api/blackouts/{id}` updates type/dates without re-running rescheduling.
+
+**Date storage**: blackout `start_date_ms` / `end_date_ms` are stored as **IST midnight** and **IST 23:59:59.999** respectively. The frontend uses `dateStrToISTMs` / `dateStrToISTEndMs` from `lib/tz.ts` when building these from date-picker strings — never `new Date("YYYY-MM-DD").getTime()` (which gives UTC midnight and bleeds into the next IST day).
 
 **Post-blackout behavior** (per task, set in TaskDetailModal → task-detail sections):
 - `"resume"` — skips ahead through the recurrence pattern until an occurrence falls after all blackouts; the series continues from that occurrence on the original schedule (no catch-up)
