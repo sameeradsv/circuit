@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -49,7 +49,7 @@ class AuthResponse(BaseModel):
 
 @router.post("/register", status_code=201)
 @limiter.limit("3/minute")
-def register(request: Request, payload: RegisterRequest, db: Session = Depends(get_db)):
+def register(request: Request, payload: RegisterRequest = Body(), db: Session = Depends(get_db)):
     username = payload.username.strip().lower()
     if not re.fullmatch(r'[a-z0-9_.-]+', username):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username may only contain letters, numbers, underscores, hyphens, and dots")
@@ -65,7 +65,7 @@ def register(request: Request, payload: RegisterRequest, db: Session = Depends(g
 
 @router.post("/login")
 @limiter.limit("5/minute")
-def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
+def login(request: Request, payload: LoginRequest = Body(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == payload.username.lower()).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
