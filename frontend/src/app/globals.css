@@ -341,8 +341,15 @@ body {
   overflow-y: auto;
   height: calc(100dvh - 200px - var(--content-bottom-inset));
 }
+.cal-month-scroll {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  max-height: calc(100dvh - 200px - var(--content-bottom-inset));
+  border-radius: 8px;
+}
 @media (max-width: 768px) {
   .cal-scroll-grid { height: calc(100dvh - 260px - var(--content-bottom-inset)); }
+  .cal-month-scroll { max-height: calc(100dvh - 260px - var(--content-bottom-inset)); }
 }
 
 /* Full-height embedded chat (Tasks/Chat pages inside app shell) */

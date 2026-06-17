@@ -64,6 +64,7 @@ def _collect_export(db: Session, user_id: int) -> dict:
         "settings": {r.key: json.loads(r.value) for r in settings},
         "user_state": {
             "energy_level": state.energy_level if state else 0.7,
+            "energy_manual_override": bool(state.energy_manual_override) if state else False,
             "stress_level": state.stress_level if state else 0.3,
             "time_available_minutes": state.time_available_minutes if state else 480,
             "focus_mode": state.focus_mode if state else "normal",
@@ -167,6 +168,7 @@ def import_data(
             row = UserState(user_id=user.id)
             db.add(row)
         row.energy_level = state_data.get("energy_level", 0.7)
+        row.energy_manual_override = bool(state_data.get("energy_manual_override", False))
         row.stress_level = state_data.get("stress_level", 0.3)
         row.time_available_minutes = state_data.get("time_available_minutes", 480)
         row.focus_mode = state_data.get("focus_mode", "normal")

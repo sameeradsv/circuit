@@ -8,6 +8,7 @@ import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { BlackoutDayOverlay, BlackoutMonthBadge, blackoutCellStyle } from "@/components/calendar/BlackoutLayers";
 import { useEnergyMode } from "@/lib/use-energy-mode";
 import { updateTaskInCache } from "@/lib/task-cache";
+import { layoutOverlappingTasks, TaskLayoutSlot } from "@/lib/calendar-layout";
 
 // ── Constants & helpers ───────────────────────────────────────────────────────
 
@@ -171,11 +172,28 @@ function DropLine({ top }: { top: number }) {
   );
 }
 
+function blockHorizontalStyle(
+  layout: TaskLayoutSlot | undefined,
+  compact: boolean,
+): { left: string; width: string; right?: string } {
+  const pad = compact ? 2 : 4;
+  const gap = compact ? 2 : 4;
+  if (!layout || layout.totalColumns <= 1) {
+    return { left: `${pad}px`, right: `${pad}px`, width: "auto" };
+  }
+  const colW = 100 / layout.totalColumns;
+  return {
+    left: `calc(${layout.column * colW}% + ${pad}px)`,
+    width: `calc(${colW}% - ${gap}px)`,
+  };
+}
+
 // ── Task block ────────────────────────────────────────────────────────────────
 
 function TaskBlock({
   task,
   compact = false,
+  layout,
   onClick,
   onDragStart,
   onDragEnd,
@@ -183,6 +201,7 @@ function TaskBlock({
 }: {
   task: ApiTask;
   compact?: boolean;
+  layout?: TaskLayoutSlot;
   onClick?: () => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
@@ -197,10 +216,10 @@ function TaskBlock({
   const bufAfter  = task.travel_buffer_after_mins  ?? 0;
   const bufBeforeH = bufBefore / 60 * HOUR_H;
   const bufAfterH  = bufAfter  / 60 * HOUR_H;
+  const hPos = blockHorizontalStyle(layout, compact);
   const bufferStyle = {
     position: "absolute" as const,
-    left: compact ? 2 : 4,
-    right: compact ? 2 : 4,
+    ...hPos,
     background: "repeating-linear-gradient(45deg, var(--line) 0px, var(--line) 1px, transparent 1px, transparent 6px)",
     opacity: 0.5,
     borderRadius: 3,
@@ -228,23 +247,23 @@ function TaskBlock({
         style={{
           position: "absolute",
           top,
-          left: compact ? 2 : 4,
-          right: compact ? 2 : 4,
+          ...hPos,
           height,
           background: "var(--paper)",
           borderLeft: `3px solid ${taskAccent(task)}`,
           borderRadius: overflows ? "0 4px 0 0" : "0 4px 4px 0",
           borderBottom: overflows ? `2px dashed ${taskAccent(task)}` : undefined,
-          padding: compact ? "2px 4px" : "3px 8px",
+          padding: compact ? "2px 4px" : "3px 6px",
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
-          justifyContent: "center",
+          justifyContent: "flex-start",
           boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
           zIndex: 1,
           cursor: onDragStart ? "grab" : (onClick ? "pointer" : "default"),
           opacity: isDragging ? 0.35 : 1,
           transition: "opacity 0.1s",
+          minWidth: 0,
         }}
       >
         <span style={{
@@ -281,18 +300,21 @@ function ContinuationBlock({
   dayStart,
   dayEnd,
   compact = false,
+  layout,
   onClick,
 }: {
   task: ApiTask;
   dayStart: number;
   dayEnd: number;
   compact?: boolean;
+  layout?: TaskLayoutSlot;
   onClick?: () => void;
 }) {
   const endMs      = task.scheduled_at! + (task.duration ?? 30) * 60_000;
   const overlapMin = (Math.min(endMs, dayEnd) - dayStart) / 60_000;
   const height     = Math.max(24, overlapMin / 60 * HOUR_H - 2);
   const accent     = taskAccent(task);
+  const hPos = blockHorizontalStyle(layout, compact);
   return (
     <div
       title={`${task.text} · continued from previous day · ends ${fmtTime(endMs)}`}
@@ -300,22 +322,22 @@ function ContinuationBlock({
       style={{
         position: "absolute",
         top: 0,
-        left: compact ? 2 : 4,
-        right: compact ? 2 : 4,
+        ...hPos,
         height,
         background: "var(--paper)",
         borderLeft: `3px solid ${accent}`,
         borderTop: `2px dashed ${accent}`,
         borderRadius: "0 0 4px 0",
-        padding: compact ? "2px 4px" : "3px 8px",
+        padding: compact ? "2px 4px" : "3px 6px",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        justifyContent: "center",
+        justifyContent: "flex-start",
         boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
         zIndex: 1,
         cursor: onClick ? "pointer" : "default",
         opacity: 0.85,
+        minWidth: 0,
       }}
     >
       <span style={{
@@ -376,6 +398,8 @@ function DayView({
   const visible    = dayTasks.filter((t) => inRange(t.scheduled_at!));
   const outOfRange = dayTasks.filter((t) => !inRange(t.scheduled_at!));
   const unscheduled = tasks.filter((t) => !t.scheduled_at && !t.completed);
+
+  const layoutMap = layoutOverlappingTasks([...visible, ...continuationTasks]);
 
   const isToday = date.toDateString() === today.toDateString();
   const nowMins = isToday ? (today.getHours() - START_H) * 60 + today.getMinutes() : -1;
@@ -438,6 +462,7 @@ function DayView({
                 task={t}
                 dayStart={dayStart}
                 dayEnd={end}
+                layout={layoutMap.get(t.id)}
                 onClick={() => onTaskClick(t)}
               />
             ))}
@@ -446,6 +471,7 @@ function DayView({
               <TaskBlock
                 key={t.id}
                 task={t}
+                layout={layoutMap.get(t.id)}
                 onClick={() => onTaskClick(t)}
                 onDragStart={() => onDragStart(t)}
                 onDragEnd={onDragEnd}
@@ -566,6 +592,7 @@ function WeekView({
               if (!t.scheduled_at || !t.duration) return false;
               return t.scheduled_at < dayStart && t.scheduled_at + t.duration * 60_000 > dayStart;
             });
+            const dayLayoutMap = layoutOverlappingTasks([...dayTasks, ...dayContinuations]);
 
             return (
               <div
@@ -609,6 +636,7 @@ function WeekView({
                     dayStart={dayStart}
                     dayEnd={end}
                     compact
+                    layout={dayLayoutMap.get(t.id)}
                     onClick={() => onTaskClick(t)}
                   />
                 ))}
@@ -618,6 +646,7 @@ function WeekView({
                     key={t.id}
                     task={t}
                     compact
+                    layout={dayLayoutMap.get(t.id)}
                     onClick={() => onTaskClick(t)}
                     onDragStart={() => onDragStart(t)}
                     onDragEnd={onDragEnd}
@@ -666,6 +695,7 @@ function MonthView({
   });
 
   return (
+    <div className="cal-month-scroll">
     <div className="cal-grid">
       {DAY_SHORT.map((d) => (
         <div key={d} style={{ background: "var(--paper-2)", padding: "8px 10px", fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--ink-3)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
@@ -760,6 +790,7 @@ function MonthView({
           </div>
         );
       })}
+    </div>
     </div>
   );
 }

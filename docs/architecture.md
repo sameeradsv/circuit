@@ -43,6 +43,9 @@ Key routers: see `CLAUDE.md` router table.
 | `lib/api.ts` | Typed fetch wrapper for all endpoints |
 | `lib/engine-adapter.ts` | `ApiTask` → engine `Task` |
 | `lib/blackout-utils.ts` | Calendar blackout overlap + tint colors |
+| `lib/calendar-layout.ts` | Side-by-side columns for overlapping day/week events |
+| `lib/use-effective-energy.ts` | Canopy-default effective energy; Account manual override |
+| `lib/use-combined-energy.ts` | Per-app sync fetch + composite blend (Add page) |
 | `lib/task-cache.ts` | 30s in-memory task list cache |
 
 ## Engines (`src/` — shared)
@@ -63,13 +66,17 @@ Key routers: see `CLAUDE.md` router table.
 
 ## Cross-app energy
 
-| App | Timeline endpoint | Event time source |
-|-----|-------------------|-------------------|
-| Circuit | `GET /api/energy/timeline` | Task `scheduled_at` (fallback: `TaskEvent.occurred_at`) |
-| Canopy | `GET /api/sync/energy/timeline` | Interaction `occurred_at` |
-| Chef | `GET /energy/timeline` | Meal `timestamp` |
+| App | Sync endpoint | Timeline endpoint | Event time source |
+|-----|---------------|-------------------|-------------------|
+| Circuit | `GET /api/energy/sync` | `GET /api/energy/timeline` | Task `scheduled_at` (fallback: `TaskEvent.occurred_at`) |
+| Canopy | `GET /api/sync/energy` | `GET /api/sync/energy/timeline` | Interaction `occurred_at` |
+| Chef | `GET /sync/energy` | `GET /energy/timeline` | Meal `timestamp` |
 
-`frontend/src/lib/use-combined-energy.ts` blends Circuit + Canopy + Chef sync endpoints for composite daily balance. **Canopy's Energy page** (`canopy/frontend/src/app/energy/page.tsx`) renders the merged chart when `NEXT_PUBLIC_CIRCUIT_API_URL` / `CHEF_API_URL` are set; it authenticates sibling calls with Canopy's Cortex JWT (`canopy_auth_token`), not per-app tokens from other origins.
+**Circuit UI energy (Home, Tasks, Sidebar):** `use-effective-energy.ts` — **Canopy `energy_so_far` by default**; Account **Override with manual energy level** (`user_state.energy_manual_override`) switches to saved `energy_level`. Set `NEXT_PUBLIC_CANOPY_API_URL` (+ shared Cortex JWT) in `frontend/.env.local`.
+
+**Add page slot suggest:** `use-combined-energy.ts` blends Circuit + Canopy + Chef for composite hints.
+
+**Canopy Energy page** (`canopy/frontend/src/app/energy/page.tsx`) renders the merged chart when `NEXT_PUBLIC_CIRCUIT_API_URL` / `CHEF_API_URL` are set; it authenticates sibling calls with Canopy's Cortex JWT (`canopy_auth_token`), not per-app tokens from other origins.
 
 Sleep **work signals** in Circuit (`sleep.py`) still use raw task-event completion timestamps — separate from energy timeline placement.
 

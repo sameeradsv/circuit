@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiTask, ApiBlackout } from "@/lib/api";
 import { getTaskCache, setTaskCache, updateTaskInCache, invalidateTaskCache } from "@/lib/task-cache";
 import { useAuth } from "@shared/cortex";
-import { useEnergyLevel } from "@/lib/use-energy-level";
+import { useEffectiveEnergy } from "@/lib/use-effective-energy";
 import { parseTaskText } from "@/lib/parse-task";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { useEnergyMode } from "@/lib/use-energy-mode";
@@ -109,7 +109,7 @@ export default function TasksPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [mode, setMode]   = useEnergyMode();
-  const [energy]          = useEnergyLevel();
+  const { value: energy } = useEffectiveEnergy();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
   const [doneTasks, setDoneTasks] = useState<ApiTask[]>([]);

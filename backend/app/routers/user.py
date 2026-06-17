@@ -19,6 +19,7 @@ def get_user_state(user: User = Depends(require_user), db: Session = Depends(get
     if not row:
         return UserStateRead(
             energy_level=0.7,
+            energy_manual_override=False,
             stress_level=0.3,
             time_available_minutes=480,
             focus_mode="normal",
@@ -26,6 +27,7 @@ def get_user_state(user: User = Depends(require_user), db: Session = Depends(get
         )
     return UserStateRead(
         energy_level=row.energy_level,
+        energy_manual_override=bool(row.energy_manual_override),
         stress_level=row.stress_level,
         time_available_minutes=row.time_available_minutes,
         focus_mode=row.focus_mode,
@@ -44,6 +46,7 @@ def set_user_state(
         row = UserState(user_id=user.id)
         db.add(row)
     row.energy_level = payload.energy_level
+    row.energy_manual_override = payload.energy_manual_override
     row.stress_level = payload.stress_level
     row.time_available_minutes = payload.time_available_minutes
     row.focus_mode = payload.focus_mode
@@ -52,6 +55,7 @@ def set_user_state(
     db.refresh(row)
     return UserStateRead(
         energy_level=row.energy_level,
+        energy_manual_override=bool(row.energy_manual_override),
         stress_level=row.stress_level,
         time_available_minutes=row.time_available_minutes,
         focus_mode=row.focus_mode,

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@shared/cortex";
-import { useEnergyLevel, energyDescriptor } from "@/lib/use-energy-level";
+import { energyDescriptor } from "@/lib/use-energy-level";
+import { energySourceLabel, useEffectiveEnergy } from "@/lib/use-effective-energy";
 import { useTheme } from "@/lib/use-theme";
 import { useNotificationToggle } from "@/lib/use-notifications";
 
@@ -62,7 +63,7 @@ const NAV = [
 export function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuth();
-  const [energy] = useEnergyLevel();
+  const { value: energy, source, loading: energyLoading } = useEffectiveEnergy();
   const { theme, setTheme } = useTheme();
   const { permission, enabled, toggle } = useNotificationToggle();
   const desc = energyDescriptor(energy);
@@ -97,17 +98,22 @@ export function Sidebar() {
         <div className="card-2" style={{ padding: 14 }}>
           <div className="between" style={{ marginBottom: 10 }}>
             <span className="display" style={{ fontSize: 28, fontWeight: 600 }}>
-              {energy}
+              {energyLoading ? "—" : energy}
               <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 2 }}>
                 /10
               </span>
             </span>
-            <span className="pill ghost" style={{ fontSize: 11 }}>{desc.word}</span>
+            <span className="pill ghost" style={{ fontSize: 11 }}>{energyLoading ? "…" : desc.word}</span>
           </div>
           <div className="energy-rail" style={{ pointerEvents: "none" }}>
             <div className="track" style={{ width: `${((energy - 1) / 9) * 100}%` }} />
             <div className="knob" style={{ left: `${((energy - 1) / 9) * 100}%` }} />
           </div>
+          {!energyLoading && (
+            <p className="mono" style={{ fontSize: 10, color: "var(--ink-3)", marginTop: 8 }}>
+              {energySourceLabel(source)}
+            </p>
+          )}
         </div>
 
         {/* Palette toggle + user */}

@@ -221,6 +221,22 @@ def _migrate_energy_eod() -> None:
         conn.commit()
 
 
+def _migrate_energy_manual_override() -> None:
+    inspector = inspect(engine)
+    existing_cols = {c["name"] for c in inspector.get_columns("user_state")}
+    if "energy_manual_override" in existing_cols:
+        return
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        if is_sqlite:
+            conn.execute(text("ALTER TABLE user_state ADD COLUMN energy_manual_override BOOLEAN DEFAULT 0"))
+        else:
+            conn.execute(text(
+                "ALTER TABLE user_state ADD COLUMN IF NOT EXISTS energy_manual_override BOOLEAN DEFAULT FALSE"
+            ))
+        conn.commit()
+
+
 def _migrate_recurrence_anchor() -> None:
     inspector = inspect(engine)
     existing_cols = {c["name"] for c in inspector.get_columns("circuit_tasks")}

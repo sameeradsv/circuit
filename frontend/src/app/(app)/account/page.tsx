@@ -7,6 +7,8 @@ import { useAuth } from "@shared/cortex";
 import { usePasskey } from "@/lib/usePasskey";
 import { dateStrToISTEndMs, dateStrToISTMs, fmtDateIST, todayIST } from "@/lib/tz";
 import { invalidateTaskCache } from "@/lib/task-cache";
+import { useCombinedEnergy } from "@/lib/use-combined-energy";
+import { canopyPresetZeroOne, notifyUserStateUpdated } from "@/lib/use-effective-energy";
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
 
@@ -21,6 +23,7 @@ export default function AccountPage() {
 
   const [settings, setSettings] = useState<ApiSettings | null>(null);
   const [state, setState] = useState<ApiUserState | null>(null);
+  const [prefsLoading, setPrefsLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
@@ -69,6 +72,9 @@ export default function AccountPage() {
   const [editBlackoutEnd, setEditBlackoutEnd] = useState(today);
   const [savingBlackout, setSavingBlackout] = useState(false);
   const BLACKOUT_PAGE_SIZE = 5;
+  const { energy: combinedEnergy } = useCombinedEnergy();
+  const canopyPreset = canopyPresetZeroOne(combinedEnergy);
+  const [energyManualOverride, setEnergyManualOverride] = useState(false);
 
   // cleanup state
   const sixMonthsAhead = new Date();
@@ -201,6 +207,7 @@ export default function AccountPage() {
 
   useEffect(() => {
     if (!user) return;
+    setPrefsLoading(true);
     Promise.all([api.getSettings(), api.getUserState(), api.listBlackouts(), api.getSleepFactor()])
       .then(([s, st, bl, factor]) => {
         setSettings(s);
@@ -210,11 +217,16 @@ export default function AccountPage() {
         setTodaySleep(today);
         if (!editingSleepDate) applySleepFormFromLog(today);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setPrefsLoading(false));
     api.listSleepOverrides(1, 1)
       .then((d) => setSleepOverrideTotal(d.total))
       .catch(() => {});
   }, [user]);
+
+  useEffect(() => {
+    if (state) setEnergyManualOverride(state.energy_manual_override ?? false);
+  }, [state]);
 
   async function handleAddBlackout() {
     if (!newBlackoutStart || !newBlackoutEnd) return;
@@ -284,6 +296,9 @@ export default function AccountPage() {
   if (loading || !user) return null;
 
   const vals = settings?.values ?? {};
+  const prefsFormKey = settings && state
+    ? JSON.stringify({ values: settings.values, state, canopy: Math.round(canopyPreset * 1000) })
+    : null;
 
   async function savePreferences(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -301,14 +316,20 @@ export default function AccountPage() {
         default_bedtime: data.get("default_bedtime") as string,
         default_wake_time: data.get("default_wake_time") as string,
       });
+      const manualOverride = energyManualOverride;
       const newState = await api.setUserState({
-        energy_level: Number(data.get("energy_level")),
+        energy_level: manualOverride
+          ? Number(data.get("energy_level"))
+          : canopyPresetZeroOne(combinedEnergy),
+        energy_manual_override: manualOverride,
         stress_level: Number(data.get("stress_level")),
         time_available_minutes: Number(data.get("time_available_minutes")),
         focus_mode: data.get("focus_mode") as string,
       });
       setSettings(newSettings);
       setState(newState);
+      setEnergyManualOverride(manualOverride);
+      notifyUserStateUpdated();
       setSaveMsg("Saved.");
     } catch {
       setSaveMsg("Failed to save.");
@@ -416,7 +437,10 @@ export default function AccountPage() {
       {/* Preferences */}
       <section className="space-y-4">
         <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Preferences</h2>
-        <form onSubmit={savePreferences} className="panel p-5 space-y-5">
+        {prefsLoading || !prefsFormKey ? (
+          <div className="panel p-5 text-sm text-circuit-muted">Loading preferences…</div>
+        ) : (
+        <form key={prefsFormKey} onSubmit={savePreferences} className="panel p-5 space-y-5">
           <div className="grid grid-cols-2 gap-4">
             <label className="space-y-1">
               <span className="text-xs text-circuit-muted">Default energy mode</span>
@@ -450,7 +474,7 @@ export default function AccountPage() {
                 className="input-field"
               />
             </label>
-            <label className="space-y-1">
+            <label className="space-y-1 col-span-2 sm:col-span-1">
               <span className="text-xs text-circuit-muted">Default sleep quality (0–10)</span>
               <input
                 type="number" name="default_sleep_quality" min={0} max={10} step={1}
@@ -458,12 +482,15 @@ export default function AccountPage() {
                 className="input-field"
               />
             </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <label className="space-y-1">
               <span className="text-xs text-circuit-muted">Default bedtime</span>
               <input
                 type="time" name="default_bedtime"
                 defaultValue={String(vals.default_bedtime ?? "23:00")}
-                className="input-field"
+                className="input-field w-full"
               />
             </label>
             <label className="space-y-1">
@@ -471,22 +498,40 @@ export default function AccountPage() {
               <input
                 type="time" name="default_wake_time"
                 defaultValue={String(vals.default_wake_time ?? "07:00")}
-                className="input-field"
+                className="input-field w-full"
               />
             </label>
           </div>
 
           <hr className="border-circuit-border" />
-          <p className="text-xs font-medium text-circuit-muted uppercase tracking-wider">Today's context</p>
+          <p className="text-xs font-medium text-circuit-muted uppercase tracking-wider">Today&apos;s context</p>
+          <div className="rounded border border-circuit-border px-3 py-2 text-xs text-circuit-muted">
+            Default energy from Canopy:{" "}
+            <span className="text-circuit-text font-medium">{Math.round(canopyPreset * 100)}%</span>
+            {!combinedEnergy?.canopy && combinedEnergy && (
+              <span> (Canopy unavailable — using Circuit {Math.round(combinedEnergy.circuit * 100)}%)</span>
+            )}
+          </div>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="energy_manual_override"
+              checked={energyManualOverride}
+              onChange={(e) => setEnergyManualOverride(e.target.checked)}
+              className="accent-circuit-accent"
+            />
+            <span className="text-xs text-circuit-muted">Override with manual energy level</span>
+          </label>
           <div className="grid grid-cols-2 gap-4">
-            <label className="space-y-1">
+            <label className={`space-y-1 ${energyManualOverride ? "" : "opacity-50"}`}>
               <span className="text-xs text-circuit-muted">
-                Energy level {state ? `${Math.round(state.energy_level * 100)}%` : ""}
+                Energy level {energyManualOverride && state ? `${Math.round(state.energy_level * 100)}%` : `${Math.round(canopyPreset * 100)}%`}
               </span>
               <input
                 type="range" name="energy_level" min={0} max={1} step={0.05}
-                defaultValue={state?.energy_level ?? 0.7}
-                className="w-full accent-circuit-accent"
+                defaultValue={energyManualOverride ? (state?.energy_level ?? canopyPreset) : canopyPreset}
+                disabled={!energyManualOverride}
+                className="w-full accent-circuit-accent disabled:cursor-not-allowed"
               />
             </label>
             <label className="space-y-1">
@@ -524,6 +569,7 @@ export default function AccountPage() {
             {saveMsg && <span className="text-xs text-circuit-muted">{saveMsg}</span>}
           </div>
         </form>
+        )}
       </section>
 
       {/* Blackouts */}

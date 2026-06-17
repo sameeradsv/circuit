@@ -135,6 +135,7 @@ class UserState(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
     energy_level: Mapped[float] = mapped_column(Float, default=0.7)
+    energy_manual_override: Mapped[bool] = mapped_column(Boolean, default=False)
     stress_level: Mapped[float] = mapped_column(Float, default=0.3)
     time_available_minutes: Mapped[int] = mapped_column(Integer, default=480)
     focus_mode: Mapped[str] = mapped_column(String(20), default="normal")

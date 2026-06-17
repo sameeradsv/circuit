@@ -38,6 +38,7 @@ npm test
 ```bash
 cd frontend
 npm install
+cp .env.local.example .env.local   # set NEXT_PUBLIC_CANOPY_API_URL for cross-app energy
 npm run dev      # dev server at localhost:3000
 npm run build
 ```
@@ -63,7 +64,10 @@ Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed fr
 
 | Feature | Notes |
 |---------|-------|
-| **Day / week calendar views** | Hour-by-hour timeline; toggle between day and week layout |
+| **Canopy-default energy** | Home/Tasks/Sidebar use Canopy `energy_so_far` by default; optional manual override in Account → Today's context |
+| **Calendar overlap layout** | Day/week events side-by-side when overlapping; month view scrolls when taller than viewport |
+| **Home focus window** | Read-only countdown to next scheduled event (no manual duration override) |
+| **Account preferences fix** | Form waits for API load before render; default bedtime and wake time on shared row |
 | **Manual datetime picker** | Set exact scheduled date + time when adding or editing a task |
 | **Voice input** | Dictate tasks on the Add page and quick-add row (Web Speech API) |
 | **ICS import** | Upload `.ics` from iCloud or any calendar; recurring series → one template at **next occurrence on or after today** (re-import to refresh after importer updates) |

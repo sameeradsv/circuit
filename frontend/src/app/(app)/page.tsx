@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiTask } from "@/lib/api";
 import { useAuth } from "@shared/cortex";
-import { useEnergyLevel, energyDescriptor } from "@/lib/use-energy-level";
+import { energyDescriptor } from "@/lib/use-energy-level";
+import { energySourceLabel, useEffectiveEnergy } from "@/lib/use-effective-energy";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,17 @@ function fmtTime(min: number): string {
   if (min < 60) return `${min}m`;
   const h = Math.floor(min / 60), m = min % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function pickNextScheduledTask(list: ApiTask[]): ApiTask | null {
+  const nowMs = Date.now();
+  return list
+    .filter((t) => !t.completed && t.scheduled_at && t.scheduled_at > nowMs)
+    .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0))[0] ?? null;
+}
+
+function minutesUntil(ms: number): number {
+  return Math.max(0, Math.floor((ms - Date.now()) / 60_000));
 }
 
 function effortToEnergyReq(effort: string | null | undefined): number {
@@ -196,48 +208,18 @@ function TaskRow({ task, rank }: { task: ScoredTask; rank: number }) {
   );
 }
 
-function EnergyRail({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (n: number) => void;
-}) {
-  const pct = ((value - 1) / 9) * 100;
-  const railRef = useRef<HTMLDivElement>(null);
-
-  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (!railRef.current) return;
-    const rect = railRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    onChange(Math.round(1 + x * 9));
-  }
-
-  return (
-    <div style={{ marginTop: 10 }}>
-      <div className="energy-rail" ref={railRef} onClick={handleClick}>
-        <div className="track" style={{ width: `${pct}%` }} />
-        <div className="knob" style={{ left: `${pct}%` }} />
-      </div>
-      <div className="energy-ticks">
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-          <span key={n}>{n}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
   const { user } = useAuth();
-  const [energy, setEnergy] = useEnergyLevel();
-  const [timeAvail, setTimeAvail] = useState(120);
+  const { value: energy, source, loading: energyLoading } = useEffectiveEnergy();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
   const [calendarExpiry, setCalendarExpiry] = useState<{ expires_at_ms: number | null; expires_at_iso: string | null; days_until_expiry: number | null } | null>(null);
   const [nextMeeting, setNextMeeting] = useState<ApiTask | null>(null);
+  const [timeAvail, setTimeAvail] = useState<number | null>(null);
+
+  const scoringTimeAvail = timeAvail ?? 480;
 
   useEffect(() => {
     if (!user) return;
@@ -245,26 +227,27 @@ export default function HomePage() {
     Promise.all([
       api.listTasks().then((list) => {
         setTasks(list);
-        // Find the next upcoming scheduled task and use it as the time window
-        const nowMs = Date.now();
-        const upcoming = list
-          .filter((t) => !t.completed && t.scheduled_at && t.scheduled_at > nowMs)
-          .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0));
-        const next = upcoming[0] ?? null;
-        setNextMeeting(next);
-        if (next?.scheduled_at) {
-          const mins = Math.floor((next.scheduled_at - nowMs) / 60_000);
-          if (mins > 5 && mins <= 480) setTimeAvail(mins);
-        }
+        setNextMeeting(pickNextScheduledTask(list));
       }).catch(() => {}),
       api.getCalendarExpiry().then(setCalendarExpiry).catch(() => {}),
     ]).finally(() => setFetching(false));
   }, [user]);
 
+  useEffect(() => {
+    if (!nextMeeting?.scheduled_at) {
+      setTimeAvail(null);
+      return;
+    }
+    const tick = () => setTimeAvail(minutesUntil(nextMeeting.scheduled_at!));
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, [nextMeeting]);
+
   if (!user) return null;
 
   const desc = energyDescriptor(energy);
-  const ranked = rankTasks(tasks, energy, timeAvail);
+  const ranked = rankTasks(tasks, energy, scoringTimeAvail);
   const top = ranked[0];
   const next = ranked.slice(1, 4);
   const completedToday = tasks.filter((t) => {
@@ -305,10 +288,12 @@ export default function HomePage() {
               {completedToday} done today
             </span>
           )}
-          <span className="pill">
-            <span className="dot" style={{ background: "var(--mustard)" }} />
-            {fmtTime(timeAvail)} focus left
-          </span>
+          {timeAvail !== null && (
+            <span className="pill">
+              <span className="dot" style={{ background: "var(--mustard)" }} />
+              {fmtTime(timeAvail)} until next event
+            </span>
+          )}
         </div>
       </header>
 
@@ -318,41 +303,44 @@ export default function HomePage() {
           <div style={{ flex: 1 }}>
             <div className="label" style={{ marginBottom: 8 }}>Energy</div>
             <div className="row aib gap-3 home-energy-desc" style={{ marginBottom: 4 }}>
-              <span className="display tnum home-energy-num" style={{ fontSize: 56, lineHeight: 1 }}>{energy}</span>
+              <span className="display tnum home-energy-num" style={{ fontSize: 56, lineHeight: 1 }}>
+                {energyLoading ? "—" : energy}
+              </span>
               <span className="mono" style={{ color: "var(--ink-3)", fontSize: 14 }}>/10</span>
               <span className="serif" style={{ marginLeft: 12, fontSize: 22, color: "var(--ink-2)" }}>
-                {desc.word.toLowerCase()} — {desc.hint}
+                {energyLoading ? "syncing…" : `${desc.word.toLowerCase()} — ${desc.hint}`}
               </span>
             </div>
-            <EnergyRail value={energy} onChange={setEnergy} />
+            <div className="energy-rail" style={{ pointerEvents: "none", marginTop: 10 }}>
+              <div className="track" style={{ width: `${((energy - 1) / 9) * 100}%` }} />
+              <div className="knob" style={{ left: `${((energy - 1) / 9) * 100}%` }} />
+            </div>
+            {!energyLoading && (
+              <p className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 8 }}>
+                from {energySourceLabel(source)}
+                {source !== "manual" && (
+                  <> · <Link href="/account" className="dim" style={{ textDecoration: "underline" }}>override in settings</Link></>
+                )}
+              </p>
+            )}
           </div>
           <div className="hairline-v home-window-col" style={{ paddingLeft: 24, minWidth: 220 }}>
             <div className="label" style={{ marginBottom: 8 }}>Window</div>
             <div className="row aib gap-2" style={{ marginBottom: 4 }}>
-              <span className="display tnum home-window-num" style={{ fontSize: 40, lineHeight: 1 }}>{fmtTime(timeAvail)}</span>
+              <span className="display tnum home-window-num" style={{ fontSize: 40, lineHeight: 1 }}>
+                {timeAvail !== null ? fmtTime(timeAvail) : "—"}
+              </span>
               <span className="serif" style={{ fontSize: 18, color: "var(--ink-3)" }}>
                 {nextMeeting
                   ? <>until <em>{nextMeeting.text.slice(0, 32)}{nextMeeting.text.length > 32 ? "…" : ""}</em></>
-                  : "before your next meeting"}
+                  : "no upcoming events on calendar"}
               </span>
             </div>
             {nextMeeting?.scheduled_at && (
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginBottom: 10 }}>
+              <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
                 {new Date(nextMeeting.scheduled_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
               </div>
             )}
-            <div className="row gap-1 duration-row">
-              {[30, 60, 90, 120].map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setTimeAvail(m)}
-                  className={"btn" + (m === timeAvail ? " btn-primary" : "")}
-                  style={{ padding: "6px 12px", fontSize: 13 }}
-                >
-                  {fmtTime(m)}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </div>
@@ -406,7 +394,7 @@ export default function HomePage() {
               the highest-leverage thing right now
             </span>
           </div>
-          <TopPickCard task={top} energy={energy} timeAvail={timeAvail} />
+          <TopPickCard task={top} energy={energy} timeAvail={scoringTimeAvail} />
         </div>
       )}
 

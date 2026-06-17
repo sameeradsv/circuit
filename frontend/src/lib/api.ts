@@ -156,6 +156,7 @@ export interface ApiSettings {
 
 export interface ApiUserState {
   energy_level: number;
+  energy_manual_override?: boolean;
   stress_level: number;
   time_available_minutes: number;
   focus_mode: string;

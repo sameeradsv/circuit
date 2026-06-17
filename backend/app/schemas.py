@@ -15,6 +15,7 @@ class TaskEventRead(BaseModel):
 
 class UserStateRead(BaseModel):
     energy_level: float
+    energy_manual_override: bool = False
     stress_level: float
     time_available_minutes: int
     focus_mode: str
@@ -23,6 +24,7 @@ class UserStateRead(BaseModel):
 
 class UserStateWrite(BaseModel):
     energy_level: float = Field(default=0.7, ge=0.0, le=1.0)
+    energy_manual_override: bool = False
     stress_level: float = Field(default=0.3, ge=0.0, le=1.0)
     time_available_minutes: int = Field(default=480, ge=0, le=1440)
     focus_mode: str = "normal"

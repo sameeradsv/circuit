@@ -109,7 +109,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 3. `default_bedtime` / `default_wake_time` user settings (e.g. "23:00" / "07:00") — set in Account → Preferences
 4. Yesterday's Sleep task times only (legacy fallback; manual overrides from prior days are **not** carried forward)
 
-**`UserState`** — `energy_level` (manual 0–1 slider), `stress_level`, `focus_mode`, `energy_eod` (nullable float — closing energy balance of the previous day, used for cross-day carry-over in `_start_energy()`).
+**`UserState`** — `energy_level` (0–1 stored value; preset from Canopy when override off), `energy_manual_override` (bool — when false, UI uses Canopy `energy_so_far` as default), `stress_level`, `focus_mode`, `energy_eod` (nullable float — closing energy balance of the previous day, used for cross-day carry-over in `_start_energy()`).
 
 **`User`**, **`AuthSession`**, **`WebAuthnCredential`**, **`WebAuthnChallenge`**, **`UserSettings`**, **`TaskEvent`**
 
@@ -117,16 +117,16 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 
 Schema changes are additive — never destructive. Add a `_migrate_*()` function in `database.py` that uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (Postgres) or inspector-checked `ALTER TABLE` (SQLite), then call it from `on_startup` in `main.py`. Do not use Alembic.
 
-Current migrations in startup order: `_migrate_sqlite`, `_migrate_postgres`, `_migrate_webauthn_tables`, `_migrate_blackout_and_rrule`, `_migrate_recurrence_extra`, `_migrate_sleep_log`, `_migrate_energy_eod` (adds `user_state.energy_eod`), `_migrate_task_groups` (adds `group_id`, `day_time_overrides`, `travel_buffer_before_mins`, `travel_buffer_after_mins`), `_migrate_recurrence_anchor` (adds `circuit_tasks.recurrence_anchor_ms`).
+Current migrations in startup order: `_migrate_sqlite`, `_migrate_postgres`, `_migrate_webauthn_tables`, `_migrate_blackout_and_rrule`, `_migrate_recurrence_extra`, `_migrate_sleep_log`, `_migrate_energy_eod` (adds `user_state.energy_eod`), `_migrate_task_groups` (adds `group_id`, `day_time_overrides`, `travel_buffer_before_mins`, `travel_buffer_after_mins`), `_migrate_recurrence_anchor` (adds `circuit_tasks.recurrence_anchor_ms`), `_migrate_energy_manual_override` (adds `user_state.energy_manual_override`).
 
 ### Frontend (`frontend/src/`)
 
 ```
 app/(app)/          # Authenticated routes
-  page.tsx          # Tasks dashboard (home)
+  page.tsx          # Home — ranked tasks, read-only energy (Canopy default), focus window until next calendar event
   tasks/page.tsx    # Task list with scoring, On hold section for blacked-out tasks
-  calendar/page.tsx # Day / week / month views, drag-and-drop reschedule, blackout shading, ICS import
-  account/page.tsx  # Preferences (incl. default_bedtime/default_wake_time), sleep overrides, blackouts (collapsed list, paginated, editable), export/import, passkey
+  calendar/page.tsx # Day / week / month views, drag-and-drop reschedule, side-by-side overlap layout, blackout shading, ICS import
+  account/page.tsx  # Preferences (default bedtime/wake on shared row; form waits for API load), sleep overrides, blackouts, energy manual override, export/import, passkey
   add/page.tsx
   analytics/page.tsx
   chat/page.tsx     # TerminalChat — command parser + native Circuit agent (Claude) + client-side help
@@ -145,10 +145,11 @@ lib/
   use-circuit-auth.ts
   engine-adapter.ts       # Converts ApiTask → engine Task type
   tz.ts                   # IST helpers: todayIST(), fmtTimeIST(), fmtDateIST(), dateStrToISTMs(), dateStrToISTEndMs()
-  use-combined-energy.ts  # Cross-app energy hook. Fetches Circuit /api/energy/sync, Canopy /api/sync/energy, Chef /sync/energy.
-                          # Returns composite (weighted blend) + per-source breakdown + startEnergy (sleep-derived opening balance).
-                          # Circuit energy = running_energy (start_energy + today's task deltas); falls back to manual_energy×0.7 + energy_so_far×0.3.
-  use-energy-level.ts     # Manual energy slider (1–10 localStorage, mapped to 0–1)
+  calendar-layout.ts      # Side-by-side column layout for overlapping day/week calendar events
+  use-combined-energy.ts  # Fetches Circuit /api/energy/sync, Canopy /api/sync/energy, Chef /sync/energy (separate paths).
+                          # Returns per-source breakdown + composite blend (used by Add page slot suggest).
+  use-effective-energy.ts # Effective 1–10 energy for Home/Tasks/Sidebar: Canopy total by default, Account manual override when enabled.
+  use-energy-level.ts     # energyDescriptor() helper; legacy localStorage slider (no longer used for scoring)
   use-energy-mode.ts      # Energy mode (normal/deep/low/social) localStorage
 ```
 
@@ -224,7 +225,10 @@ Energy is modelled as a **running balance** (0–1) that accumulates through the
 
 **Three layers:**
 
-1. **Manual energy** — `UserState.energy_level` (0–1) + `UserState.stress_level`, set in Account → Today's context.
+1. **Effective energy (UI scoring)** — `use-effective-energy.ts`:
+   - **Default:** Canopy `energy_so_far` via `NEXT_PUBLIC_CANOPY_API_URL` + shared Cortex JWT; falls back to Circuit `running_energy` when Canopy is unreachable.
+   - **Manual override:** Account → Today's context → **Override with manual energy level** sets `UserState.energy_manual_override=true` and uses the saved `energy_level` slider (0–1). Home, Tasks, and Sidebar are read-only; no on-page energy slider.
+   - Requires `NEXT_PUBLIC_CANOPY_API_URL` (and optionally `NEXT_PUBLIC_CHEF_API_URL` for Add-page composite hints).
 
 2. **Cumulative task-event balance** — `GET /api/energy/timeline` returns a day's events each with:
    - `delta` — signed energy change (positive = restores, negative = drains)
@@ -279,11 +283,15 @@ Quick-command chips: "How busy is today?", "What are my deep work tasks this wee
 
 ### Calendar view (`frontend/src/app/(app)/calendar/page.tsx`)
 
-Day and week views show a full 24-hour grid (midnight to midnight, 64 px/hour) and auto-scroll to 7 AM on open. Month view shows task chips with overflow counts. All views support **drag-and-drop** reschedule (recurring tasks prompt occurrence vs series). Blackout ranges appear as tinted backgrounds. Clicking any event opens `TaskDetailModal` for inline editing.
+Day and week views show a full 24-hour grid (midnight to midnight, 64 px/hour) and auto-scroll to 7 AM on open. **Overlapping events** in day/week columns use side-by-side layout (`lib/calendar-layout.ts`) so labels stay visible instead of stacking on top of each other. Month view shows task chips with overflow counts inside a **scrollable** container (`.cal-month-scroll`) when the grid exceeds viewport height. All views support **drag-and-drop** reschedule (recurring tasks prompt occurrence vs series). Blackout ranges appear as tinted backgrounds. Clicking any event opens `TaskDetailModal` for inline editing.
 
 Tasks with `travel_buffer_before_mins` / `travel_buffer_after_mins` render hatched gray blocks before/after the task block in day and week views, indicating blocked transit time.
 
 **Overnight tasks** (e.g. Sleep at 11 PM with 480 min duration): `TaskBlock` caps its rendered height at midnight (`min(rawHeight, TOTAL_H - top - 2)`) and shows a dashed bottom border + `→` suffix when the task overflows. The next day's view renders a `ContinuationBlock` — a dashed-top block starting at midnight (top: 0) whose height equals the overlap into that day. The backend `GET /api/tasks` range filter returns overnight tasks via an OR condition so they appear in both days' fetches.
+
+### Home page (`frontend/src/app/(app)/page.tsx`)
+
+Read-only **energy** display (Canopy preset or Account manual override via `use-effective-energy.ts`). **Focus window** shows time until the next scheduled calendar task (updates every minute); no manual duration override buttons. Task ranking uses effective energy + calendar window (480 min fallback when no upcoming event).
 
 ### Energy modes
 

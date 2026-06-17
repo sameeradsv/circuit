@@ -7,6 +7,11 @@ import { getAuthToken } from "./auth";
 const CANOPY_URL = (process.env.NEXT_PUBLIC_CANOPY_API_URL ?? "").replace(/\/$/, "");
 const CHEF_URL   = (process.env.NEXT_PUBLIC_CHEF_API_URL   ?? "").replace(/\/$/, "");
 
+/** Map 0–1 composite energy to the 1–10 scale used in scoring UI. */
+export function compositeToTen(composite: number): number {
+  return Math.max(1, Math.min(10, Math.round(composite * 10)));
+}
+
 export interface CombinedEnergy {
   /** 0–1 weighted composite across all available sources */
   composite: number;
@@ -25,10 +30,14 @@ export interface CombinedEnergy {
 let _energyCache: { value: CombinedEnergy; ts: number } | null = null;
 const ENERGY_CACHE_MS = 60_000;
 
-async function fetchSiblingSync(baseUrl: string, token: string): Promise<number | null> {
+async function fetchSiblingEnergy(
+  baseUrl: string,
+  path: string,
+  token: string,
+): Promise<number | null> {
   if (!baseUrl) return null;
   try {
-    const r = await fetch(`${baseUrl}/api/sync/energy`, {
+    const r = await fetch(`${baseUrl}${path}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(3000),
     });
@@ -72,8 +81,8 @@ export function useCombinedEnergy() {
 
       const [sync, canopyE, chefE] = await Promise.all([
         api.getSyncEnergy().catch(() => null),
-        fetchSiblingSync(CANOPY_URL, token),
-        fetchSiblingSync(CHEF_URL,   token),
+        fetchSiblingEnergy(CANOPY_URL, "/api/sync/energy", token),
+        fetchSiblingEnergy(CHEF_URL,   "/sync/energy",      token),
       ]);
 
       if (!sync) { setLoading(false); return; }

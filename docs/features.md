@@ -13,11 +13,11 @@ Authenticated routes under `frontend/src/app/(app)/`:
 
 | Page | Route | Purpose |
 |------|-------|---------|
-| Home | `/` | Task dashboard — ranked open tasks, energy context |
+| Home | `/` | Ranked open tasks — **Canopy energy** (read-only), focus window until next calendar event |
 | Tasks | `/tasks` | Full list, filters, **On hold** section during blackouts |
 | Calendar | `/calendar` | Day / week / month views, drag-and-drop, blackout shading, ICS import |
 | Add | `/add` | Quick task capture |
-| Account | `/account` | Preferences, sleep overrides, blackouts, export/import, passkey |
+| Account | `/account` | Preferences (form loads from API before render), sleep overrides, blackouts, **energy manual override**, export/import, passkey |
 | Analytics | `/analytics` | Completion and workload stats |
 | Chat | `/chat` | TerminalChat — batch commands (no API) + Circuit agent (Groq default, Anthropic fallback) |
 | Energy | (via Canopy cross-app hook) | Cumulative energy timeline |
@@ -33,6 +33,8 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 ## Calendar
 
 - **Day / week / month** views with 24-hour grid (day/week)
+- **Overlapping events** in day/week use side-by-side columns so labels stay visible
+- **Month view** scrolls vertically when the grid exceeds viewport height
 - **Drag-and-drop** to reschedule; recurring tasks ask *this occurrence* vs *shift series*
 - **Blackout shading** — unavailable date ranges tinted on all views
 - **ICS import/export** — recurring events stored as one RRULE template per series; `scheduled_at` = first occurrence on or after today (original DTSTART kept in `rrule_dtstart_ms`). Supports iCloud-style `FREQ=WEEKLY` without `BYDAY`, explicit `BYDAY`, monthly patterns, and detached `RECURRENCE-ID` instances as one-offs. Re-import to refresh dates after importer fixes.
@@ -51,9 +53,11 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 
 - **Sleep timing** from a calendar/task event titled **Sleep** (`scheduled_at` = bedtime, `duration` = length)
 - **Account → Sleep & recovery**: optional quality / disturbed / notes overrides
-- **Default sleep quality** (0–10, default 7) in Preferences
+- **Default sleep quality** (0–10, default 7) and **default bedtime / wake time** (paired row) in Preferences
 - Override history: toggle **Show sleep overrides** with pagination; **Edit** or **Delete** per row
 - Energy baseline: `sleep_factor × 0.70 + energy_eod × 0.30` + cumulative task-event deltas through the day
+- **Effective energy for task ranking (Home, Tasks, Sidebar):** Canopy total (`energy_so_far`) by default via `NEXT_PUBLIC_CANOPY_API_URL`; optional **manual override** in Account → Today's context (checkbox + slider, `energy_manual_override` on `user_state`). No energy slider on Home.
+- **Home focus window:** read-only countdown to next scheduled calendar event (no manual duration presets)
 - **Circuit task energy on the timeline** is anchored to each task's **scheduled time** (when the work was planned), not when you tapped complete — matches Canopy (`occurred_at`) and Chef (meal `timestamp`). Cross-app chart lives on **Canopy → Energy** when sibling apps are configured.
 
 ## Account and sync
