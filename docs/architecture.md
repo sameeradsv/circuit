@@ -69,7 +69,7 @@ Key routers: see `CLAUDE.md` router table.
 | Canopy | `GET /api/sync/energy/timeline` | Interaction `occurred_at` |
 | Chef | `GET /energy/timeline` | Meal `timestamp` |
 
-`frontend/src/lib/use-combined-energy.ts` blends Circuit + Canopy + Chef sync endpoints for composite daily balance. **Canopy's Energy page** (`canopy/frontend/src/app/energy/page.tsx`) renders the merged chart when `NEXT_PUBLIC_CIRCUIT_API_URL` / `CHEF_API_URL` are set.
+`frontend/src/lib/use-combined-energy.ts` blends Circuit + Canopy + Chef sync endpoints for composite daily balance. **Canopy's Energy page** (`canopy/frontend/src/app/energy/page.tsx`) renders the merged chart when `NEXT_PUBLIC_CIRCUIT_API_URL` / `CHEF_API_URL` are set; it authenticates sibling calls with Canopy's Cortex JWT (`canopy_auth_token`), not per-app tokens from other origins.
 
 Sleep **work signals** in Circuit (`sleep.py`) still use raw task-event completion timestamps — separate from energy timeline placement.
 
