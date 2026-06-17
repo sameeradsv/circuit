@@ -314,3 +314,31 @@ Four modes — `normal | deep | low | social` — shift how the scoring algorith
 - **Additive migrations only** — never drop columns or tables; always add `IF NOT EXISTS` / inspector guards.
 - **Fail-safe recurrence** — recurrence auto-creation is wrapped in `try/except`; failures must never block task completion.
 - **Sleep factor is advisory** — a low `sleep_factor` should surface warnings and de-prioritize demanding tasks, but must never block the user from doing anything.
+
+## UI & Responsive Standards
+
+All UI changes must work correctly across **every** combination of these views before being considered done:
+
+| View | Width | Notes |
+|------|-------|-------|
+| Mobile portrait | ≤ 430 px | Primary design target; no horizontal scroll |
+| Mobile landscape | ≤ 932 px, short viewport | Reflow; critical controls must stay on-screen |
+| Tablet / iPad portrait | 768–1024 px | Two-column layouts where content warrants |
+| Tablet / iPad landscape | 1024–1366 px | Same as portrait but wider; avoid dead whitespace |
+| Laptop / desktop | ≥ 1025 px | Full layout; sidebar nav preferred over bottom tabs |
+
+### Touch & gesture rules
+- **Minimum tap target: 44 × 44 px** — applies to all buttons, chips, and icon controls.
+- **Swipe-left to complete** (green reveal, ~72 px): implemented on the task list via `SwipeTaskRow`. Deeper swipe-left reveals **skip** (amber). Use the same component for any new swipeable list.
+- Swipe is layered on top of existing tap controls — the complete (✓) and skip buttons in `task-actions` must remain functional for desktop / keyboard users.
+
+### Voice input
+- The task quick-add input (`QuickAddCard`) has a mic button using `useVoiceInput` from `src/lib/use-voice-input.ts`. Add the same hook + button to any other primary free-text input.
+- Show a clear "listening…" state; hide the mic button when `!voice.supported`.
+- `autoFocus` **off** by default on mobile to avoid keyboard jump on load.
+
+### Calendar & drag-and-drop
+- Drag-and-drop reschedule works in day/week views. On mobile, long-press should be the drag trigger — do not use raw mouse-down as a drag start.
+
+### Config & environment
+- **Never** add `localhost` or `127.0.0.1` to `CORS_ORIGINS`, `render.yaml`, or Pydantic config defaults. Dev origins belong in `.env` only.
