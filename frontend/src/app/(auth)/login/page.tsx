@@ -180,7 +180,7 @@ export default function LoginPage() {
               <div className="col gap-2" style={{ alignItems: "center" }}>
                 <button
                   type="button"
-                  onClick={() => setMode(mode === "login" ? "register" : "login")}
+                  onClick={() => { setMode(mode === "login" ? "register" : "login"); setPassword(""); setError(null); }}
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--ink-3)", fontFamily: "var(--font-body)" }}
                 >
                   {mode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}

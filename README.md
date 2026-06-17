@@ -57,7 +57,7 @@ Modular TypeScript under `src/`, bundled to a single IIFE by esbuild. All data i
 
 ### Next.js frontend
 
-Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed from `github:sameeradsv/cortex`) for auth context and encrypted export.
+Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed from `github:sameeradsv/cortex#master`) for auth context and encrypted export. All pages consume a single `AuthProvider` in the root layout — there is no separate per-page auth hook.
 
 ## Recent features
 
