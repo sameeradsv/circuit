@@ -4,72 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiTask } from "@/lib/api";
 import { useAuth } from "@shared/cortex";
-import { parseTaskText } from "@/lib/parse-task";
+import { parseUtterance } from "@/lib/parse-utterance";
 import { useVoiceInput } from "@/lib/use-voice-input";
 import { suggestSlot, formatSlot } from "@/lib/suggest-slot";
 import { useCombinedEnergy } from "@/lib/use-combined-energy";
 import { QUICK_PATTERNS, formatRecurrence } from "@/lib/recurrence";
 
-// ── NL parser (adapted from design reference) ─────────────────────────────────
-
-interface ParseChip { k: string; v: string; }
-interface NLResult  { title: string; chips: ParseChip[]; reason: string; }
-
-function parseNL(s: string): NLResult {
-  const chips: ParseChip[] = [];
-
-  const dueMap: [RegExp, string][] = [
-    [/\b(today|EOD|end of day)\b/i,      "today"],
-    [/\btomorrow\b/i,                     "tomorrow"],
-    [/\bmon(day)?\b/i,                    "Mon"],
-    [/\btue(s|sday)?\b/i,                 "Tue"],
-    [/\bwed(nesday)?\b/i,                 "Wed"],
-    [/\bthu(rs|rsday)?\b/i,               "Thu"],
-    [/\bfri(day)?\b/i,                    "Fri"],
-    [/\bnext week\b/i,                    "next week"],
-    [/\bthis week\b/i,                    "this week"],
-  ];
-  for (const [re, val] of dueMap) {
-    if (re.test(s)) { chips.push({ k: "due", v: val }); break; }
-  }
-
-  const tm = s.match(/(\d+)\s*(h|hr|hour|hours|m|min|mins|minutes)/i);
-  if (tm) {
-    const n = parseInt(tm[1]);
-    chips.push({ k: "time", v: /^h/i.test(tm[2]) ? `${n}h` : `${n}m` });
-  }
-
-  if      (/\bhigh energy|high.?focus|peak\b/i.test(s))  chips.push({ k: "energy", v: "high (8)" });
-  else if (/\blow energy|drained|tired\b/i.test(s))       chips.push({ k: "energy", v: "low (3)" });
-  else if (/\bfocus(ed)?|deep\b/i.test(s))                chips.push({ k: "energy", v: "focused (7)" });
-
-  if      (/\bcreative|sketch|design|draft|write\b/i.test(s)) chips.push({ k: "type", v: "creative" });
-  else if (/\breply|email|message|call|1:1\b/i.test(s))       chips.push({ k: "type", v: "comms" });
-  else if (/\bdeep work|refactor|build|code|review\b/i.test(s)) chips.push({ k: "type", v: "deep" });
-  else if (/\bgroceries|pick up|errand|dry clean\b/i.test(s))  chips.push({ k: "type", v: "errand" });
-  else if (/\bexpense|file|book|schedule\b/i.test(s))          chips.push({ k: "type", v: "admin" });
-
-  const bm = s.match(/blocks ([\w\s]+?)(?=,|$)/i);
-  if (bm) chips.push({ k: "blocks", v: bm[1].trim() });
-
-  let title = s.split(",")[0]
-    .replace(/\bby (today|EOD|tomorrow|mon(day)?|tue(s|sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|next week|this week)/i, "")
-    .replace(/~?\d+\s*(h|hr|hours?|m|min|mins|minutes?)/i, "")
-    .trim();
-  title = title.charAt(0).toUpperCase() + title.slice(1);
-
-  let reason = "";
-  if (chips.length > 0) {
-    const hasUrgency = chips.some((c) => c.k === "due");
-    const hasEnergy  = chips.some((c) => c.k === "energy");
-    if (hasUrgency && hasEnergy)  reason = "will rank by urgency × energy match — you'll see it surface when you're in the right state.";
-    else if (hasUrgency)          reason = "no energy hint — circuit will guess based on type.";
-    else if (hasEnergy)           reason = "no due date — it'll sit in the backlog until your energy matches.";
-    else                          reason = "captured, but won't rank highly without a due date or energy hint.";
-  }
-
-  return { title, chips, reason };
-}
+// ── Examples ─────────────────────────────────────────────────────────────────
 
 const EXAMPLES = [
   "reply to Sam by EOD, 15m, low energy",
@@ -113,14 +54,14 @@ export default function AddPage() {
   }, []);
 
   function handleSuggest() {
-    const taskParsedLocal = text.trim() ? parseTaskText(text) : null;
+    const taskParsedLocal = text.trim() ? parseUtterance(text) : null;
     const partial = {
       id: -1,
       text: text.trim() || "task",
       completed: false,
-      tag: (taskParsedLocal?.parsed as { tag?: string })?.tag ?? "work",
-      effort: "medium" as const,
-      duration: (taskParsedLocal?.parsed as { duration?: number })?.duration ?? 30,
+      tag: taskParsedLocal?.tag ?? "work",
+      effort: taskParsedLocal?.effort ?? "medium",
+      duration: taskParsedLocal?.duration ?? 30,
       focus_type: null,
       preferred_execution_window: null,
       delay_pattern: null,
@@ -144,12 +85,20 @@ export default function AddPage() {
     setSuggestion({ label: formatSlot(slot.scheduledAt), rationale: slot.rationale });
   }
 
-  const parsed = text.trim() ? parseNL(text) : { title: "", chips: [], reason: "" };
-  const taskParseResult = text.trim() ? parseTaskText(text) : null;
-  const taskParsed = taskParseResult?.parsed ?? { text: "" };
+  const utterance = text.trim() ? parseUtterance(text) : null;
+  const taskParsed = utterance ?? { text: "" };
+  const previewChips = utterance
+    ? [
+        ...(utterance.preview.date ? [{ k: "date", v: utterance.preview.date }] : []),
+        ...(utterance.preview.tag ? [{ k: "tag", v: utterance.preview.tag }] : []),
+        ...(utterance.preview.priority ? [{ k: "priority", v: utterance.preview.priority }] : []),
+        ...(utterance.preview.duration ? [{ k: "time", v: utterance.preview.duration }] : []),
+        ...utterance.chips,
+      ]
+    : [];
 
   // Explicit picker overrides NL-parsed date
-  const finalScheduledAt = scheduledAt ?? (taskParsed as { text: string; scheduledAt?: number }).scheduledAt ?? null;
+  const finalScheduledAt = scheduledAt ?? utterance?.scheduledAt ?? null;
 
   async function handleCapture() {
     const taskText = taskParsed.text?.trim() || text.trim();
@@ -157,36 +106,18 @@ export default function AddPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const parsedFields = taskParsed as {
-        text: string;
-        tag?: string;
-        urgency?: number;
-        duration?: number;
-      };
-      let tag = parsedFields.tag ?? "general";
-      let urgency = parsedFields.urgency ?? 0.5;
-      let effort = "medium";
-      let cognitiveLoad: number | undefined;
-      try {
-        const ai = await api.classifyTask(taskText);
-        tag = ai.tag;
-        urgency = ai.urgency;
-        effort = ai.effort;
-        cognitiveLoad = ai.cognitive_load;
-      } catch {
-        /* regex parse + defaults */
-      }
+      const u = parseUtterance(text);
       await api.createTask({
         text: taskText,
-        tag,
-        urgency,
-        importance: 0.5,
+        tag: u.tag ?? "general",
+        urgency: u.urgency ?? 0.5,
+        importance: u.importance ?? 0.5,
         tiny_step: "",
-        effort,
-        ...(cognitiveLoad !== undefined ? { cognitive_load: cognitiveLoad } : {}),
+        effort: u.effort ?? "medium",
+        cognitive_load: u.cognitive_load,
         ...(finalScheduledAt ? { scheduled_at: finalScheduledAt } : {}),
         ...(recurrence ? { recurrence } : {}),
-        ...(parsedFields.duration ? { duration: parsedFields.duration } : {}),
+        ...(u.duration ? { duration: u.duration } : {}),
       });
       router.push("/tasks");
     } catch (e) {
@@ -348,40 +279,28 @@ export default function AddPage() {
           <div className="label" style={{ marginBottom: 10 }}>circuit reads this as</div>
           <div className="card-2" style={{ padding: 20 }}>
             <div className="display" style={{ fontSize: 22, marginBottom: 14, lineHeight: 1.2, color: "var(--ink)" }}>
-              {parsed.title || <span className="serif muted">your task here…</span>}
+              {taskParsed.text || <span className="serif muted">your task here…</span>}
             </div>
             <div className="row gap-2 wrap">
-              {taskParseResult?.preview.date && (
-                <span className="parse-chip">
-                  <span className="k">scheduled</span> {taskParseResult.preview.date}
-                </span>
-              )}
-              {taskParseResult?.preview.duration && (
-                <span className="parse-chip">
-                  <span className="k">duration</span> {taskParseResult.preview.duration}
-                </span>
-              )}
-              {taskParseResult?.preview.priority && (
-                <span className="parse-chip">
-                  <span className="k">priority</span> {taskParseResult.preview.priority}
-                </span>
-              )}
-              {taskParseResult?.preview.tag && (
-                <span className="parse-chip">
-                  <span className="k">tag</span> {taskParseResult.preview.tag}
-                </span>
-              )}
-              {parsed.chips.filter((c) => !['due', 'time'].includes(c.k)).map((c, i) => (
+              {previewChips.map((c, i) => (
                 <span key={i} className="parse-chip">
                   <span className="k">{c.k}</span> {c.v}
                 </span>
               ))}
-              {!taskParseResult?.preview.date && !taskParseResult?.preview.duration && parsed.chips.length === 0 && (
+              {utterance?.tag && !previewChips.some((c) => c.k === "tag") && (
+                <span className="parse-chip"><span className="k">tag</span> {utterance.tag}</span>
+              )}
+              {utterance?.effort && (
+                <span className="parse-chip"><span className="k">effort</span> {utterance.effort}</span>
+              )}
+              {previewChips.length === 0 && !utterance?.tag && (
                 <span className="serif muted" style={{ fontSize: 13 }}>no signals detected yet</span>
               )}
             </div>
-            {parsed.reason && (
-              <div className="marginalia" style={{ marginTop: 14 }}>↳ {parsed.reason}</div>
+            {utterance && (
+              <div className="marginalia" style={{ marginTop: 14 }}>
+                ↳ local parser — no API call on capture
+              </div>
             )}
           </div>
         </div>

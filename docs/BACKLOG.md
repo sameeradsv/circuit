@@ -4,9 +4,9 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full deferred inventory.
 
 ## Voice input — shipped (full-stack)
 
-**Status:** `useVoiceInput` on **Add** and **Tasks** quick-add (`add/page.tsx`, `tasks/page.tsx`) fills task text via browser `SpeechRecognition` (Chrome/Edge; Safari fallback to typing).
+**Status:** Shipped — `parseUtterance()` sets tag, urgency, effort, cognitive_load, duration, and schedule from speech or typed NL on Add and Tasks quick-add.
 
-Remaining gap: structured dimension capture from voice-only utterances (parser enrichment) — optional polish, not a phase blocker.
+Optional future: richer phrase patterns only; keep sync (no API on capture).
 
 ## Siri Shortcuts — deferred
 

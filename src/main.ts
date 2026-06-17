@@ -1,11 +1,14 @@
 import { recordCompletion } from './behavioral-engine';
 import { taskFromConversationalInput } from './ai-assistance';
+import { parseUtterance } from './ai-assistance/parse-utterance';
 import { parseTaskWithAI } from './ai-assistance/conversational';
 import { getAISuggestions } from './ai-assistance/suggestions';
 import { initCalendar, renderCalendarView } from './app/calendar';
 import { buildDashboardState, fetchAIBriefing, renderDashboard } from './app/dashboard';
 import { getMode, initModes } from './app/modes';
-import { getCurrentPage, initNavigation, showPage } from './app/navigation';
+import { getCurrentPage, initNavigation, setPageHooks, showPage } from './app/navigation';
+import { renderAnalyticsPage, renderEnergyPage } from './app/analytics-page';
+import { initVoiceInput } from './app/voice-input';
 import { tasksFromImport } from './app/import';
 import { bindTaskDetailForm, renderTaskDetailRows, renderTaskList, type ViewMode } from './app/render';
 import { mergeTaskDimensions, readDimensionOverrides } from './app/dimensions';
@@ -87,33 +90,46 @@ function scoreMap(): Map<string, ScoredTask> {
 
 async function addTaskFromInput(text: string): Promise<void> {
   let task: Task;
+  const utterance = parseUtterance(text);
   if (isAIConfigured()) {
     try {
       const ai = await parseTaskWithAI(text);
       task = createTask(ai.text, {
-        tag: ai.tag ?? selectedTag,
-        duration: ai.duration,
+        tag: (ai.tag as TaskTag | undefined) ?? (utterance.tag as TaskTag) ?? selectedTag,
+        duration: ai.duration ?? utterance.duration,
         deadlineType: ai.deadlineType ?? 'none',
-        urgency: ai.urgency,
-        cognitiveLoad: ai.cognitiveLoad,
+        urgency: ai.urgency ?? utterance.urgency,
+        cognitiveLoad: ai.cognitiveLoad ?? utterance.cognitive_load,
+        effort: utterance.effort,
       });
       task.tag = selectedTag;
       showToast('Task parsed with AI');
     } catch {
-      const conversational = taskFromConversationalInput(text);
-      task = conversational ?? buildTaskFromInput(text, selectedTag);
-      if (conversational) task.tag = selectedTag;
-      showToast(conversational ? 'Parsed task with smart defaults' : 'Task added');
+      task = taskFromUtterance(utterance);
+      showToast('Parsed task with smart defaults');
     }
   } else {
-    const conversational = taskFromConversationalInput(text);
-    task = conversational ?? buildTaskFromInput(text, selectedTag);
-    if (conversational) task.tag = selectedTag;
-    showToast(conversational ? 'Parsed task with smart defaults' : 'Task added');
+    task = taskFromUtterance(utterance);
+    showToast('Task added');
   }
   tasks.push(task);
   resetTaskInput(selectedTag);
   persist();
+}
+
+function taskFromUtterance(utterance: ReturnType<typeof parseUtterance>): Task {
+  const conversational = taskFromConversationalInput(utterance.text);
+  const base = conversational ?? buildTaskFromInput(utterance.text, (utterance.tag as TaskTag) ?? selectedTag);
+  return {
+    ...base,
+    tag: (utterance.tag as TaskTag) ?? base.tag,
+    urgency: utterance.urgency ?? base.urgency,
+    importance: utterance.importance ?? base.importance,
+    duration: utterance.duration ?? base.duration,
+    cognitiveLoad: utterance.cognitive_load ?? base.cognitiveLoad,
+    effort: utterance.effort ?? base.effort,
+    scheduledAt: utterance.scheduledAt ?? base.scheduledAt,
+  };
 }
 
 function toggleTask(id: string): void {
@@ -552,7 +568,19 @@ async function maybeShowAISuggestions(): Promise<void> {
 function bootstrapApp(): void {
   initTheme();
   initTaskInput(setTag);
+  initVoiceInput('task-input', 'task-form');
   load();
+  setPageHooks({
+    onAnalytics: () => renderAnalyticsPage(tasks),
+    onEnergy: () => {
+      const plan = lastPlan?.plan;
+      renderEnergyPage(
+        tasks,
+        plan?.workloadMinutes ?? 0,
+        lastPlan?.ctx.availableMinutes ?? 240,
+      );
+    },
+  });
   initNavigation((page) => {
     if (page === 'add') {
       input?.focus();

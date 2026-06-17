@@ -1,10 +1,12 @@
-export type AppPage = 'home' | 'add' | 'tasks' | 'calendar';
+export type AppPage = 'home' | 'add' | 'tasks' | 'calendar' | 'analytics' | 'energy';
 
 const PAGE_HASH: Record<AppPage, string> = {
   home: '',
   add: 'add',
   tasks: 'tasks',
   calendar: 'calendar',
+  analytics: 'analytics',
+  energy: 'energy',
 };
 
 const HASH_PAGE: Record<string, AppPage> = {
@@ -13,10 +15,19 @@ const HASH_PAGE: Record<string, AppPage> = {
   add: 'add',
   tasks: 'tasks',
   calendar: 'calendar',
+  analytics: 'analytics',
+  energy: 'energy',
 };
 
 let currentPage: AppPage = 'home';
 let onPageChange: ((page: AppPage) => void) | null = null;
+let onAnalyticsShow: (() => void) | null = null;
+let onEnergyShow: (() => void) | null = null;
+
+export function setPageHooks(hooks: { onAnalytics?: () => void; onEnergy?: () => void }): void {
+  onAnalyticsShow = hooks.onAnalytics ?? null;
+  onEnergyShow = hooks.onEnergy ?? null;
+}
 
 export function getCurrentPage(): AppPage {
   return currentPage;
@@ -40,6 +51,8 @@ export function showPage(page: AppPage, updateHash = true): void {
     else history.replaceState(null, '', next);
   }
   onPageChange?.(page);
+  if (page === 'analytics') onAnalyticsShow?.();
+  if (page === 'energy') onEnergyShow?.();
 }
 
 export function initNavigation(onChange?: (page: AppPage) => void): void {

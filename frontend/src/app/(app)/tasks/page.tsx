@@ -6,9 +6,10 @@ import { api, ApiTask, ApiBlackout } from "@/lib/api";
 import { getTaskCache, updateTaskInCache, invalidateTaskCache } from "@/lib/task-cache";
 import { useAuth } from "@shared/cortex";
 import { useEffectiveEnergy } from "@/lib/use-effective-energy";
-import { parseTaskText } from "@/lib/parse-task";
+import { parseUtterance } from "@/lib/parse-utterance";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { EnergyModeSwitcher } from "@/components/EnergyModeSwitcher";
+import { SwipeTaskRow } from "@/components/SwipeTaskRow";
 import { useEnergyMode } from "@/lib/use-energy-mode";
 import { rankApiTasks } from "@/lib/task-ranking";
 import { useVoiceInput } from "@/lib/use-voice-input";
@@ -410,21 +411,22 @@ export default function TasksPage() {
           tone="terra"
         >
           {nowGroup.map((t, i) => (
-            <TaskRow
-              key={t.id}
-              task={t}
-              rank={i + 1}
-              isNow
-              completing={completingIds.has(t.id)}
-              blackedOut={false}
-              onToggle={() => handleToggle(t)}
-              onDelete={() => deleteTask(t.id)}
-              onDeleteSeries={() => deleteSeriesTasks(t.id)}
-              onSkip={() => skipTask(t)}
-              onReschedule={() => setReschedulingTask(t)}
-              onDetail={() => setDetailTask(t)}
-              onSplit={() => splitTask(t)}
-            />
+            <SwipeTaskRow key={t.id} onComplete={() => handleToggle(t)} onSkip={() => skipTask(t)}>
+              <TaskRow
+                task={t}
+                rank={i + 1}
+                isNow
+                completing={completingIds.has(t.id)}
+                blackedOut={false}
+                onToggle={() => handleToggle(t)}
+                onDelete={() => deleteTask(t.id)}
+                onDeleteSeries={() => deleteSeriesTasks(t.id)}
+                onSkip={() => skipTask(t)}
+                onReschedule={() => setReschedulingTask(t)}
+                onDetail={() => setDetailTask(t)}
+                onSplit={() => splitTask(t)}
+              />
+            </SwipeTaskRow>
           ))}
         </TaskGroup>
       )}
@@ -437,20 +439,21 @@ export default function TasksPage() {
           tone="sage"
         >
           {soonGroup.map((t, i) => (
-            <TaskRow
-              key={t.id}
-              task={t}
-              rank={i + 1 + nowGroup.length}
-              completing={completingIds.has(t.id)}
-              blackedOut={false}
-              onToggle={() => handleToggle(t)}
-              onDelete={() => deleteTask(t.id)}
-              onDeleteSeries={() => deleteSeriesTasks(t.id)}
-              onSkip={() => skipTask(t)}
-              onReschedule={() => setReschedulingTask(t)}
-              onDetail={() => setDetailTask(t)}
-              onSplit={() => splitTask(t)}
-            />
+            <SwipeTaskRow key={t.id} onComplete={() => handleToggle(t)} onSkip={() => skipTask(t)}>
+              <TaskRow
+                task={t}
+                rank={i + 1 + nowGroup.length}
+                completing={completingIds.has(t.id)}
+                blackedOut={false}
+                onToggle={() => handleToggle(t)}
+                onDelete={() => deleteTask(t.id)}
+                onDeleteSeries={() => deleteSeriesTasks(t.id)}
+                onSkip={() => skipTask(t)}
+                onReschedule={() => setReschedulingTask(t)}
+                onDetail={() => setDetailTask(t)}
+                onSplit={() => splitTask(t)}
+              />
+            </SwipeTaskRow>
           ))}
         </TaskGroup>
       )}
@@ -463,20 +466,21 @@ export default function TasksPage() {
           tone="muted"
         >
           {laterGroup.map((t, i) => (
-            <TaskRow
-              key={t.id}
-              task={t}
-              rank={i + 1 + nowGroup.length + soonGroup.length}
-              completing={completingIds.has(t.id)}
-              blackedOut={false}
-              onToggle={() => handleToggle(t)}
-              onDelete={() => deleteTask(t.id)}
-              onDeleteSeries={() => deleteSeriesTasks(t.id)}
-              onSkip={() => skipTask(t)}
-              onReschedule={() => setReschedulingTask(t)}
-              onDetail={() => setDetailTask(t)}
-              onSplit={() => splitTask(t)}
-            />
+            <SwipeTaskRow key={t.id} onComplete={() => handleToggle(t)} onSkip={() => skipTask(t)}>
+              <TaskRow
+                task={t}
+                rank={i + 1 + nowGroup.length + soonGroup.length}
+                completing={completingIds.has(t.id)}
+                blackedOut={false}
+                onToggle={() => handleToggle(t)}
+                onDelete={() => deleteTask(t.id)}
+                onDeleteSeries={() => deleteSeriesTasks(t.id)}
+                onSkip={() => skipTask(t)}
+                onReschedule={() => setReschedulingTask(t)}
+                onDetail={() => setDetailTask(t)}
+                onSplit={() => splitTask(t)}
+              />
+            </SwipeTaskRow>
           ))}
         </TaskGroup>
       )}
@@ -903,24 +907,26 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
   const [submitting, setSubmitting] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   const voice = useVoiceInput();
-  const { parsed, preview } = value.trim() ? parseTaskText(value) : { parsed: { text: "" }, preview: {} };
-  const hasPreview = Object.keys(preview).length > 0;
+  const utterance = value.trim() ? parseUtterance(value) : null;
+  const preview = utterance?.preview ?? {};
+  const hasPreview = utterance ? Object.keys(preview).length > 0 || utterance.chips.length > 0 : false;
 
   useEffect(() => { if (open) ref.current?.focus(); }, [open]);
 
   async function submit() {
-    if (!parsed.text.trim()) return;
+    if (!utterance?.text.trim()) return;
     setSubmitting(true);
     try {
       const created = await api.createTask({
-        text: parsed.text,
-        tag: parsed.tag ?? "general",
-        urgency: parsed.urgency ?? 0.5,
-        importance: 0.5,
+        text: utterance.text,
+        tag: utterance.tag ?? "general",
+        urgency: utterance.urgency ?? 0.5,
+        importance: utterance.importance ?? 0.5,
         tiny_step: "",
-        effort: "medium",
-        ...(parsed.scheduledAt ? { scheduled_at: parsed.scheduledAt } : {}),
-        ...(parsed.duration    ? { duration: parsed.duration }         : {}),
+        effort: utterance.effort ?? "medium",
+        cognitive_load: utterance.cognitive_load,
+        ...(utterance.scheduledAt ? { scheduled_at: utterance.scheduledAt } : {}),
+        ...(utterance.duration ? { duration: utterance.duration } : {}),
       });
       onCreated(created);
       setValue("");

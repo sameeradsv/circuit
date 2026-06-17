@@ -98,3 +98,13 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 ## Groq-only AI (2026-06-17)
 
 **Decision:** All LLM calls use **Groq** (`GROQ_API_KEY`). No Anthropic/OpenAI fallbacks in Circuit agent or classify paths.
+
+---
+
+## Polish pass: local utterance parser (2026-06-17)
+
+**Decision:** Task capture uses sync `parseUtterance()` (`frontend/src/lib/parse-utterance.ts`) — merges `parseTaskText`, energy hints, and a port of `backend/app/services/ai.py` heuristics. **No `POST /api/ai/classify` on Add/Tasks submit** (removes capture latency and backend load).
+
+**Vanilla PWA:** Same parser in `src/ai-assistance/parse-utterance.ts`; `#analytics` and `#energy` render on hash navigation only (no extra startup fetch). Voice mic injected on add form when supported. Full cumulative energy timeline and Groq agent remain full-stack / Conduit only.
+
+**Do not** re-add classify-on-capture without measuring latency impact.

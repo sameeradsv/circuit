@@ -130,21 +130,27 @@ This file is the **canonical inventory** of work intentionally not shipped yet. 
 
 1. **This deferred list** — infra, external APIs, or explicit product rejections.
 2. **Ops / config** — e.g. `GROQ_API_KEY` on Render, `AUTH_REQUIRED` on Canopy, shared Cortex URL across apps.
-3. **Incremental polish** — implementation-sized, not phase-sized (see table below).
-4. **Vanilla Circuit PWA** — maintained alongside full-stack; no separate phase doc; feature parity is best-effort.
+3. **Incremental polish** — see shipped table below; Swiggy/Zomato deep links remain deferred.
+4. **Vanilla Circuit PWA** — analytics/energy hash routes + local parser shipped; full-stack Groq agent remains Conduit/full-stack only.
 
-### Polish — remaining implementation
+### Polish — shipped (2026-06-17)
+
+| App | Item | Implementation |
+|-----|------|----------------|
+| **Circuit** | Voice → dimension parser | `parseUtterance()` — sync heuristic on Add + Tasks quick-add; no `POST /classify` on capture |
+| **Circuit** | Vanilla PWA parity (partial) | `#analytics` + `#energy` lazy pages, `parseUtterance` in `addTaskFromInput`, voice mic on add form |
+| **Canopy** | `/patterns` page | `frontend/src/app/patterns/page.tsx`; Home no longer calls Groq on mount |
+| **Canopy** | Synthesis UX | On-demand generate + 7/14/30d range on `/patterns` |
+| **Chef** | Decide predict surfacing | History card with mode badge + confidence + savings hint |
+| **Conduit** | `get_interactions_for_person` | Read tool: `GET /api/people?q=` → `GET /api/interactions?person_id=` |
+
+### Polish — still open
 
 | App | Item | Notes |
 |-----|------|--------|
-| **Circuit** | Voice → dimension parser | Speech fills title only; optional NLP/heuristic to set cognitive load, duration, tag from utterance |
-| **Circuit** | Vanilla PWA parity | Full-stack has analytics insights, `/energy`, calendar export, Groq agent — vanilla is best-effort |
-| **Canopy** | Dedicated patterns page | `GET /api/ai/patterns` on Home cards only; no `/patterns` route |
-| **Canopy** | Synthesis UX | Auto-fetch on Home load; optional manual refresh, date range, dedicated reflection view |
-| **Chef** | Swiggy/Zomato deep links | Manual “open in app” from Decide when venue is known ([INTEGRATIONS.md](../../chef/docs/INTEGRATIONS.md)) |
-| **Chef** | Decide predict surfacing | `/decision/predict` shipped; UI hint is minimal — richer copy/timing optional |
-| **Conduit** | `get_interactions_for_person` | Optional read tool with name → person resolution |
-| **Conduit** | Production sibling-auth | Infra/config when Cortex instances diverge (not a UI polish item) |
+| **Chef** | Swiggy/Zomato deep links | **Blocked** — [INTEGRATIONS.md](../../chef/docs/INTEGRATIONS.md) |
+| **Conduit** | Production sibling-auth | Infra when Cortex instances diverge |
+| **Circuit** | Vanilla full Groq agent | By design — use Conduit hub or full-stack `/chat` |
 
 **Not deferred — explicitly rejected:** Circuit push notifications, multi-user tasks, full two-way calendar sync, Chef notification toggles without backend, Conduit non-Groq providers, sibling-app terminal/diary UIs.
 
