@@ -296,10 +296,7 @@ async def agent_chat(
             yield (
                 "data: "
                 + json.dumps({
-                    "error": (
-                        "No AI provider configured. Set GROQ_API_KEY (recommended) or "
-                        "ANTHROPIC_API_KEY on the server."
-                    ),
+                    "error": "No AI provider configured. Set GROQ_API_KEY on the server.",
                 })
                 + "\n\n"
             )
@@ -308,73 +305,15 @@ async def agent_chat(
 
     async def generate():
         try:
-            if provider == "groq":
-                async for event in stream_groq_agent(
-                    system=system,
-                    messages=msgs,
-                    tools=_TOOLS,
-                    execute_tool=_execute_tool,
-                    db=db,
-                    user_id=user.id,
-                ):
-                    yield f"data: {json.dumps(event)}\n\n"
-                return
-
-            # Anthropic fallback
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-            import anthropic
-
-            client = anthropic.AsyncAnthropic(api_key=api_key)
-            response = await client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=1024,
+            async for event in stream_groq_agent(
                 system=system,
                 messages=msgs,
-                tools=_TOOLS,  # type: ignore[arg-type]
-            )
-
-            if response.stop_reason == "tool_use":
-                assistant_content = []
-                tool_results = []
-
-                for block in response.content:
-                    if block.type == "text":
-                        assistant_content.append({"type": "text", "text": block.text})
-                    elif block.type == "tool_use":
-                        assistant_content.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": dict(block.input),
-                        })
-                        yield f"data: {json.dumps({'status': 'calling_tool', 'tool': block.name})}\n\n"
-                        result = _execute_tool(block.name, dict(block.input), db, user.id)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(result),
-                        })
-
-                msgs2 = msgs + [
-                    {"role": "assistant", "content": assistant_content},
-                    {"role": "user", "content": tool_results},
-                ]
-                async with client.messages.stream(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=1024,
-                    system=system,
-                    messages=msgs2,
-                ) as stream:
-                    async for text in stream.text_stream:
-                        yield f"data: {json.dumps({'delta': text})}\n\n"
-            else:
-                for block in response.content:
-                    if hasattr(block, "text") and block.text:
-                        text = block.text
-                        chunk = 30
-                        for i in range(0, len(text), chunk):
-                            yield f"data: {json.dumps({'delta': text[i:i + chunk]})}\n\n"
-
+                tools=_TOOLS,
+                execute_tool=_execute_tool,
+                db=db,
+                user_id=user.id,
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
         finally:

@@ -57,6 +57,20 @@ export default function AnalyticsPage() {
             </section>
           )}
 
+          {(summary.scheduling_insights?.length ?? 0) > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Scheduling forecast</h2>
+              <ul className="space-y-2">
+                {summary.scheduling_insights!.map((ins, i) => (
+                  <li key={i} className="panel px-4 py-3 flex items-start gap-3">
+                    <span className="text-circuit-accent shrink-0">→</span>
+                    <span className="text-sm text-circuit-muted">{ins.message}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <StatCard label="Completion rate" value={`${Math.round(summary.completion_rate * 100)}%`} accent />
             <StatCard label="Pending tasks" value={String(summary.pending_tasks)} />

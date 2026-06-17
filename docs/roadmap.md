@@ -20,7 +20,7 @@
 
 ## In progress
 
-- **Phase 6 — AI assistance**: agent chat + classify-on-capture shipped; predictive planning and deeper adaptive suggestions remain
+- **Phase 6 — AI assistance**: agent chat + classify-on-capture + **scheduling_insights** on `/api/summary` shipped; deeper adaptive ML remains out of scope
 
 ## Implemented (vanilla PWA)
 
@@ -33,10 +33,11 @@ See [BACKLOG.md](./BACKLOG.md) for voice input and Siri Shortcuts feasibility no
 
 | Item | Notes |
 |------|--------|
-| Predictive / adaptive scheduling | Phase 6 — beyond current `analyzeBehavior` insights |
-| Voice capture on Add | Browser `SpeechRecognition` on Add page |
-| Siri / native shortcuts | Needs Capacitor/Tauri or registered URL scheme |
+| Predictive / adaptive scheduling | `scheduling_insights` on Analytics via `/api/summary` |
+| Voice capture on Add | Shipped (`useVoiceInput` on Add page) |
+| Siri / native shortcuts | Needs Capacitor/Tauri — see [BACKLOG.md](./BACKLOG.md) |
 | Combined cross-app energy chart | Canopy → Energy (Circuit `/energy` is task-events only) |
+| Calendar export | **Export .ics** on Calendar page + `GET /api/calendar/export` |
 | Two-way calendar sync | ICS import/export only |
 
 ## Not planned (MVP scope)

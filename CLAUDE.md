@@ -276,12 +276,12 @@ Three-tier message handling:
 
 2. **Client-side recurrence/blackout help**: Messages mentioning recurrence/repeat/patterns/blackout/catch-up are answered client-side with the full format reference — avoids an API round-trip.
 
-3. **Circuit native agent** (`POST /api/agent/chat`): For all other messages, streams to Circuit's backend agent (`backend/app/routers/agent.py`). **Default provider: Groq** (`GROQ_API_KEY`, model `llama-3.3-70b-versatile` via `CIRCUIT_AGENT_MODEL`) with tool calling — same stack as Conduit. Falls back to Claude (`claude-haiku-4-5-20251001`) when only `ANTHROPIC_API_KEY` is set. Override with `CIRCUIT_AGENT_PROVIDER=groq|anthropic`. Tools available:
+3. **Circuit native agent** (`POST /api/agent/chat`): For all other messages, streams to Circuit's backend agent (`backend/app/routers/agent.py`). **Groq only** (`GROQ_API_KEY`, model `llama-3.3-70b-versatile` via `CIRCUIT_AGENT_MODEL`) with tool calling — same stack as Conduit. Tools available:
    - `get_today_summary` — today's tasks: completed, pending, overdue, time blocked, by-tag breakdown
    - `get_tasks` — filtered task list (focus_type, tag, min_cognitive_load, days_ahead)
    - `get_energy_context` — current energy_level, stress_level, focus_mode from UserState
    - Agent knows all recurrence patterns from its system prompt; no tool needed for format questions
-   - Requires `GROQ_API_KEY` or `ANTHROPIC_API_KEY` on the backend; returns an error if neither is set
+   - Requires `GROQ_API_KEY` on the backend
 
 Quick-command chips: "How busy is today?", "What are my deep work tasks this week?", plus batch-move commands that trigger the command parser.
 

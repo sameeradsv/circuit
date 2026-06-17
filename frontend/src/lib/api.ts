@@ -209,6 +209,7 @@ export interface ApiSummary {
   most_skipped: { id: number; text: string; skipped_count: number; days_open?: number }[];
   stale_tasks: { id: number; text: string; skipped_count?: number; days_open: number }[];
   attention_needed: { message: string; task_id: number }[];
+  scheduling_insights?: { type: string; message: string }[];
 }
 
 export interface ApiAiClassify {

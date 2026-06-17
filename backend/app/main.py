@@ -3,8 +3,11 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
+from app.limiter import limiter
 from app.database import (
     Base, engine,
     _migrate_sqlite, _migrate_postgres, _migrate_webauthn_tables,
@@ -30,6 +33,8 @@ from app.routers.sleep import router as sleep_router
 from app.routers.agent import router as agent_router
 
 app = FastAPI(title="Circuit API", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(

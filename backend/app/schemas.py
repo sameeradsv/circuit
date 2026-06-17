@@ -76,6 +76,11 @@ class AttentionItem(BaseModel):
     task_id: int
 
 
+class SchedulingInsight(BaseModel):
+    type: str = "prediction"
+    message: str
+
+
 class SummaryResponse(BaseModel):
     total_tasks: int
     completed_tasks: int
@@ -87,6 +92,7 @@ class SummaryResponse(BaseModel):
     most_skipped: list[AnalyticsTaskBrief] = []
     stale_tasks: list[AnalyticsTaskBrief] = []
     attention_needed: list[AttentionItem] = []
+    scheduling_insights: list[SchedulingInsight] = []
 
 
 class AiClassifyRequest(BaseModel):

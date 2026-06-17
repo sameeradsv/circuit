@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, User
-from app.schemas import AnalyticsTaskBrief, AttentionItem, SearchResult, SummaryResponse, TaskSearchItem
+from app.schemas import AnalyticsTaskBrief, AttentionItem, SchedulingInsight, SearchResult, SummaryResponse, TaskSearchItem
+from app.services.scheduling_insights import compute_scheduling_insights
 
 _STALE_MS = 3 * 24 * 60 * 60 * 1000
 
@@ -93,6 +94,8 @@ def get_summary(user: User = Depends(require_user), db: Session = Depends(get_db
 
     stale_tasks.sort(key=lambda t: t.created_at)
 
+    sched = compute_scheduling_insights(db, user.id)
+
     return SummaryResponse(
         total_tasks=total,
         completed_tasks=completed,
@@ -121,4 +124,5 @@ def get_summary(user: User = Depends(require_user), db: Session = Depends(get_db
             for t in stale_tasks
         ],
         attention_needed=attention_needed,
+        scheduling_insights=[SchedulingInsight(**i) for i in sched],
     )

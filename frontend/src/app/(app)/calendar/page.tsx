@@ -1055,6 +1055,14 @@ export default function CalendarPage() {
           >
             {importing ? "Importing…" : "Import .ics"}
           </button>
+          <button
+            className="btn"
+            style={{ fontSize: 12 }}
+            onClick={() => api.exportCalendar()}
+            title="Download .ics export"
+          >
+            Export .ics
+          </button>
         </div>
       </header>
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +15,7 @@ from app.auth_utils import create_session, hash_password, verify_password
 from app.config import settings
 from app.database import get_db
 from app.deps.auth import require_user
+from app.limiter import limiter
 from app.models import AuthSession, User
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -21,7 +23,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
-    password: str = Field(..., min_length=4)
+    password: str = Field(..., min_length=6)
 
 
 class LoginRequest(BaseModel):
@@ -46,10 +48,14 @@ class AuthResponse(BaseModel):
 
 
 @router.post("/register", status_code=201)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.username == payload.username.lower()).first():
+@limiter.limit("3/minute")
+def register(request: Request, payload: RegisterRequest, db: Session = Depends(get_db)):
+    username = payload.username.strip().lower()
+    if not re.fullmatch(r'[a-z0-9_.-]+', username):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username may only contain letters, numbers, underscores, hyphens, and dots")
+    if db.query(User).filter(User.username == username).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
-    user = User(username=payload.username.lower(), hashed_password=hash_password(payload.password))
+    user = User(username=username, hashed_password=hash_password(payload.password))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -58,7 +64,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == payload.username.lower()).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")

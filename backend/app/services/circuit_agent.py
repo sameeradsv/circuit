@@ -20,19 +20,9 @@ _FUNC_RE = re.compile(r"<function=(\w+)[^{]*(\{.*?\})\s*(?:</function>)?", re.DO
 
 
 def resolve_agent_provider() -> str | None:
-    pref = os.getenv("CIRCUIT_AGENT_PROVIDER", "").strip().lower()
-    has_groq = bool(os.getenv("GROQ_API_KEY", "").strip())
-    has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
-    if pref == "groq" and has_groq:
+    """Groq is the only supported agent provider."""
+    if os.getenv("GROQ_API_KEY", "").strip():
         return "groq"
-    if pref == "anthropic" and has_anthropic:
-        return "anthropic"
-    if pref and pref not in ("groq", "anthropic"):
-        return None
-    if has_groq:
-        return "groq"
-    if has_anthropic:
-        return "anthropic"
     return None
 
 

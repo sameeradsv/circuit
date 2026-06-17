@@ -16,7 +16,7 @@ services:
       - key: AUTH_REQUIRED
         value: "true"
       - key: CORS_ORIGINS
-        value: https://sameeradsv.github.io,http://localhost:3000,http://127.0.0.1:3000
+        value: https://sameeradsv.github.io
       - key: FRONTEND_URL
         value: https://sameeradsv.github.io/circuit
       - key: CORTEX_AUTH_URL

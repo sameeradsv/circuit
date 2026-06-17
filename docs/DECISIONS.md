@@ -91,3 +91,9 @@ Cross-app consumers (Canopy Energy, Chef Decide) must keep using `/api/energy/sy
 **Decision:** Terminal-style hub (diary router, cross-app tools, slash commands, phosphor shell) is **Conduit only**. Circuit, Canopy, and Chef ship **`/chat`** — each app's native Groq agent for personal Q&A within that domain.
 
 **Do not** add terminal timeline views or Conduit-style diary routing to sibling app UIs. Cross-app capture → Conduit diary mode.
+
+---
+
+## Groq-only AI (2026-06-17)
+
+**Decision:** All LLM calls use **Groq** (`GROQ_API_KEY`). No Anthropic/OpenAI fallbacks in Circuit agent or classify paths.
