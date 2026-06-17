@@ -519,7 +519,7 @@ function DayView({
 // ── Week view ─────────────────────────────────────────────────────────────────
 
 function WeekView({
-  weekStart, tasks, today, blackouts, onTaskClick,
+  weekStart, tasks, today, blackouts, onTaskClick, onDayClick,
   dragTask, onDropTask, onDragStart, onDragEnd,
 }: {
   weekStart: Date;
@@ -527,6 +527,7 @@ function WeekView({
   today: Date;
   blackouts: ApiBlackout[];
   onTaskClick: (t: ApiTask) => void;
+  onDayClick: (date: Date) => void;
   dragTask: ApiTask | null;
   onDropTask: (task: ApiTask, newMs: number) => void;
   onDragStart: (t: ApiTask) => void;
@@ -560,9 +561,9 @@ function WeekView({
               <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: isToday ? "var(--paper-2)" : "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 {DAY_SHORT[d.getDay()]}
               </div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: isToday ? "var(--paper)" : "var(--ink)", lineHeight: 1.2 }}>
+              <button onClick={() => onDayClick(d)} style={{ fontSize: 18, fontWeight: 600, color: isToday ? "var(--paper)" : "var(--ink)", lineHeight: 1.2, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}>
                 {d.getDate()}
-              </div>
+              </button>
             </div>
           );
         })}
@@ -1104,7 +1105,7 @@ export default function CalendarPage() {
 
       {/* View content */}
       {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
-      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
+      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
       {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
 
       {pendingDrop && (
