@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -104,8 +105,15 @@ def _tool_today_summary(db: Session, user_id: int) -> dict:
         db.query(CircuitTask)
         .filter(
             CircuitTask.user_id == user_id,
-            CircuitTask.scheduled_at >= start_ms,
-            CircuitTask.scheduled_at <= end_ms,
+            or_(
+                and_(CircuitTask.scheduled_at >= start_ms, CircuitTask.scheduled_at <= end_ms),
+                # overnight tasks that started before today but extend into it
+                and_(
+                    CircuitTask.duration.isnot(None),
+                    CircuitTask.scheduled_at < start_ms,
+                    CircuitTask.scheduled_at + (CircuitTask.duration * 60_000) > start_ms,
+                ),
+            ),
         )
         .order_by(CircuitTask.scheduled_at)
         .all()
@@ -159,8 +167,14 @@ def _tool_get_tasks(db: Session, user_id: int, inputs: dict) -> dict:
         .filter(
             CircuitTask.user_id == user_id,
             CircuitTask.completed.is_(False),
-            CircuitTask.scheduled_at >= start_ms,
-            CircuitTask.scheduled_at <= end_ms,
+            or_(
+                and_(CircuitTask.scheduled_at >= start_ms, CircuitTask.scheduled_at <= end_ms),
+                and_(
+                    CircuitTask.duration.isnot(None),
+                    CircuitTask.scheduled_at < start_ms,
+                    CircuitTask.scheduled_at + (CircuitTask.duration * 60_000) > start_ms,
+                ),
+            ),
         )
     )
 

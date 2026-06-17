@@ -188,8 +188,11 @@ function TaskBlock({
   onDragEnd?: () => void;
   isDragging?: boolean;
 }) {
-  const top    = taskTop(task.scheduled_at!);
-  const height = taskHeight(task.duration ?? 30);
+  const top       = taskTop(task.scheduled_at!);
+  const rawHeight = taskHeight(task.duration ?? 30);
+  // Cap at midnight so overnight tasks don't push the grid taller than 24 h
+  const height    = Math.min(rawHeight, TOTAL_H - top - 2);
+  const overflows = rawHeight > height; // task continues into next day
   const bufBefore = task.travel_buffer_before_mins ?? 0;
   const bufAfter  = task.travel_buffer_after_mins  ?? 0;
   const bufBeforeH = bufBefore / 60 * HOUR_H;
@@ -230,7 +233,8 @@ function TaskBlock({
           height,
           background: "var(--paper)",
           borderLeft: `3px solid ${taskAccent(task)}`,
-          borderRadius: "0 4px 4px 0",
+          borderRadius: overflows ? "0 4px 0 0" : "0 4px 4px 0",
+          borderBottom: overflows ? `2px dashed ${taskAccent(task)}` : undefined,
           padding: compact ? "2px 4px" : "3px 8px",
           overflow: "hidden",
           display: "flex",
@@ -256,7 +260,7 @@ function TaskBlock({
         </span>
         {height > 38 && (
           <span style={{ fontSize: compact ? 9 : 10, color: "var(--ink-3)", fontFamily: "var(--font-mono)", marginTop: 1 }}>
-            {fmtTime(task.scheduled_at!)} · {task.duration ?? 30}m
+            {fmtTime(task.scheduled_at!)} · {task.duration ?? 30}m{overflows ? " →" : ""}
           </span>
         )}
       </div>
@@ -267,6 +271,70 @@ function TaskBlock({
         />
       )}
     </>
+  );
+}
+
+// ── Continuation block (overnight task from previous day) ─────────────────────
+
+function ContinuationBlock({
+  task,
+  dayStart,
+  dayEnd,
+  compact = false,
+  onClick,
+}: {
+  task: ApiTask;
+  dayStart: number;
+  dayEnd: number;
+  compact?: boolean;
+  onClick?: () => void;
+}) {
+  const endMs      = task.scheduled_at! + (task.duration ?? 30) * 60_000;
+  const overlapMin = (Math.min(endMs, dayEnd) - dayStart) / 60_000;
+  const height     = Math.max(24, overlapMin / 60 * HOUR_H - 2);
+  const accent     = taskAccent(task);
+  return (
+    <div
+      title={`${task.text} · continued from previous day · ends ${fmtTime(endMs)}`}
+      onClick={onClick}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: compact ? 2 : 4,
+        right: compact ? 2 : 4,
+        height,
+        background: "var(--paper)",
+        borderLeft: `3px solid ${accent}`,
+        borderTop: `2px dashed ${accent}`,
+        borderRadius: "0 0 4px 0",
+        padding: compact ? "2px 4px" : "3px 8px",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        zIndex: 1,
+        cursor: onClick ? "pointer" : "default",
+        opacity: 0.85,
+      }}
+    >
+      <span style={{
+        fontSize: compact ? 11 : 12,
+        fontWeight: 500,
+        lineHeight: 1.3,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        color: "var(--ink)",
+      }}>
+        {task.text}
+      </span>
+      {height > 38 && (
+        <span style={{ fontSize: compact ? 9 : 10, color: "var(--ink-3)", fontFamily: "var(--font-mono)", marginTop: 1 }}>
+          ← ends {fmtTime(endMs)}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -298,6 +366,12 @@ function DayView({
   const dayTasks = tasks
     .filter((t) => t.scheduled_at && t.scheduled_at >= dayStart && t.scheduled_at < end)
     .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0));
+
+  // Tasks that started yesterday but extend into today
+  const continuationTasks = tasks.filter((t) => {
+    if (!t.scheduled_at || !t.duration) return false;
+    return t.scheduled_at < dayStart && t.scheduled_at + t.duration * 60_000 > dayStart;
+  });
 
   const visible    = dayTasks.filter((t) => inRange(t.scheduled_at!));
   const outOfRange = dayTasks.filter((t) => !inRange(t.scheduled_at!));
@@ -357,6 +431,16 @@ function DayView({
             )}
 
             {dropTop !== null && <DropLine top={dropTop} />}
+
+            {continuationTasks.map((t) => (
+              <ContinuationBlock
+                key={`cont-${t.id}`}
+                task={t}
+                dayStart={dayStart}
+                dayEnd={end}
+                onClick={() => onTaskClick(t)}
+              />
+            ))}
 
             {visible.map((t) => (
               <TaskBlock
@@ -478,6 +562,10 @@ function WeekView({
             const dayTasks = tasks
               .filter((t) => t.scheduled_at && t.scheduled_at >= dayStart && t.scheduled_at < end && inRange(t.scheduled_at))
               .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0));
+            const dayContinuations = tasks.filter((t) => {
+              if (!t.scheduled_at || !t.duration) return false;
+              return t.scheduled_at < dayStart && t.scheduled_at + t.duration * 60_000 > dayStart;
+            });
 
             return (
               <div
@@ -513,6 +601,17 @@ function WeekView({
                 )}
 
                 {dropInfo?.dayIdx === di && <DropLine top={dropInfo.top} />}
+
+                {dayContinuations.map((t) => (
+                  <ContinuationBlock
+                    key={`cont-${t.id}`}
+                    task={t}
+                    dayStart={dayStart}
+                    dayEnd={end}
+                    compact
+                    onClick={() => onTaskClick(t)}
+                  />
+                ))}
 
                 {dayTasks.map((t) => (
                   <TaskBlock

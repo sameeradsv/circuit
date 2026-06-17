@@ -67,7 +67,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 | Router | Prefix | Purpose |
 |--------|--------|---------|
 | `auth.py` | `/api/auth` | Register, login, JWT, WebAuthn begin/complete |
-| `tasks.py` | `/api/tasks` | Task CRUD, recurrence auto-creation on completion, blackout-aware next-occurrence, batch-update |
+| `tasks.py` | `/api/tasks` | Task CRUD, recurrence auto-creation on completion, blackout-aware next-occurrence, batch-update. Range filter includes overnight overlap: tasks where `scheduled_at < from_ms AND scheduled_at + duration*60000 > from_ms` (e.g. a Sleep task at 11 PM spanning into the next day) |
 | `calendar.py` | `/api/calendar` | ICS import (lazy-load RRULE, first-future-occurrence), series propagation, expiry |
 | `blackouts.py` | `/api/blackouts` | Blackout date-range CRUD + `PATCH /{id}` update |
 | `sleep.py` | `/api/sleep` | Sleep overrides + factor; timing from **Sleep** calendar task |
@@ -134,6 +134,8 @@ app/(auth)/login/   # Login page
 components/
   TaskDetailModal.tsx   # Re-export from task-detail/
   task-detail/          # Modal sections: priority, cognitive, time/recurrence, blackouts, series panel
+                        # All label/input rows use flex-col on mobile (<sm) and flex-row on sm+; w-44 label width only applies at sm+
+                        # Recurrence fields (Repeat until, After blackout, Weekend time) are hidden behind a "+ Make recurring" disclosure; collapsed by default for one-off tasks, expanded when recurrence/rrule is set. ✕ button clears recurrence (suppressed for rrule/calendar-import tasks).
   calendar/BlackoutLayers.tsx  # Calendar blackout tint overlays
   TerminalChat.tsx      # Command parsing + ActionPreview + client-side recurrence/blackout help + Circuit native agent fallback
   AppShell.tsx / TabBar.tsx / Sidebar.tsx / Nav.tsx
@@ -280,6 +282,8 @@ Quick-command chips: "How busy is today?", "What are my deep work tasks this wee
 Day and week views show a full 24-hour grid (midnight to midnight, 64 px/hour) and auto-scroll to 7 AM on open. Month view shows task chips with overflow counts. All views support **drag-and-drop** reschedule (recurring tasks prompt occurrence vs series). Blackout ranges appear as tinted backgrounds. Clicking any event opens `TaskDetailModal` for inline editing.
 
 Tasks with `travel_buffer_before_mins` / `travel_buffer_after_mins` render hatched gray blocks before/after the task block in day and week views, indicating blocked transit time.
+
+**Overnight tasks** (e.g. Sleep at 11 PM with 480 min duration): `TaskBlock` caps its rendered height at midnight (`min(rawHeight, TOTAL_H - top - 2)`) and shows a dashed bottom border + `→` suffix when the task overflows. The next day's view renders a `ContinuationBlock` — a dashed-top block starting at midnight (top: 0) whose height equals the overlap into that day. The backend `GET /api/tasks` range filter returns overnight tasks via an OR condition so they appear in both days' fetches.
 
 ### Energy modes
 

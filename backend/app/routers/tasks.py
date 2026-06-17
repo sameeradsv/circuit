@@ -214,15 +214,23 @@ def list_tasks(
             CircuitTask.scheduled_at >= from_ms,
             CircuitTask.scheduled_at <= to_ms,
         )
+        # Tasks that started before the window but extend into it (e.g. overnight sleep)
+        overnight_overlap = and_(
+            CircuitTask.scheduled_at.isnot(None),
+            CircuitTask.duration.isnot(None),
+            CircuitTask.scheduled_at < from_ms,
+            CircuitTask.scheduled_at + (CircuitTask.duration * 60_000) > from_ms,
+        )
+        scheduled_in_window = or_(in_range, overnight_overlap)
         if include_unscheduled:
             q = q.filter(
                 or_(
-                    in_range,
+                    scheduled_in_window,
                     and_(CircuitTask.scheduled_at.is_(None), CircuitTask.completed.is_(False)),
                 )
             )
         else:
-            q = q.filter(in_range)
+            q = q.filter(scheduled_in_window)
 
     if page is not None or limit is not None:
         page_n = max(1, page or 1)

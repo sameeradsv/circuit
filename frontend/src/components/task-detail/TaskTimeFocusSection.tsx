@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { ApiTask } from "@/lib/api";
 import { FieldHint, Select, toDatetimeLocal } from "./fields";
 import type { TaskSectionProps } from "./types";
@@ -12,12 +13,20 @@ interface TaskTimeFocusSectionProps extends TaskSectionProps {
 export function TaskTimeFocusSection({
   merged, set, weekendTime, onWeekendTimeChange,
 }: TaskTimeFocusSectionProps) {
+  const hasRecurrence = !!(merged.recurrence || merged.rrule);
+  const [showRecurrence, setShowRecurrence] = useState(hasRecurrence);
+
+  function clearRecurrence() {
+    set("recurrence", null as unknown as string);
+    setShowRecurrence(false);
+  }
+
   return (
     <section className="space-y-3">
       <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Time & focus</p>
 
-      <label className="flex items-center gap-3">
-        <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+      <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
           Scheduled for
           <FieldHint text="Pin this task to a specific date and time." />
         </span>
@@ -29,8 +38,8 @@ export function TaskTimeFocusSection({
         />
       </label>
 
-      <label className="flex items-center gap-3">
-        <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+      <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
           Duration (minutes)
           <FieldHint text="Expected time to complete. Used for calendar blocks and capacity planning." />
         </span>
@@ -42,8 +51,8 @@ export function TaskTimeFocusSection({
         />
       </label>
 
-      <label className="flex items-center gap-3">
-        <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+      <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
           Travel before (min)
           <FieldHint text="Transit time needed before this task. Shown as a hatched buffer block in the calendar." />
         </span>
@@ -56,8 +65,8 @@ export function TaskTimeFocusSection({
         />
       </label>
 
-      <label className="flex items-center gap-3">
-        <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+      <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
           Travel after (min)
           <FieldHint text="Transit time needed after this task. Shown as a hatched buffer block in the calendar." />
         </span>
@@ -74,24 +83,48 @@ export function TaskTimeFocusSection({
       <Select label="Focus type" value={merged.focus_type ?? "shallow"} options={["shallow", "deep", "admin", "creative"]} onChange={(v) => set("focus_type", v)} hint="Type of cognitive engagement. Deep and creative tasks score higher during peak energy windows." />
       <Select label="Deadline" value={merged.deadline_type ?? "none"} options={["none", "soft", "hard"]} onChange={(v) => set("deadline_type", v as ApiTask["deadline_type"])} hint="Soft = flexible target. Hard = fixed cutoff that significantly boosts urgency as the date approaches." />
 
-      <label className="flex items-center gap-3">
-        <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
-          Recurrence
-          <FieldHint text="How often this repeats. e.g. daily, every:4d, every:2w, every:4h, weekday, weekly:MO,WE,FR, monthly:1MO, monthly:LFR (last Friday), monthly:LWD (last working day). Leave blank for one-off tasks." />
-        </span>
-        <input
-          type="text"
-          value={merged.recurrence ?? ""}
-          placeholder="daily, weekly, monthly…"
-          onChange={(e) => set("recurrence", e.target.value || null as unknown as string)}
-          className="input-field flex-1 py-1 text-xs"
-        />
-      </label>
-
-      {(merged.recurrence || merged.rrule) && (
+      {!showRecurrence ? (
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+          <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted">Recurrence</span>
+          <button
+            type="button"
+            onClick={() => setShowRecurrence(true)}
+            className="text-xs text-circuit-muted hover:text-circuit-text transition-colors self-start"
+          >
+            + Make recurring
+          </button>
+        </div>
+      ) : (
         <>
-          <label className="flex items-center gap-3">
-            <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+          <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+              Recurrence
+              <FieldHint text="How often this repeats. e.g. daily, every:4d, every:2w, every:4h, weekday, weekly:MO,WE,FR, monthly:1MO, monthly:LFR (last Friday), monthly:LWD (last working day)." />
+            </span>
+            <div className="flex items-center gap-1 flex-1">
+              <input
+                type="text"
+                value={merged.recurrence ?? ""}
+                placeholder="daily, weekly, monthly…"
+                onChange={(e) => set("recurrence", e.target.value || null as unknown as string)}
+                className="input-field flex-1 py-1 text-xs"
+              />
+              {/* Only allow collapsing for user-set recurrence, not rrule (calendar import) */}
+              {!merged.rrule && (
+                <button
+                  type="button"
+                  onClick={clearRecurrence}
+                  className="shrink-0 text-circuit-muted hover:text-circuit-text transition-colors text-xs ml-1"
+                  title="Remove recurrence"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </label>
+
+          <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
               Repeat until
               <FieldHint text="Stop generating new occurrences after this date. Leave blank to repeat indefinitely." />
             </span>
@@ -103,8 +136,8 @@ export function TaskTimeFocusSection({
             />
           </label>
 
-          <label className="flex items-center gap-3">
-            <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+          <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
               After blackout
               <FieldHint text="Resume: skips to the next natural schedule occurrence (missed instance is dropped). Catch up next slot, shift series: next valid pattern slot after the blackout; anchors the series there. Catch up next slot, keep schedule: same next-slot catch-up once, original series preserved; occurrences within 2 days of catch-up are skipped. Catch up immediately, keep schedule: first day after blackout, original series preserved. Catch up immediately, shift series: first day after blackout; whole series re-anchors from that date." />
             </span>
@@ -121,8 +154,8 @@ export function TaskTimeFocusSection({
             </select>
           </label>
 
-          <label className="flex items-center gap-3">
-            <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+          <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
               Weekend time (Sa–Su, AM)
               <FieldHint text="Override the recurrence time on Saturday and Sunday. Only applies to morning tasks (originally scheduled before noon)." />
             </span>

@@ -21,17 +21,19 @@ export function Slider({
   label, value, onChange, hint,
 }: { label: string; value: number; onChange: (v: number) => void; hint?: string }) {
   return (
-    <label className="flex items-center gap-3">
-      <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+    <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+      <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
         {label}
         {hint && <FieldHint text={hint} />}
       </span>
-      <input
-        type="range" min={0} max={1} step={0.05} value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 accent-circuit-accent"
-      />
-      <span className="w-8 text-right text-xs text-circuit-text">{Math.round(value * 100)}%</span>
+      <div className="flex items-center gap-2 flex-1">
+        <input
+          type="range" min={0} max={1} step={0.05} value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="flex-1 accent-circuit-accent"
+        />
+        <span className="w-8 text-right text-xs text-circuit-text shrink-0">{Math.round(value * 100)}%</span>
+      </div>
     </label>
   );
 }
@@ -40,8 +42,8 @@ export function Select({
   label, value, options, onChange, hint,
 }: { label: string; value: string; options: string[]; onChange: (v: string) => void; hint?: string }) {
   return (
-    <label className="flex items-center gap-3">
-      <span className="w-44 shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+    <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+      <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
         {label}
         {hint && <FieldHint text={hint} />}
       </span>
