@@ -548,7 +548,7 @@ function WeekView({
   const nowMins  = (today.getHours() - START_H) * 60 + today.getMinutes();
 
   return (
-    <div className="cal-week-scroll">
+    <div className="cal-week-scroll" style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" as "auto", minWidth: 0, width: "100%" }}>
     <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden", minWidth: 900 }}>
       {/* Day headers */}
       <div style={{ display: "grid", gridTemplateColumns: `${LABEL_W}px repeat(7, 1fr)`, borderBottom: "1px solid var(--line)", background: "var(--paper-2)" }}>
@@ -666,7 +666,7 @@ function WeekView({
 // ── Month view ────────────────────────────────────────────────────────────────
 
 function MonthView({
-  year, month, tasks, today, blackouts, onTaskClick,
+  year, month, tasks, today, blackouts, onTaskClick, onDayClick,
   dragTask, onDropTask, onDragStart, onDragEnd,
 }: {
   year: number;
@@ -675,6 +675,7 @@ function MonthView({
   today: Date;
   blackouts: ApiBlackout[];
   onTaskClick: (t: ApiTask) => void;
+  onDayClick: (date: Date) => void;
   dragTask: ApiTask | null;
   onDropTask: (task: ApiTask, newMs: number) => void;
   onDragStart: (t: ApiTask) => void;
@@ -742,7 +743,9 @@ function MonthView({
             }}
           >
             <div className="between" style={{ marginBottom: 4 }}>
-              <span className="cal-num">{inMonth ? String(dayNum).padStart(2, "0") : ""}</span>
+              {inMonth && cellDay
+                ? <button className="cal-num" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit" }} onClick={() => onDayClick(cellDay)}>{String(dayNum).padStart(2, "0")}</button>
+                : <span className="cal-num" />}
               <div className="row gap-2 aic">
                 {inMonth && cellDay && <BlackoutMonthBadge day={cellDay} blackouts={blackouts} />}
                 {isToday && <span className="tiny" style={{ color: "var(--terra)" }}>TODAY</span>}
@@ -1102,7 +1105,7 @@ export default function CalendarPage() {
       {/* View content */}
       {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
       {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
-      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
+      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
 
       {pendingDrop && (
         <DropConfirmBanner

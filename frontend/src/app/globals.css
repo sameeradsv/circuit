@@ -86,7 +86,7 @@ body {
   font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
-  overflow-x: clip;
+  overflow-x: hidden;
   min-width: 0;
   background-image:
     radial-gradient(circle at 12px 12px, rgba(0,0,0,0.018) 1px, transparent 1.5px),
@@ -328,7 +328,7 @@ body {
 }
 .app-content {
   flex: 1; min-width: 0;
-  overflow-x: clip;
+  overflow-x: hidden;
   padding: var(--pad-page);
   padding-top: max(var(--pad-page), env(safe-area-inset-top, 0px));
   padding-bottom: calc(var(--pad-page) + var(--content-bottom-inset));
