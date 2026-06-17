@@ -350,6 +350,10 @@ body {
   max-height: calc(100dvh - 200px - var(--content-bottom-inset));
   border-radius: 8px;
 }
+.cal-week-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 /* Mobile-only import/export footer (replaces hidden header buttons) */
 .cal-ics-footer { display: none; }
 
@@ -496,7 +500,6 @@ body {
   .quick-add-card              { min-width: 0 !important; width: 100%; max-width: 100%; }
   .task-pagination             { flex-wrap: wrap; gap: 8px; }
   .drop-confirm-actions        { flex-wrap: wrap; justify-content: flex-end; }
-  .cal-week-scroll             { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .cal-week-grid               { min-width: 560px; }
 }
 
