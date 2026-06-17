@@ -339,17 +339,25 @@ body {
 /* Calendar grid fills whatever height is left after the page header */
 .cal-scroll-grid {
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   height: calc(100dvh - 200px - var(--content-bottom-inset));
 }
 .cal-month-scroll {
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   max-height: calc(100dvh - 200px - var(--content-bottom-inset));
   border-radius: 8px;
 }
+/* Mobile-only import/export footer (replaces hidden header buttons) */
+.cal-ics-footer { display: none; }
+
 @media (max-width: 768px) {
-  .cal-scroll-grid { height: calc(100dvh - 260px - var(--content-bottom-inset)); }
-  .cal-month-scroll { max-height: calc(100dvh - 260px - var(--content-bottom-inset)); }
+  .cal-scroll-grid { height: calc(100dvh - 220px - var(--content-bottom-inset)); }
+  .cal-month-scroll { max-height: calc(100dvh - 220px - var(--content-bottom-inset)); }
+  .cal-ics-btns { display: none; }
+  .cal-ics-footer { display: flex; gap: 8px; flex-wrap: wrap; }
 }
 
 /* Full-height embedded chat (Tasks/Chat pages inside app shell) */

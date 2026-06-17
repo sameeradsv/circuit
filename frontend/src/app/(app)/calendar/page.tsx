@@ -954,6 +954,21 @@ export default function CalendarPage() {
     }
   }
 
+  async function downloadIcs() {
+    try {
+      const res = await api.exportCalendar();
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `circuit-${dateStr}.ics`;
+      a.click();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Export failed");
+    }
+  }
+
   function navigate(delta: -1 | 1) {
     setFocusDate((d) => {
       const next = new Date(d);
@@ -1038,7 +1053,7 @@ export default function CalendarPage() {
             </button>
           </div>
 
-          {/* ICS import */}
+          {/* ICS import/export — hidden on mobile; export also lives at page bottom */}
           <input
             ref={fileRef}
             type="file"
@@ -1046,23 +1061,25 @@ export default function CalendarPage() {
             style={{ display: "none" }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleImport(f); e.target.value = ""; } }}
           />
-          <button
-            className="btn"
-            style={{ fontSize: 12 }}
-            disabled={importing}
-            onClick={() => fileRef.current?.click()}
-            title="Import .ics file"
-          >
-            {importing ? "Importing…" : "Import .ics"}
-          </button>
-          <button
-            className="btn"
-            style={{ fontSize: 12 }}
-            onClick={() => api.exportCalendar()}
-            title="Download .ics export"
-          >
-            Export .ics
-          </button>
+          <div className="cal-ics-btns row gap-2">
+            <button
+              className="btn"
+              style={{ fontSize: 12 }}
+              disabled={importing}
+              onClick={() => fileRef.current?.click()}
+              title="Import .ics file"
+            >
+              {importing ? "Importing…" : "Import .ics"}
+            </button>
+            <button
+              className="btn"
+              style={{ fontSize: 12 }}
+              onClick={() => api.exportCalendar()}
+              title="Download .ics export"
+            >
+              Export .ics
+            </button>
+          </div>
         </div>
       </header>
 
@@ -1120,31 +1137,29 @@ export default function CalendarPage() {
         />
       )}
 
-      {/* Export */}
+      {/* Desktop-only export below month grid */}
       {view === "month" && (
         <div style={{ marginTop: 4 }}>
-          <button
-            className="btn"
-            style={{ fontSize: 13 }}
-            onClick={async () => {
-              try {
-                const res = await api.exportCalendar();
-                if (!res.ok) throw new Error(`Export failed: ${res.status}`);
-                const blob = await res.blob();
-                const today = new Date().toISOString().slice(0, 10);
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = `circuit-${today}.ics`;
-                a.click();
-              } catch (err) {
-                alert(err instanceof Error ? err.message : "Export failed");
-              }
-            }}
-          >
+          <button className="btn" style={{ fontSize: 13 }} onClick={downloadIcs}>
             Export .ics
           </button>
         </div>
       )}
+
+      {/* Mobile-only footer: import + export (header buttons are hidden on mobile) */}
+      <div className="cal-ics-footer">
+        <button
+          className="btn"
+          style={{ fontSize: 13 }}
+          disabled={importing}
+          onClick={() => fileRef.current?.click()}
+        >
+          {importing ? "Importing…" : "Import .ics"}
+        </button>
+        <button className="btn" style={{ fontSize: 13 }} onClick={downloadIcs}>
+          Export .ics
+        </button>
+      </div>
     </div>
   );
 }
