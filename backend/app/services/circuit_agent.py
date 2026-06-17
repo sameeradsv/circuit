@@ -10,13 +10,15 @@ from groq import AsyncGroq, APIStatusError
 from sqlalchemy.orm import Session
 
 _DEFAULT_MODEL = "llama-3.3-70b-versatile"
-_TOOL_MODELS = {
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "llama-3.1-70b-versatile",
-}
 
-_FUNC_RE = re.compile(r"<function=(\w+)[^{]*(\{.*?\})\s*(?:</function>)?", re.DOTALL)
+# Models known NOT to support function/tool calling; all others assumed capable.
+_NO_TOOL_MODELS: set[str] = {"llama-3.2-1b-preview", "llama-3.2-3b-preview"}
+
+# On 429, retry through this chain after the configured model.
+_FALLBACK_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
+# Args group is optional — some calls emit no args at all.
+_FUNC_RE = re.compile(r"<function=(\w+)[^{<]*(\{.*?\})?\s*(?:</function>)?", re.DOTALL)
 
 
 def resolve_agent_provider() -> str | None:
@@ -56,11 +58,28 @@ def _parse_failed_generation(body: dict) -> list[dict]:
     calls = []
     for name, args_str in _FUNC_RE.findall(fg):
         try:
-            args = json.loads(args_str)
+            args = json.loads(args_str) if args_str else {}
         except json.JSONDecodeError:
             continue
         calls.append({"name": name, "args": args})
     return calls
+
+
+async def _create_with_fallback(
+    client: AsyncGroq, chain: list[str], kwargs: dict
+) -> tuple:
+    """Try each model in chain on 429. Returns (response, model_used)."""
+    last_exc: APIStatusError | None = None
+    for model_id in chain:
+        try:
+            resp = await client.chat.completions.create(**{**kwargs, "model": model_id})
+            return resp, model_id
+        except APIStatusError as exc:
+            if exc.status_code == 429:
+                last_exc = exc
+                continue
+            raise
+    raise last_exc  # type: ignore[misc]
 
 
 async def stream_groq_agent(
@@ -75,9 +94,10 @@ async def stream_groq_agent(
     """Yield dict events: {status}, {delta}, or {error}."""
     client = _client()
     model = agent_model()
+    chain = [model] + [m for m in _FALLBACK_CHAIN if m != model]
     groq_messages: list[dict[str, Any]] = [{"role": "system", "content": system}] + messages
     groq_tools = anthropic_tools_to_groq(tools)
-    use_tools = model in _TOOL_MODELS
+    use_tools = model not in _NO_TOOL_MODELS
 
     create_kwargs: dict[str, Any] = {
         "model": model,
@@ -91,9 +111,12 @@ async def stream_groq_agent(
         create_kwargs["tool_choice"] = "auto"
 
     try:
-        response = await client.chat.completions.create(**create_kwargs)
+        response, model = await _create_with_fallback(client, chain, create_kwargs)
         choice = response.choices[0]
     except APIStatusError as exc:
+        if exc.status_code == 429:
+            yield {"error": "Rate limit reached on all available models. Try again later."}
+            return
         if exc.status_code != 400:
             yield {"error": str(exc)}
             return
@@ -114,13 +137,13 @@ async def stream_groq_agent(
                 "tool_call_id": f"fallback_{name}",
                 "content": json.dumps(result),
             })
-        stream = await client.chat.completions.create(
-            model=model,
-            messages=groq_messages,
-            max_tokens=1024,
-            temperature=0.7,
-            stream=True,
-        )
+        try:
+            stream = await client.chat.completions.create(
+                model=model, messages=groq_messages, max_tokens=1024, temperature=0.7, stream=True,
+            )
+        except APIStatusError as exc2:
+            yield {"error": "Rate limit reached. Try again later." if exc2.status_code == 429 else str(exc2)}
+            return
         async for chunk in stream:
             delta = chunk.choices[0].delta.content
             if delta:
@@ -156,13 +179,13 @@ async def stream_groq_agent(
                 "tool_call_id": tc.id,
                 "content": json.dumps(result),
             })
-        stream = await client.chat.completions.create(
-            model=model,
-            messages=groq_messages,
-            max_tokens=1024,
-            temperature=0.7,
-            stream=True,
-        )
+        try:
+            stream = await client.chat.completions.create(
+                model=model, messages=groq_messages, max_tokens=1024, temperature=0.7, stream=True,
+            )
+        except APIStatusError as exc2:
+            yield {"error": "Rate limit reached. Try again later." if exc2.status_code == 429 else str(exc2)}
+            return
         async for chunk in stream:
             delta = chunk.choices[0].delta.content
             if delta:
