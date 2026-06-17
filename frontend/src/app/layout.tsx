@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <AuthProvider apiBase={apiBase} tokenKey="circuit_auth_token" authPath="/api/auth">
+        <AuthProvider apiBase={apiBase} tokenKey="circuit_auth_token">
           {children}
         </AuthProvider>
       </body>
