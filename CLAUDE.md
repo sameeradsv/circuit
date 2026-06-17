@@ -282,6 +282,9 @@ Three-tier message handling:
    - `get_energy_context` — current energy_level, stress_level, focus_mode from UserState
    - Agent knows all recurrence patterns from its system prompt; no tool needed for format questions
    - Requires `GROQ_API_KEY` on the backend
+   - **429 fallback chain** (`_FALLBACK_CHAIN` in `circuit_agent.py`): on rate-limit, retries `llama-3.3-70b-versatile` → `llama-3.1-8b-instant` silently; yields `{error}` only if all fail
+   - **`_NO_TOOL_MODELS` denylist** (replaces old whitelist): new models default to tool-capable; only known non-tool models excluded
+   - **Text-format tool call recovery** (`_FUNC_RE`): when `finish_reason="stop"` with `<function=name>{args}</function>` content, parses and executes tools then streams a follow-up response
 
 Quick-command chips: "How busy is today?", "What are my deep work tasks this week?", plus batch-move commands that trigger the command parser.
 
