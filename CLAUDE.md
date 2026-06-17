@@ -130,7 +130,7 @@ app/(app)/          # Authenticated routes
   add/page.tsx
   analytics/page.tsx
   energy/page.tsx   # Per-day task-event timeline (GET /api/energy/timeline); cross-app chart on Canopy
-  chat/page.tsx     # TerminalChat — command parser + native Circuit agent (Claude) + client-side help
+  chat/page.tsx     # App-native chat — batch command parser + Circuit Groq agent (not Conduit terminal hub)
 app/(auth)/login/   # Login page
 components/
   TaskDetailModal.tsx   # Re-export from task-detail/

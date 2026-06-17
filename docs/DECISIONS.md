@@ -83,3 +83,11 @@ Cross-app consumers (Canopy Energy, Chef Decide) must keep using `/api/energy/sy
 | Conduit multi-provider models | Groq-only MVP |
 | Production Cortex sibling-auth unification | Known gap ([Conduit CLAUDE.md](../../conduit/CLAUDE.md)) |
 | Siri shortcuts / Capacitor | Circuit BACKLOG |
+
+---
+
+## Terminal UI: Conduit only (2026-06-17)
+
+**Decision:** Terminal-style hub (diary router, cross-app tools, slash commands, phosphor shell) is **Conduit only**. Circuit, Canopy, and Chef ship **`/chat`** — each app's native Groq agent for personal Q&A within that domain.
+
+**Do not** add terminal timeline views or Conduit-style diary routing to sibling app UIs. Cross-app capture → Conduit diary mode.

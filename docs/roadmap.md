@@ -34,9 +34,9 @@ See [BACKLOG.md](./BACKLOG.md) for voice input and Siri Shortcuts feasibility no
 | Item | Notes |
 |------|--------|
 | Predictive / adaptive scheduling | Phase 6 — beyond current `analyzeBehavior` insights |
-| Voice capture on Add | Browser `SpeechRecognition` → parse/classify pipeline |
+| Voice capture on Add | Browser `SpeechRecognition` on Add page |
 | Siri / native shortcuts | Needs Capacitor/Tauri or registered URL scheme |
-| In-app energy timeline page | Combined chart today on Canopy → Energy |
+| Combined cross-app energy chart | Canopy → Energy (Circuit `/energy` is task-events only) |
 | Two-way calendar sync | ICS import/export only |
 
 ## Not planned (MVP scope)
