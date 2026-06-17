@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -95,6 +95,7 @@ def import_data(
 
     created = 0
     skipped = 0
+    updated = 0
 
     for task_data in inner.get("tasks", []):
         client_id = task_data.get("client_id")
@@ -104,7 +105,21 @@ def import_data(
                 CircuitTask.client_id == client_id,
             ).first()
             if existing:
-                skipped += 1
+                incoming_updated = task_data.get("client_updated_at") or 0
+                existing_updated = existing.client_updated_at or 0
+                if incoming_updated > existing_updated:
+                    for field in (
+                        "text", "tag", "completed", "tiny_step", "effort", "duration",
+                        "scheduled_at", "recurrence", "cognitive_load", "urgency", "importance",
+                        "skipped_count", "last_skipped_at", "delay_pattern", "preferred_execution_window",
+                        "focus_type", "client_updated_at",
+                    ):
+                        if field in task_data:
+                            setattr(existing, field, task_data.get(field))
+                    existing.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    updated += 1
+                else:
+                    skipped += 1
                 continue
 
         task = CircuitTask(
@@ -178,5 +193,6 @@ def import_data(
         "status": "merged",
         "exported_at": inner.get("exported_at"),
         "tasks_created": created,
+        "tasks_updated": updated,
         "tasks_skipped": skipped,
     }

@@ -7,91 +7,107 @@ This file is the **canonical inventory** of work intentionally not shipped yet. 
 
 ---
 
+## BLOCKED — external dependency unavailable
+
+These items need third-party APIs, platform access, native shells, or infra that is **not available or not supported today**. Do not implement without explicit approval and the dependency in place.
+
+| Item | Affected apps | Why blocked |
+|------|---------------|-------------|
+| **Swiggy / Zomato live APIs** | Chef | No public partner API; seed + history restaurants only. See [INTEGRATIONS.md](../../chef/docs/INTEGRATIONS.md). |
+| **Swiggy/Zomato deep links / delivery scraping** | Chef | Same — no stable integration surface. |
+| **Spoonacular, Edamam** | Chef | Paid/third-party recipe APIs not provisioned. |
+| **Native pgvector / embeddings** | Canopy, Chef | Groq has no embedding API; needs PostgreSQL + pgvector + embedding model (local or third-party). **Substitute shipped:** Groq rerank (Chef), tag + FTS (Canopy). |
+| **Ollama / local LLM** | Canopy | Offline model runtime not wired; Groq synthesis shipped instead. |
+| **Siri / iOS Shortcuts** | Circuit, Canopy | Needs URL scheme + Capacitor/Tauri or native wrapper. |
+| **Tauri / Capacitor desktop shell** | Canopy (primary), Circuit | Shell project not started. |
+| **Connected services** (Instacart, DoorDash, Apple Health, OpenTable, etc.) | Chef | No real integrations to link against. |
+| **Platform live pricing / surcharges** | Chef | Requires aggregator APIs for dynamic restaurant/delivery cost. |
+| **Encrypted auto cross-device sync** | All | Background merge + conflict UI; manual encrypted export/import shipped per app. |
+| **Production Cortex sibling-auth (divergent instances)** | Conduit → siblings | Token exchange not designed when Cortex URLs differ. **Substitute shipped:** `/wakeup` auth probe with Bearer token. |
+| **Circuit ML scheduling pipeline** | Circuit | No training data pipeline; heuristic adaptive learning shipped instead. |
+
+---
+
 ## AI policy (decided — not deferred)
 
 | Decision | Detail |
 |----------|--------|
 | **Groq-only** | All cloud LLM calls use `GROQ_API_KEY`. No Anthropic, OpenAI, Gemini, or Ollama **cloud** backends. |
 | **Terminal UI** | Phosphor terminal + diary routing → **Conduit only**. Siblings use `/chat` (native Groq agent). |
+| **Multi-provider LLM (Conduit)** | **Rejected** in favor of Groq-only policy. |
 
 ---
 
-## Ecosystem — cross-app (deferred)
+## Ecosystem — deferred (not blocked)
 
-| Item | Affected apps | Blocker / notes | Where tracked |
-|------|---------------|-----------------|---------------|
-| **Native pgvector / embeddings** | Canopy, Chef | Groq has no embedding API; needs PostgreSQL + pgvector + embedding model choice (local or third-party). **Substitute shipped:** Groq rerank on keyword pool (Chef `groq_search.py`); tag + FTS search (Canopy). | Canopy `ROADMAP` v0.2, Chef `DECISIONS.md` |
-| **Encrypted auto cross-device sync** | All | Manual export/import works; automatic merge + conflict resolution not built. | Canopy `TODO.md` |
-| **Production Cortex sibling-auth** | Conduit → Circuit/Canopy/Chef | `conduit_auth_token` must validate on all Render backends sharing one Cortex instance; per-app token exchange not designed. | Conduit `PLAN.md`, `CLAUDE.md` |
-| **Siri / iOS Shortcuts** | Circuit, Canopy | Needs URL scheme + Capacitor/Tauri or native wrapper; PWA alone insufficient. | Circuit `BACKLOG.md`, Canopy `TODO.md` |
-| **Tauri / Capacitor desktop shell** | Canopy (primary), Circuit | ~1–2 day shell project; not started. | Canopy `TODO.md` |
-| **Multi-provider LLM (Conduit)** | Conduit | **Rejected** in favor of Groq-only policy. | Conduit `PLAN.md` |
+| Item | Affected apps | Notes |
+|------|---------------|-------|
+| **Two-way external calendar sync** | Circuit | ICS import + export only; no Google/iCloud write-back. **Not planned.** |
+| **Server-push notifications** | Circuit, Chef | Anti-goal for focus/calm products. **Not planned.** |
+| **Multi-user task collaboration** | Circuit | Single-user model. **Not planned.** |
+| **Combined cross-app energy chart in Circuit** | Circuit | By design — lives on **Canopy → Energy**. |
+| **Vanilla Circuit full Groq agent** | Circuit | By design — use Conduit hub or full-stack `/chat`. |
+| **`AUTH_REQUIRED=true` in production** | Canopy | Implemented; enable per deploy env. |
+| **Ops / config** | All | `GROQ_API_KEY` on Render, shared Cortex URL across apps. |
 
 ---
 
 ## Circuit — deferred / backlog
 
-| Item | Phase | Status | Notes |
-|------|-------|--------|-------|
-| **Deeper adaptive / ML scheduling** | Phase 6 | Deferred | `scheduling_insights` + `analyzeBehavior` shipped; no ML training pipeline. |
-| **Two-way external calendar sync** | Backlog | **Not planned** | ICS import + export only; no Google/iCloud write-back. |
-| **Server-push notifications** | — | **Not planned** | Anti-goal for focus product. |
-| **Multi-user task collaboration** | — | **Not planned** | Single-user model. |
-| **Siri / native shortcuts** | Backlog | Deferred | See ecosystem table. |
-| **Combined cross-app energy chart in Circuit** | — | By design | Lives on **Canopy → Energy**; Circuit `/energy` is task-events only. |
+| Item | Status | Notes |
+|------|--------|-------|
+| **Deeper adaptive / ML scheduling** | Deferred | `delay_pattern` + `preferred_execution_window` + `GET /api/tasks/{id}/suggest-slot` shipped; no ML pipeline. |
+| **Siri / native shortcuts** | BLOCKED | See table above. |
 
-### Circuit — shipped (no longer deferred)
+### Circuit — shipped (2026-06-17 pass)
 
-- Voice on Add (`useVoiceInput`)
-- `/energy` timeline page
-- `scheduling_insights` on `GET /api/summary`
-- Calendar **Export .ics** button + `GET /api/calendar/export`
-- Groq-only agent (Anthropic removed)
+- Voice on Add, `/energy` timeline, `scheduling_insights`, calendar export .ics, Groq-only agent
+- `parseUtterance()` on Add/Tasks; vanilla `#analytics` / `#energy`
+- **Adaptive learning:** `delay_pattern` on skip, `preferred_execution_window` on complete
+- **`GET /api/tasks/{id}/suggest-slot`** — server-side deterministic slot suggestion
+- **Sync import LWW** — last-write-wins on `client_id` when `client_updated_at` is newer
 
 ---
 
 ## Chef — deferred
 
-| Item | Phase | Status | Notes |
-|------|-------|--------|-------|
-| **Swiggy / Zomato live APIs** | Integrations | **Blocked** | Documented unavailable 2026-06-17; seed + history restaurants only. | [INTEGRATIONS.md](../../chef/docs/INTEGRATIONS.md) |
-| **Spoonacular, Edamam** | Phase 1 / Integrations | Not integrated | Recipe search uses seed + TheMealDB + Groq generation. |
-| **Native pgvector recipe search** | Phase 2 | Deferred | Groq semantic rerank on keyword candidates shipped instead. |
-| **Full predictive engine** | Phase 3 | Partial | `GET /decision/predict` + expiring-pantry hints shipped; “likely to order tonight” prose engine not full ML. |
-| **Dynamic cost intelligence** | Phase 3 | Not started | Restaurant pricing trends, surcharge patterns, ordering windows. |
-| **Meal planning** | Phase 3 | Not started | Weekly / expiry-aware / budget / nutrition plans. |
-| **Push notifications** | — | Deferred | UI removed; no backend delivery. Anti-goal: notification spam. |
-| **Connected services** (Instacart, DoorDash, Apple Health, etc.) | — | Deferred | Revisit when live delivery APIs exist. |
-| **Web scraping / aggregators for delivery** | Integrations | Deferred | Superseded by Swiggy/Zomato unavailability decision. |
+| Item | Status | Notes |
+|------|--------|-------|
+| **Swiggy / Zomato** | **BLOCKED** | See INTEGRATIONS.md |
+| **Spoonacular, Edamam** | **BLOCKED** | |
+| **Native pgvector** | **BLOCKED** | Groq rerank shipped |
+| **Dynamic platform cost intelligence** | **BLOCKED** | Logged-meal cost trends shipped (`GET /decision/cost-insights`) |
+| **Push notifications** | Deferred | Anti-goal |
+| **Connected services** | **BLOCKED** | |
+| **Web scraping / aggregators** | **BLOCKED** | |
 
-### Chef — shipped (no longer deferred)
+### Chef — shipped (2026-06-17 pass)
 
-- Grocery swipe, health/stress in Settings, savings badge
-- Frequency-based grocery suggestions (90-day buy history)
-- Groq recipe rerank on search
-- `GET /decision/predict`
+- Grocery swipe, health/stress, savings badge, frequency grocery suggestions, Groq rerank, `GET /decision/predict`
+- Decide predict card on History
+- **`GET /decision/cost-insights`** — 30-day logged spend trends
+- **`GET /plan/week`** — 7-day deterministic meal plan (seed recipes, no Groq on load)
+- **`POST /sync/export` + `/sync/import`** — AES-GCM encrypted backup (Settings → Data)
 
 ---
 
 ## Canopy — deferred
 
-| Item | Version | Status | Notes |
-|------|---------|--------|-------|
-| **pgvector / semantic embeddings** | v0.2 | Deferred | Tag search + Groq synthesis shipped. |
-| **Contextual linking** (auto link interactions ↔ people) | v0.2 | Not started | |
-| **Full pattern assistance UI** | v0.3 | Partial | `GET /api/ai/patterns` + dashboard cards; no dedicated patterns page. |
-| **Local LLM (Ollama) summaries** | v0.4 | Deferred | Groq synthesis on Home shipped; offline local model not wired. |
-| **Adaptive tagging** | v0.4 | Not started | |
-| **Memory compression** | v0.4 | Not started | |
-| **Encrypted auto sync** | Backlog | Deferred | See ecosystem. |
-| **Tauri desktop shell** | Backlog | Deferred | |
-| **`AUTH_REQUIRED=true` in production** | Ops | Config | Implemented; enable per deploy env. |
-| **Voice capture** | Backlog | **Shipped** | `useVoiceInput` on capture page. |
+| Item | Status | Notes |
+|------|--------|-------|
+| **pgvector / semantic embeddings** | **BLOCKED** | |
+| **Local LLM (Ollama)** | **BLOCKED** | |
+| **Adaptive tagging (ML)** | Deferred | Heuristic capture suggestions shipped |
+| **Memory compression** | Deferred | |
+| **Encrypted auto sync** | **BLOCKED** | Manual export exists |
+| **Tauri desktop shell** | **BLOCKED** | |
+| **Richer synthesis cadence / reflection UI** | Deferred | `/patterns` page shipped |
 
-### Canopy — shipped (no longer deferred)
+### Canopy — shipped (2026-06-17 pass)
 
-- TagInput autocomplete, TerminalView removed (Conduit-only terminal)
-- Tag name search, Groq weekly synthesis, deterministic patterns API
+- TagInput, tag search, Groq synthesis, patterns API, voice capture
+- **`/patterns` page** — on-demand synthesis + 7/14/30d range
+- **`GET /api/ai/capture-suggestions`** — heuristic participant + tag chips on Capture (user confirms)
 
 ---
 
@@ -99,66 +115,33 @@ This file is the **canonical inventory** of work intentionally not shipped yet. 
 
 | Item | Status | Notes |
 |------|--------|-------|
-| **Production sibling-auth unification** | Known issue | See ecosystem. |
-| **`get_interactions_for_person` tool** | Optional | Name resolution wrapper around existing read path. |
-| **Multi-provider models** | **Rejected** | Groq-only policy. |
+| **Production sibling-auth unification** | **BLOCKED** when Cortex diverges | Wakeup auth probe shipped |
+| **Multi-provider models** | **Rejected** | Groq-only |
 
-### Conduit — shipped (no longer deferred)
+### Conduit — shipped (2026-06-17 pass)
 
-- Phase D write tools (`update_task`, `create_person`, `update_meal_entry`)
-- Diary `saveSession`, session history UI
-- IST diary routing, Phase A–E fixes
-
----
-
-## Partial phases — what remains
-
-| App | Phase | Shipped | Still open |
-|-----|-------|---------|------------|
-| **Circuit** | Phase 6 AI | Classify, Groq agent, `scheduling_insights` | Adaptive ML / learned scheduling |
-| **Chef** | Phase 2 | Personalization, nutrition, grocery predict, Groq rerank | Native pgvector, live delivery |
-| **Chef** | Phase 3 | `predict` endpoint | Dynamic pricing, meal plans, waste-frequency ML |
-| **Canopy** | v0.2 | Tags, search, Groq synthesis | Embeddings, contextual linking |
-| **Canopy** | v0.3 | Patterns API, dashboard | Dedicated reflection UI, richer synthesis cadence |
-| **Canopy** | v0.4 | — | Local LLM, adaptive tagging, compression |
+- Phase D write tools, diary `saveSession`, IST routing
+- **`get_interactions_for_person`** read tool
+- **`/wakeup` auth probe** — when signed in, pings each sibling's `/auth/me` (or `/api/auth/me`) and reports `auth_ok`
 
 ---
 
-## Is anything else left besides these?
+## Partial phases — summary
 
-**No major roadmap phases remain unlisted above.** Remaining work falls into:
-
-1. **This deferred list** — infra, external APIs, or explicit product rejections.
-2. **Ops / config** — e.g. `GROQ_API_KEY` on Render, `AUTH_REQUIRED` on Canopy, shared Cortex URL across apps.
-3. **Incremental polish** — see shipped table below; Swiggy/Zomato deep links remain deferred.
-4. **Vanilla Circuit PWA** — analytics/energy hash routes + local parser shipped; full-stack Groq agent remains Conduit/full-stack only.
-
-### Polish — shipped (2026-06-17)
-
-| App | Item | Implementation |
-|-----|------|----------------|
-| **Circuit** | Voice → dimension parser | `parseUtterance()` — sync heuristic on Add + Tasks quick-add; no `POST /classify` on capture |
-| **Circuit** | Vanilla PWA parity (partial) | `#analytics` + `#energy` lazy pages, `parseUtterance` in `addTaskFromInput`, voice mic on add form |
-| **Canopy** | `/patterns` page | `frontend/src/app/patterns/page.tsx`; Home no longer calls Groq on mount |
-| **Canopy** | Synthesis UX | On-demand generate + 7/14/30d range on `/patterns` |
-| **Chef** | Decide predict surfacing | History card with mode badge + confidence + savings hint |
-| **Conduit** | `get_interactions_for_person` | Read tool: `GET /api/people?q=` → `GET /api/interactions?person_id=` |
-
-### Polish — still open
-
-| App | Item | Notes |
-|-----|------|--------|
-| **Chef** | Swiggy/Zomato deep links | **Blocked** — [INTEGRATIONS.md](../../chef/docs/INTEGRATIONS.md) |
-| **Conduit** | Production sibling-auth | Infra when Cortex instances diverge |
-| **Circuit** | Vanilla full Groq agent | By design — use Conduit hub or full-stack `/chat` |
-
-**Not deferred — explicitly rejected:** Circuit push notifications, multi-user tasks, full two-way calendar sync, Chef notification toggles without backend, Conduit non-Groq providers, sibling-app terminal/diary UIs.
+| App | Still open (non-blocked) | Blocked |
+|-----|---------------------------|---------|
+| **Circuit** | Siri (blocked), ML scheduling (blocked) | — |
+| **Chef** | Push notifications (deferred anti-goal) | Delivery APIs, platform pricing, pgvector |
+| **Canopy** | Memory compression, richer reflection UX | Embeddings, Ollama, Tauri, auto-sync |
+| **Conduit** | — | Cross-Cortex token exchange |
 
 ---
 
 ## How to pick up work
 
 1. Read this file + app `DECISIONS.md`.
-2. Do **not** implement Swiggy/Zomato, Anthropic paths, or sibling terminal views without explicit approval.
-3. For semantic search, prefer extending Groq rerank/FTS before pgvector unless Postgres+embeddings infra is provisioned.
-4. Update **this file** and the copy in sibling repos when deferring or closing an item.
+2. Do **not** implement BLOCKED items without dependency + explicit approval.
+3. For semantic search, extend Groq rerank/FTS before pgvector unless Postgres+embeddings is provisioned.
+4. Update **this file** and sibling copies when deferring or closing an item.
+
+**Explicitly rejected (not deferred):** Circuit push notifications, multi-user tasks, full two-way calendar sync, Chef notification toggles without backend, Conduit non-Groq providers, sibling-app terminal/diary UIs.

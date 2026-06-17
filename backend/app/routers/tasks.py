@@ -16,6 +16,8 @@ from app.models import CircuitTask, TaskEvent, User
 from app.behavioral import record_completion_rate
 from app.engines.recurrence import is_hourly_recurrence, next_occurrence, skip_occurrences_too_close_after_catchup
 from app.services.blackout import adjust_for_blackouts
+from app.services.adaptive_learning import apply_complete_learning, update_delay_pattern_on_skip
+from app.services.suggest_slot import suggest_slot_for_task
 from app.task_event_time import task_event_occurred_at
 
 _IST = ZoneInfo("Asia/Kolkata")
@@ -298,6 +300,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
 
     was_completed = task.completed
     old_scheduled_at = task.scheduled_at
+    old_skipped = task.skipped_count or 0
     _JSON_FIELDS = {"required_resources", "dependencies"}
 
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -313,6 +316,11 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             setattr(task, field, value)
 
     task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if payload.skipped_count is not None and payload.skipped_count > old_skipped:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        task.last_skipped_at = now_ms
+        task.delay_pattern = update_delay_pattern_on_skip(task, now_ms)
 
     # Group propagation: shift all linked tasks by the same delta when scheduled_at changes
     if (
@@ -342,6 +350,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
     if payload.completed is not None and payload.completed != was_completed:
         if payload.completed:
             task.historical_completion_rate = record_completion_rate(task.historical_completion_rate)
+            apply_complete_learning(task)
         event_type = "completed" if payload.completed else "uncompleted"
         db.add(TaskEvent(
             user_id=user.id,
@@ -550,6 +559,27 @@ def cleanup_tasks(
         total_deleted += len(ids)
 
     return {"deleted": total_deleted}
+
+
+@router.get("/{task_id}/suggest-slot")
+def suggest_slot(
+    task_id: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    task = db.get(CircuitTask, task_id)
+    if not task or task.user_id != user.id:
+        raise HTTPException(404, "Task not found")
+    from app.models import UserState
+    state = db.query(UserState).filter(UserState.user_id == user.id).first()
+    energy = state.energy_level if state else 0.6
+    stress = state.stress_level if state else 0.3
+    others = (
+        db.query(CircuitTask)
+        .filter(CircuitTask.user_id == user.id, CircuitTask.completed == False)  # noqa: E712
+        .all()
+    )
+    return suggest_slot_for_task(task, others, energy_level=energy, stress_level=stress)
 
 
 @router.delete("/{task_id}", status_code=204)
