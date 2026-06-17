@@ -12,6 +12,63 @@ const ICS_EXPIRES_KEY = "circuit-ics-expires";
 const ICS_DISMISSED_KEY = "circuit-ics-expires-dismissed";
 const WARN_DAYS = 60;
 
+function AuthBootScreen() {
+  return (
+    <div
+      style={{
+        minHeight: "100dvh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--paper)",
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+        <div
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 22,
+            fontWeight: 600,
+            letterSpacing: "-0.03em",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            color: "var(--ink)",
+          }}
+        >
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: "var(--terra)",
+              display: "inline-block",
+              flexShrink: 0,
+            }}
+          />
+          circuit
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="animate-pulse"
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "var(--terra)",
+                opacity: 0.55,
+                animationDelay: `${i * 0.15}s`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function useIcsRenewalBanner() {
   const [banner, setBanner] = useState<{ daysLeft: number; expiry: string } | null>(null);
 
@@ -56,7 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [user]);
 
 
-  if (loading || !user) return null;
+  if (loading || !user) return <AuthBootScreen />;
 
   return (
     <div className="app-shell">
