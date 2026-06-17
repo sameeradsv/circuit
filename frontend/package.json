@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@shared/cortex": "github:sameeradsv/cortex#3c42d03",
+    "@shared/cortex": "github:sameeradsv/cortex#2b90e05",
     "@simplewebauthn/browser": "^9.0.1",
     "next": "^15.1.0",
     "react": "^19.0.0",
