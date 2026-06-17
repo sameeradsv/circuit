@@ -549,7 +549,7 @@ function WeekView({
 
   return (
     <div className="cal-week-scroll">
-    <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden", minWidth: 560 }}>
+    <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden", minWidth: 900 }}>
       {/* Day headers */}
       <div style={{ display: "grid", gridTemplateColumns: `${LABEL_W}px repeat(7, 1fr)`, borderBottom: "1px solid var(--line)", background: "var(--paper-2)" }}>
         <div />
