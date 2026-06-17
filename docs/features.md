@@ -20,7 +20,7 @@ Authenticated routes under `frontend/src/app/(app)/`:
 | Account | `/account` | Preferences, sleep overrides, blackouts, energy manual override, encrypted export/import, **vanilla PWA localStorage import**, passkey |
 | Analytics | `/analytics` | Summary stats, **WorkloadBar**, **BehavioralInsights**, attention/stale/skipped lists |
 | Energy | `/energy` | Per-day task-event balance (`GET /api/energy/timeline`); combined cross-app chart on Canopy → Energy |
-| Chat | `/chat` | TerminalChat — batch commands (no API) + Circuit agent (Groq default, Anthropic fallback) |
+| Chat | `/chat` | TerminalChat — batch commands (no API) + Circuit native **Groq** agent |
 
 Auth: `/login` — username/passcode or WebAuthn passkey.
 

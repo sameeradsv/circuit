@@ -77,7 +77,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 | `history.py` | `/api/history` | Task event log |
 | `search.py` | `/api/search` | Full-text task search |
 | `ai.py` | `/api/ai` | Task classification heuristics |
-| `agent.py` | `/api/agent` | Circuit-native Claude agent with task/energy tools |
+| `agent.py` | `/api/agent` | Circuit-native Groq agent with task/energy tools |
 | `sync.py` | `/api/sync` | AES-256 encrypted export/import |
 | `webauthn.py` | `/api/auth/webauthn` | Passkey registration and login |
 

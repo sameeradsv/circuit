@@ -9,7 +9,7 @@
 - Cumulative energy timeline with cross-day carry-over (`energy_eod`); task events mapped to scheduled slot on timeline
 - Calendar day/week/month with drag-and-drop
 - TaskDetailModal (modular `task-detail/` sections)
-- TerminalChat batch commands + Circuit native agent (Claude)
+- TerminalChat batch commands + Circuit native **Groq** agent
 - Encrypted export/import
 - Cross-app energy hook (Canopy, Chef)
 - Analytics — `GET /api/summary` + **WorkloadBar** + **BehavioralInsights** (engine-driven)
@@ -20,7 +20,7 @@
 
 ## In progress
 
-- **Phase 6 — AI assistance**: agent chat + classify-on-capture + **scheduling_insights** on `/api/summary` shipped; deeper adaptive ML remains out of scope
+- **Phase 6 — AI assistance**: core shipped (`scheduling_insights`, classify, Groq agent). Remainder → [DEFERRED.md](./DEFERRED.md).
 
 ## Implemented (vanilla PWA)
 
@@ -29,16 +29,14 @@
 
 ## Backlog (vanilla + full-stack)
 
-See [BACKLOG.md](./BACKLOG.md) for voice input and Siri Shortcuts feasibility notes.
+See [BACKLOG.md](./BACKLOG.md) (Siri/Shortcuts) and [DEFERRED.md](./DEFERRED.md) (full inventory).
 
 | Item | Notes |
 |------|--------|
-| Predictive / adaptive scheduling | `scheduling_insights` on Analytics via `/api/summary` |
-| Voice capture on Add | Shipped (`useVoiceInput` on Add page) |
-| Siri / native shortcuts | Needs Capacitor/Tauri — see [BACKLOG.md](./BACKLOG.md) |
-| Combined cross-app energy chart | Canopy → Energy (Circuit `/energy` is task-events only) |
-| Calendar export | **Export .ics** on Calendar page + `GET /api/calendar/export` |
-| Two-way calendar sync | ICS import/export only |
+| Deeper adaptive / ML scheduling | Deferred — deterministic insights shipped |
+| Siri / native shortcuts | Needs Capacitor/Tauri — [BACKLOG.md](./BACKLOG.md) |
+| Combined cross-app energy chart | Canopy → Energy (by design) |
+| Two-way calendar sync | **Not planned** — ICS import/export only |
 
 ## Not planned (MVP scope)
 

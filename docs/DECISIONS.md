@@ -76,13 +76,14 @@ Cross-app consumers (Canopy Energy, Chef Decide) must keep using `/api/energy/sy
 
 ## Deferred ecosystem work (2026-06)
 
+See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector, auto-sync, Cortex auth, Siri, Tauri, Swiggy/Zomato, partial phases).
+
 | Item | Status |
 |------|--------|
-| pgvector / semantic search | Not started |
+| pgvector / semantic search | Deferred — Groq rerank/FTS substitutes |
 | Encrypted auto cross-device sync | Export/import only |
-| Conduit multi-provider models | Groq-only MVP |
-| Production Cortex sibling-auth unification | Known gap ([Conduit CLAUDE.md](../../conduit/CLAUDE.md)) |
-| Siri shortcuts / Capacitor | Circuit BACKLOG |
+| Production Cortex sibling-auth | Known gap ([Conduit](../../conduit/CLAUDE.md)) |
+| Siri shortcuts / Capacitor | [BACKLOG.md](./BACKLOG.md) |
 
 ---
 

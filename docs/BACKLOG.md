@@ -1,19 +1,17 @@
 # Backlog
 
-## Voice input
+See **[DEFERRED.md](./DEFERRED.md)** for the full deferred inventory.
 
-**Feasibility:** Medium on the web, higher effort on native shells.
+## Voice input — shipped (full-stack)
 
-- Browser `SpeechRecognition` (Chrome/Edge) can capture task text locally without sending audio to a server, which fits Circuit’s local-first posture.
-- Dimension fields would still need UI or a small parser (“high urgency work task, 45 minutes”) — voice alone does not replace structured dimensions.
-- Safari/iOS support is inconsistent; a PWA would need a graceful fallback to typing.
-- Recommended path: optional mic button on the task form that fills `#task-input`, then runs the existing conversational parser + dimension form.
+**Status:** `useVoiceInput` on **Add** and **Tasks** quick-add (`add/page.tsx`, `tasks/page.tsx`) fills task text via browser `SpeechRecognition` (Chrome/Edge; Safari fallback to typing).
 
-## Siri Shortcuts
+Remaining gap: structured dimension capture from voice-only utterances (parser enrichment) — optional polish, not a phase blocker.
+
+## Siri Shortcuts — deferred
 
 **Feasibility:** Low for the current PWA-only stack; medium if wrapped or companion native.
 
 - Shortcuts expect an App Intent, URL scheme, or Share extension target — not available to a pure static PWA on the home screen alone.
 - Practical options: (1) Shortcuts that open a `circuit://add?text=...` URL if a native wrapper registers the scheme; (2) iOS Share Sheet → paste into Circuit; (3) serverless webhook (conflicts with local-first unless carefully scoped).
-- Without a thin native host, users can only “Open Circuit” via a bookmark URL, not reliably pass structured task payloads into dimension fields.
 - Recommended path: defer until install surface is defined (Capacitor/Tauri); then expose `AddTaskIntent` mapping to `buildTaskFromInput` defaults.
