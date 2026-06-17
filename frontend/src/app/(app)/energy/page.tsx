@@ -13,6 +13,12 @@ function offsetDate(date: string, days: number): string {
   return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
 }
 
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function fmtDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+
 export default function EnergyPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -46,7 +52,7 @@ export default function EnergyPage() {
         </div>
         <div className="flex items-center gap-2">
           <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, -1))}>‹</button>
-          <span className="mono text-sm text-circuit-muted min-w-[7rem] text-center">{date}</span>
+          <span className="text-sm text-circuit-muted min-w-[8rem] text-center">{fmtDate(date)}</span>
           <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, 1))} disabled={date >= todayIST()}>›</button>
           {date !== todayIST() && (
             <button type="button" className="btn text-xs" onClick={() => setDate(todayIST())}>Today</button>

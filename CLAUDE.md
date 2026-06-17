@@ -307,7 +307,7 @@ Four modes — `normal | deep | low | social` — shift how the scoring algorith
 
 `/analytics` uses `WorkloadBar` + `BehavioralInsights` (`analyzeBehavior` on open tasks) alongside `GET /api/summary`. Home and Tasks rank via shared `lib/task-ranking.ts` → engine `scoreTasks`. Account → **Import from browser (vanilla PWA)** migrates `localStorage` via `POST /api/tasks/migrate`. Product decisions: `docs/DECISIONS.md`.
 
-`WorkloadBar` shows **today's scheduled workload** vs an 8-hour capacity — `total_pending_minutes` in `GET /api/summary` sums only tasks with `scheduled_at` falling within today (IST), not the total backlog. The by-tag breakdown and pending task count still cover all open tasks.
+`WorkloadBar` shows **today's scheduled workload** vs an 8-hour capacity — `total_pending_minutes` in `GET /api/summary` sums only tasks with `scheduled_at` falling within today (IST), not the total backlog. The by-tag breakdown and pending task count still cover all open tasks. The bar has zone tick marks at 50% and 80% with threshold labels (`Light < 4h`, `Moderate 4–6.5h`, `Heavy 6.5–8h`, `Overloaded > 8h`) rendered below the bar.
 
 ## Key constraints
 

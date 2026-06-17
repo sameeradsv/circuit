@@ -108,3 +108,19 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Vanilla PWA:** Same parser in `src/ai-assistance/parse-utterance.ts`; `#analytics` and `#energy` render on hash navigation only (no extra startup fetch). Voice mic injected on add form when supported. Full cumulative energy timeline and Groq agent remain full-stack / Conduit only.
 
 **Do not** re-add classify-on-capture without measuring latency impact.
+
+---
+
+## WorkloadBar: zone labels (2026-06-17)
+
+**Decision:** `WorkloadBar` renders vertical tick marks at 50% and 80% of the 8h capacity bar, with threshold labels below: `Light < 4h`, `Moderate 4–6.5h`, `Heavy 6.5–8h`, `Overloaded > 8h`.
+
+**Reason:** The bar alone gave no reference for what "good" looks like — users couldn't tell whether their current load was approaching a problem zone without prior context.
+
+---
+
+## Energy page: human-readable date (2026-06-17)
+
+**Decision:** `/energy` date navigator displays `17 Jun 2026` instead of `2026-06-17`.
+
+**Reason:** ISO strings are machine format; the date picker is a user-facing control.
