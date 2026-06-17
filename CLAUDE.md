@@ -185,7 +185,7 @@ IST timezone note: `_first_future_ms()` validates the IST weekday of each candid
 
 Users mark date ranges in Account → Blackouts. Types: `travelling`, `period`, `sickness`, `leave`, `wfh`.
 
-Tasks carry `blackout_skip_flags` specifying which types cause them to be skipped. `leave` is special: it auto-applies to any task with `tag === "work"` without needing per-task flagging. All other types (including `wfh`) require explicit per-task opt-in via the skip flags.
+Tasks carry `blackout_skip_flags` specifying which types cause them to be skipped. All blackout types (`travelling`, `period`, `sickness`, `leave`, `wfh`) require explicit per-task opt-in via the skip flags — task `tag` does not auto-apply any blackout.
 
 **During an active blackout**: blacked-out tasks are **hidden** from the Right now / Soon / Later sections and shown in a collapsed **"On hold"** section at the bottom of the task list.
 

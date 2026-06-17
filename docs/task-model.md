@@ -22,8 +22,7 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 
 ## Blackouts
 
-- `blackout_skip_flags` — JSON array: `travelling`, `period`, `sickness`, `leave`, `wfh`
-- `leave` auto-applies to `tag=work` without explicit flagging
+- `blackout_skip_flags` — JSON array: `travelling`, `period`, `sickness`, `leave`, `wfh`; each type requires explicit opt-in (no tag-based auto-apply)
 - During blackout: task hidden from active list → **On hold**
 - On blackout create: scheduled tasks in range rescheduled via `services/blackout.py`
 

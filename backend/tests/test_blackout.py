@@ -9,7 +9,7 @@ from app.engines.recurrence import (
     first_catch_up_slot_after,
     skip_occurrences_too_close_after_catchup,
 )
-from app.services.blackout import adjust_for_blackouts
+from app.services.blackout import adjust_for_blackouts, task_affected_by
 
 _IST = ZoneInfo("Asia/Kolkata")
 
@@ -39,6 +39,14 @@ def _blackout(start: datetime, end: datetime, btype: str = "travelling") -> Simp
         start_date_ms=_ms(start),
         end_date_ms=_ms(end),
     )
+
+
+def test_leave_blackout_requires_explicit_skip_flag_not_work_tag():
+    sleep = _task(text="Sleep", tag="work", blackout_skip_flags=None)
+    assert task_affected_by(sleep, "leave") is False
+
+    flagged = _task(tag="work", blackout_skip_flags='["leave"]')
+    assert task_affected_by(flagged, "leave") is True
 
 
 def test_catch_up_biweekly_saturday_moves_to_next_saturday_not_blackout_end():

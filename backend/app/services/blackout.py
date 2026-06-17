@@ -25,18 +25,14 @@ _ANCHOR_PRESERVING_CATCHUP = frozenset({"catch_up_once", "catch_up_immediate"})
 
 def task_affected_by(task: CircuitTask, blackout_type: str) -> bool:
     flags = set(json.loads(task.blackout_skip_flags) if task.blackout_skip_flags else [])
-    if blackout_type in flags:
-        return True
-    return blackout_type == "leave" and task.tag == "work"
+    return blackout_type in flags
 
 
 def _overlapping_blackouts(ms: int, task: CircuitTask, blackouts: list) -> list:
     flags = set(json.loads(task.blackout_skip_flags) if task.blackout_skip_flags else [])
-    is_work = task.tag == "work"
     return [
         b for b in blackouts
-        if (b.blackout_type in flags or (b.blackout_type == "leave" and is_work))
-        and b.start_date_ms <= ms <= b.end_date_ms
+        if b.blackout_type in flags and b.start_date_ms <= ms <= b.end_date_ms
     ]
 
 

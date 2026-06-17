@@ -181,9 +181,7 @@ export default function TasksPage() {
 
   function isBlackedOut(task: ApiTask): boolean {
     const flags = task.blackout_skip_flags ?? [];
-    if (flags.some(f => activeTypes.has(f))) return true;
-    if (activeTypes.has("leave") && task.tag === "work") return true;
-    return false;
+    return flags.some(f => activeTypes.has(f));
   }
 
   const timeAvail = 120;
