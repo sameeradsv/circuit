@@ -56,6 +56,9 @@ def _collect_export(db: Session, user_id: int) -> dict:
                 "preferred_execution_window": t.preferred_execution_window,
                 "delay_pattern": t.delay_pattern,
                 "location_dependency": t.location_dependency,
+                "notifications_enabled": bool(t.notifications_enabled),
+                "notification_offset_1_mins": t.notification_offset_1_mins,
+                "notification_offset_2_mins": t.notification_offset_2_mins,
                 "client_created_at": t.client_created_at,
                 "client_updated_at": t.client_updated_at,
             }
@@ -113,6 +116,8 @@ def import_data(
                         "scheduled_at", "recurrence", "cognitive_load", "urgency", "importance",
                         "skipped_count", "last_skipped_at", "delay_pattern", "preferred_execution_window",
                         "focus_type", "client_updated_at",
+                        "notifications_enabled", "notification_offset_1_mins",
+                        "notification_offset_2_mins",
                     ):
                         if field in task_data:
                             setattr(existing, field, task_data.get(field))
@@ -157,6 +162,9 @@ def import_data(
             preferred_execution_window=task_data.get("preferred_execution_window"),
             delay_pattern=task_data.get("delay_pattern"),
             location_dependency=task_data.get("location_dependency"),
+            notifications_enabled=task_data.get("notifications_enabled", True),
+            notification_offset_1_mins=task_data.get("notification_offset_1_mins", 10),
+            notification_offset_2_mins=task_data.get("notification_offset_2_mins"),
             client_created_at=task_data.get("client_created_at"),
             client_updated_at=task_data.get("client_updated_at"),
         )

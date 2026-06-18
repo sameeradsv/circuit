@@ -10,6 +10,18 @@ interface TaskTimeFocusSectionProps extends TaskSectionProps {
   onWeekendTimeChange: (value: string) => void;
 }
 
+const REMINDER_OPTIONS = [
+  { label: "No reminder", value: "" },
+  { label: "At start time", value: "0" },
+  { label: "5 minutes before", value: "5" },
+  { label: "10 minutes before", value: "10" },
+  { label: "15 minutes before", value: "15" },
+  { label: "30 minutes before", value: "30" },
+  { label: "1 hour before", value: "60" },
+  { label: "2 hours before", value: "120" },
+  { label: "1 day before", value: "1440" },
+];
+
 export function TaskTimeFocusSection({
   merged, set, weekendTime, onWeekendTimeChange,
 }: TaskTimeFocusSectionProps) {
@@ -50,6 +62,57 @@ export function TaskTimeFocusSection({
           className="input-field flex-1 py-1 text-xs"
         />
       </label>
+
+      <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+          Notifications
+          <FieldHint text="Enable browser notifications for this task. The global bell in the sidebar must also be enabled." />
+        </span>
+        <span className="flex min-h-11 items-center gap-2 text-xs text-circuit-muted">
+          <input
+            type="checkbox"
+            checked={merged.notifications_enabled ?? true}
+            onChange={(e) => set("notifications_enabled", e.target.checked)}
+          />
+          Notify me for this task
+        </span>
+      </label>
+
+      {(merged.notifications_enabled ?? true) && (
+        <>
+          <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+              First reminder
+              <FieldHint text="When to notify before this task starts." />
+            </span>
+            <select
+              value={merged.notification_offset_1_mins ?? ""}
+              onChange={(e) => set("notification_offset_1_mins", e.target.value === "" ? null as unknown as number : Number(e.target.value))}
+              className="input-field flex-1 py-1 text-xs"
+            >
+              {REMINDER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
+              Second reminder
+              <FieldHint text="Optional additional notification before this task starts." />
+            </span>
+            <select
+              value={merged.notification_offset_2_mins ?? ""}
+              onChange={(e) => set("notification_offset_2_mins", e.target.value === "" ? null as unknown as number : Number(e.target.value))}
+              className="input-field flex-1 py-1 text-xs"
+            >
+              {REMINDER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
 
       <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
         <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">

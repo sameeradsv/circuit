@@ -79,6 +79,9 @@ export interface ApiTask {
   day_time_overrides: Record<string, string>;  // {"SA": "10:00", "SU": "10:00"}
   travel_buffer_before_mins: number | null;
   travel_buffer_after_mins: number | null;
+  notifications_enabled: boolean;
+  notification_offset_1_mins: number | null;
+  notification_offset_2_mins: number | null;
   recurrence_anchor_ms: number | null;
   import_review_pending: boolean;
 }
@@ -99,6 +102,7 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "blackout_skip_flags"
   | "group_id" | "day_time_overrides"
   | "travel_buffer_before_mins" | "travel_buffer_after_mins"
+  | "notifications_enabled" | "notification_offset_1_mins" | "notification_offset_2_mins"
   | "recurrence_anchor_ms" | "import_review_pending"
 >>;
 

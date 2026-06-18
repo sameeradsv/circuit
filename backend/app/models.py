@@ -108,6 +108,11 @@ class CircuitTask(Base):
     travel_buffer_before_mins: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     travel_buffer_after_mins: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # Per-task browser notification settings
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    notification_offset_1_mins: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=10)
+    notification_offset_2_mins: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     # Set true on calendar ICS import until user marks setup complete in Tasks
     import_review_pending: Mapped[bool] = mapped_column(Boolean, default=False)
 

@@ -330,6 +330,24 @@ def _migrate_import_review_pending() -> None:
         conn.commit()
 
 
+def _migrate_task_notifications() -> None:
+    inspector = inspect(engine)
+    existing_cols = {c["name"] for c in inspector.get_columns("circuit_tasks")}
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        for col_name, col_def in [
+            ("notifications_enabled", "BOOLEAN DEFAULT 1" if is_sqlite else "BOOLEAN DEFAULT TRUE"),
+            ("notification_offset_1_mins", "INTEGER DEFAULT 10"),
+            ("notification_offset_2_mins", "INTEGER"),
+        ]:
+            if col_name not in existing_cols:
+                if is_sqlite:
+                    conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN {col_name} {col_def}"))
+                else:
+                    conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
+        conn.commit()
+
+
 def get_db():
     db = SessionLocal()
     try:

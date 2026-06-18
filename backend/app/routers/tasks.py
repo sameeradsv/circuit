@@ -88,6 +88,9 @@ class TaskIn(BaseModel):
     day_time_overrides: Optional[dict] = None  # {"SA": "10:00", "SU": "10:00"}
     travel_buffer_before_mins: Optional[int] = None
     travel_buffer_after_mins: Optional[int] = None
+    notifications_enabled: bool = True
+    notification_offset_1_mins: Optional[int] = 10
+    notification_offset_2_mins: Optional[int] = None
 
 
 class TaskPatch(BaseModel):
@@ -131,6 +134,9 @@ class TaskPatch(BaseModel):
     day_time_overrides: Optional[dict] = None  # {"SA": "10:00", "SU": "10:00"}
     travel_buffer_before_mins: Optional[int] = None
     travel_buffer_after_mins: Optional[int] = None
+    notifications_enabled: Optional[bool] = None
+    notification_offset_1_mins: Optional[int] = None
+    notification_offset_2_mins: Optional[int] = None
     recurrence_anchor_ms: Optional[int] = None
     import_review_pending: Optional[bool] = None
 
@@ -186,6 +192,9 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "day_time_overrides": json.loads(t.day_time_overrides) if t.day_time_overrides else {},
         "travel_buffer_before_mins": t.travel_buffer_before_mins,
         "travel_buffer_after_mins": t.travel_buffer_after_mins,
+        "notifications_enabled": bool(t.notifications_enabled),
+        "notification_offset_1_mins": t.notification_offset_1_mins,
+        "notification_offset_2_mins": t.notification_offset_2_mins,
         "import_review_pending": bool(t.import_review_pending),
     }
 
@@ -473,6 +482,9 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                         day_time_overrides=task.day_time_overrides,
                         travel_buffer_before_mins=task.travel_buffer_before_mins,
                         travel_buffer_after_mins=task.travel_buffer_after_mins,
+                        notifications_enabled=task.notifications_enabled,
+                        notification_offset_1_mins=task.notification_offset_1_mins,
+                        notification_offset_2_mins=task.notification_offset_2_mins,
                         import_review_pending=False,
                     )
                     db.add(next_task)

@@ -19,6 +19,7 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `rrule`, `rrule_dtstart_ms`, `is_recurring_template` — calendar ICS imports
 - `day_time_overrides` — JSON `{"SA": "10:00", "SU": "10:00"}` (morning tasks only)
 - `travel_buffer_before_mins`, `travel_buffer_after_mins` — rendered as calendar buffer blocks and included in day/week overlap layout
+- `notifications_enabled`, `notification_offset_1_mins`, `notification_offset_2_mins` — per-task browser reminder config; default is enabled with a 10-minute first reminder and no second reminder
 
 ## Blackouts
 

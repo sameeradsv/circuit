@@ -4,11 +4,27 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiTask } from "./api";
 
 const STORAGE_KEY = "circuit-notifications";
-const LEAD_MS = 10 * 60 * 1000;          // notify 10 min before
 const TOGGLE_EVENT = "circuit-notif-toggle";
 // Only schedule timers within this window. Beyond it, setTimeout delay
 // overflows the 32-bit int limit (~24.8 days) and fires immediately.
-const SCHEDULE_HORIZON_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SCHEDULE_HORIZON_MS = 24 * 60 * 60 * 1000;
+
+function reminderOffsets(task: ApiTask): number[] {
+  if (task.notifications_enabled === false) return [];
+  return Array.from(new Set([
+    task.notification_offset_1_mins ?? 10,
+    task.notification_offset_2_mins,
+  ].filter((offset): offset is number => offset != null)));
+}
+
+function reminderLeadLabel(offset: number): string {
+  if (offset === 0) return "now";
+  if (offset < 60) return `${offset}m`;
+  if (offset === 60) return "1h";
+  if (offset === 1440) return "1d";
+  if (offset % 60 === 0) return `${offset / 60}h`;
+  return `${offset}m`;
+}
 
 /** Called once in AppShell. Schedules browser notifications for upcoming tasks. */
 export function useNotificationScheduler(tasks: ApiTask[]) {
@@ -32,24 +48,25 @@ export function useNotificationScheduler(tasks: ApiTask[]) {
     const now = Date.now();
     for (const task of tasks) {
       if (task.completed || !task.scheduled_at) continue;
-      const delay = task.scheduled_at - LEAD_MS - now;
-      if (delay < 0) continue;
-      // Skip tasks beyond the 24-hour scheduling horizon — they'll be picked up
-      // on the next app open when they're within range.
-      if (delay > SCHEDULE_HORIZON_MS) continue;
 
-      const id = setTimeout(() => {
-        const time = new Date(task.scheduled_at!).toLocaleTimeString("en-IN", {
-          hour: "numeric",
-          minute: "2-digit",
-          timeZone: "Asia/Kolkata",
-        });
-        new Notification(`Starting soon: ${task.text}`, {
-          body: `${time} · ${task.duration ?? 30}m`,
-          tag: `circuit-${task.id}`,
-        });
-      }, delay);
-      timers.current.push(id);
+      for (const offset of reminderOffsets(task)) {
+        const delay = task.scheduled_at - offset * 60_000 - now;
+        if (delay < 0) continue;
+        if (delay > SCHEDULE_HORIZON_MS) continue;
+
+        const id = setTimeout(() => {
+          const time = new Date(task.scheduled_at!).toLocaleTimeString("en-IN", {
+            hour: "numeric",
+            minute: "2-digit",
+            timeZone: "Asia/Kolkata",
+          });
+          new Notification(`Starting soon: ${task.text}`, {
+            body: `${time} · ${task.duration ?? 30}m · reminder ${reminderLeadLabel(offset)}`,
+            tag: `circuit-${task.id}-${offset}`,
+          });
+        }, delay);
+        timers.current.push(id);
+      }
     }
 
     return () => {

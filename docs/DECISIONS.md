@@ -166,3 +166,13 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Decision:** `SwipeTaskRow` uses swipe-right to complete and swipe-left to skip. Desktop/buttons remain available.
 
 **Reason:** Separate directions are clearer than deeper-swipe-to-skip.
+
+---
+
+## Notifications: per-task browser reminders (2026-06-18)
+
+**Decision:** Scheduled tasks store `notifications_enabled`, `notification_offset_1_mins`, and `notification_offset_2_mins`. The browser scheduler uses those offsets when the global sidebar notification toggle is enabled.
+
+**Reason:** Users need event-specific reminders without adding server-push infrastructure.
+
+**Implication:** Server-push notifications remain out of scope; reminders are local browser notifications scheduled while the app is open and within the 24-hour timer horizon.
