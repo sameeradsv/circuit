@@ -68,7 +68,7 @@ const NAV = [
   },
 ];
 
-export function Sidebar() {
+export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
   const { user } = useAuth();
   const { value: energy, source, loading: energyLoading } = useEffectiveEnergy();
@@ -77,8 +77,8 @@ export function Sidebar() {
   const desc = energyDescriptor(energy);
 
   return (
-    <aside className="sidenav">
-      <Link href="/" className="brand">
+    <aside className={"sidenav" + (open ? " is-open" : "")}>
+      <Link href="/" className="brand" onClick={onClose}>
         <span className="dot-mark" />
         circuit
       </Link>
@@ -91,6 +91,7 @@ export function Sidebar() {
               key={n.href}
               href={n.href}
               className={"navitem" + (active ? " is-active" : "")}
+              onClick={onClose}
             >
               {n.icon}
               <span style={{ flex: 1 }}>{n.label}</span>
@@ -160,7 +161,7 @@ export function Sidebar() {
             </button>
           </div>
           {user && (
-            <Link href="/account" className="tiny muted" style={{ textDecoration: "none" }}>
+            <Link href="/account" className="tiny muted" style={{ textDecoration: "none" }} onClick={onClose}>
               {user.username}
             </Link>
           )}

@@ -15,10 +15,10 @@ Authenticated routes under `frontend/src/app/(app)/`:
 |------|-------|---------|
 | Home | `/` | Ranked open tasks — Canopy energy (read-only), focus window, snooze/why/detail on top pick |
 | Tasks | `/tasks` | Full list, type filters, **server search** (`GET /api/search`), energy mode switcher, **On hold** during blackouts |
-| Calendar | `/calendar` | Day / week / month views, drag-and-drop, blackout shading, ICS import |
+| Calendar | `/calendar` | Day / week / month views, date strip, swipe/trackpad navigation, drag-and-drop, blackout shading, ICS import |
 | Add | `/add` | Quick capture — regex parse + `POST /api/ai/classify` enrichment on submit |
 | Account | `/account` | Preferences, sleep overrides, blackouts, energy manual override, encrypted export/import, **vanilla PWA localStorage import**, passkey |
-| Analytics | `/analytics` | Summary stats, **WorkloadBar**, **BehavioralInsights**, attention/stale/skipped lists |
+| Analytics | `/analytics` | Summary stats, selected-day **WorkloadBar**, **BehavioralInsights**, attention/stale/skipped lists |
 | Energy | `/energy` | Per-day task-event balance (`GET /api/energy/timeline`); combined cross-app chart on Canopy → Energy |
 | Chat | `/chat` | TerminalChat — batch commands (no API) + Circuit native **Groq** agent |
 
@@ -35,12 +35,18 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 ## Calendar
 
 - **Day / week / month** views with 24-hour grid (day/week)
-- **Overlapping events** in day/week use side-by-side columns so labels stay visible
-- **Month view** scrolls vertically when the grid exceeds viewport height
+- **Overlapping events** in day/week use side-by-side columns; travel buffers are included in overlap detection so painted blocks do not collide
+- **Date strip + gestures** let users switch across dates/weeks/months with clicks, horizontal swipes, or trackpad/wheel motion in addition to arrow buttons
+- **Month view** scrolls vertically when the grid exceeds viewport height, horizontally when narrow, and moves to the next/previous month when scrolling past the vertical edge
 - **Drag-and-drop** to reschedule; recurring tasks ask *this occurrence* vs *shift series*
 - **Blackout shading** — unavailable date ranges tinted on all views
 - **ICS import/export** — recurring events stored as one RRULE template per series; `scheduled_at` = first occurrence on or after today (original DTSTART kept in `rrule_dtstart_ms`). Supports iCloud-style `FREQ=WEEKLY` without `BYDAY`, explicit `BYDAY`, monthly patterns, and detached `RECURRENCE-ID` instances as one-offs. Re-import to refresh dates after importer fixes.
 - Travel buffers shown as hatched blocks before/after tasks
+
+## Mobile navigation
+
+- Mobile uses the same vertical `Sidebar` as a hideable drawer opened by a fixed menu button.
+- The former bottom tab bar is not rendered in `AppShell`; tapping the backdrop or a nav link closes the drawer.
 
 ## Blackouts
 
@@ -54,6 +60,7 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 ## Sleep & energy
 
 - **Sleep timing** from a calendar/task event titled **Sleep** (`scheduled_at` = bedtime, `duration` = length)
+- Sleep tasks still block calendar time, but exact-title `Sleep` events are excluded from Analytics workload capacity.
 - **Account → Sleep & recovery**: optional quality / disturbed / notes overrides
 - **Default sleep quality** (0–10, default 7) and **default bedtime / wake time** (paired row) in Preferences
 - Override history: toggle **Show sleep overrides** with pagination; **Edit** or **Delete** per row

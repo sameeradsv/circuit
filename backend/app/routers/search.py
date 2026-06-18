@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -57,23 +57,45 @@ def search_tasks(
 _IST = ZoneInfo("Asia/Kolkata")
 
 
+def _day_bounds_ist(date_str: str | None) -> tuple[int, int]:
+    if date_str:
+        try:
+            day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=_IST)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid date") from exc
+    else:
+        day = datetime.now(_IST)
+    day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start_ms = int(day_start.timestamp() * 1000)
+    return day_start_ms, day_start_ms + 86_400_000
+
+
+def _counts_toward_workload(task: CircuitTask) -> bool:
+    return task.text.strip().lower() != "sleep"
+
+
 @router.get("/summary", response_model=SummaryResponse)
-def get_summary(user: User = Depends(require_user), db: Session = Depends(get_db)):
+def get_summary(
+    date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
     tasks = db.query(CircuitTask).filter(CircuitTask.user_id == user.id).all()
     total = len(tasks)
     open_tasks = [t for t in tasks if not t.completed]
     completed = total - len(open_tasks)
     pending = len(open_tasks)
 
-    # Pending time: only tasks scheduled today (IST) — used by WorkloadBar vs 8h capacity
-    _now_ist = datetime.now(_IST)
-    _day_start_ms = int(_now_ist.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
-    _day_end_ms = _day_start_ms + 86_400_000
-    total_pending_minutes = sum(
-        (t.duration or 0)
-        for t in open_tasks
-        if t.scheduled_at and _day_start_ms <= t.scheduled_at < _day_end_ms
-    )
+    # Pending time: only task minutes overlapping the selected IST day.
+    _day_start_ms, _day_end_ms = _day_bounds_ist(date)
+    total_pending_minutes = 0
+    for t in open_tasks:
+        if not t.scheduled_at or not _counts_toward_workload(t):
+            continue
+        task_start = t.scheduled_at
+        task_end = task_start + (t.duration or 0) * 60_000
+        overlap_ms = max(0, min(task_end, _day_end_ms) - max(task_start, _day_start_ms))
+        total_pending_minutes += overlap_ms // 60_000
     avg_skip = sum(t.skipped_count for t in open_tasks) / pending if pending else 0.0
     by_tag: dict[str, int] = {}
     for t in open_tasks:

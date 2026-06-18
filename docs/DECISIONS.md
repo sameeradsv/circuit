@@ -36,7 +36,7 @@ Records intentional choices from the 2026 stub cleanup and restore-and-rewire pa
 
 | Removed | Superseded by |
 |---------|----------------|
-| `Nav.tsx` | `AppShell.tsx` / `Sidebar.tsx` / `TabBar.tsx` |
+| `Nav.tsx` | `AppShell.tsx` / `Sidebar.tsx` mobile drawer |
 | `ThemeSwitcher.tsx` | Palette handled in Account / layout |
 | `use-circuit-auth.ts` | `@shared/cortex` auth |
 | `useEnergyLevel()` hook (slider) | `use-effective-energy.ts` (Canopy default + Account override) |
@@ -124,3 +124,45 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Decision:** `/energy` date navigator displays `17 Jun 2026` instead of `2026-06-17`.
 
 **Reason:** ISO strings are machine format; the date picker is a user-facing control.
+
+---
+
+## Analytics: selected-day workload (2026-06-18)
+
+**Decision:** `GET /api/summary` accepts an optional `date=YYYY-MM-DD` query and computes `total_pending_minutes` from task minutes overlapping that IST day. `/analytics` passes the selected date from its date picker.
+
+**Reason:** Capacity planning needs the chosen day's scheduled load, not the entire backlog and not only the current day.
+
+**Implication:** Exact-title `Sleep` tasks are excluded from workload capacity but still remain scheduled calendar blocks. Summary counts, tag breakdowns, stale tasks, and behavioral insights still cover open tasks overall unless explicitly changed.
+
+---
+
+## Calendar: date strip and gesture navigation (2026-06-18)
+
+**Decision:** `/calendar` keeps arrow navigation and adds a week date strip plus horizontal swipe/trackpad navigation. Day view moves by one day, week view by one week, and month view by one month. Month view keeps vertical grid scrolling and switches month only when scrolling past the top or bottom edge.
+
+**Reason:** The calendar should support Outlook-like fast movement across dates without hiding the existing explicit controls.
+
+---
+
+## Calendar: overlap detection includes travel buffers (2026-06-18)
+
+**Decision:** `calendar-layout.ts` computes overlap columns from the rendered span: travel buffer before + task duration + travel buffer after.
+
+**Reason:** The visual blocks include travel buffers, so overlap detection must use the same span to avoid collisions on some dates.
+
+---
+
+## Mobile navigation: hideable vertical drawer (2026-06-18)
+
+**Decision:** Mobile renders the existing `Sidebar` as a slide-in drawer opened by a fixed menu button. `AppShell` no longer renders the bottom `TabBar`.
+
+**Reason:** Vertical navigation stays consistent with desktop and Canopy, exposes all routes without a More sheet, and avoids bottom-nav layout pressure.
+
+---
+
+## Task list gestures: directional swipes (2026-06-18)
+
+**Decision:** `SwipeTaskRow` uses swipe-right to complete and swipe-left to skip. Desktop/buttons remain available.
+
+**Reason:** Separate directions are clearer than deeper-swipe-to-skip.

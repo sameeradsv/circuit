@@ -18,7 +18,7 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `recurrence_anchor_ms` — for `catch_up_once` / `catch_up_immediate`: preserves pre-blackout anchor (`catch_up_once` also skips too-close anchor slots on completion)
 - `rrule`, `rrule_dtstart_ms`, `is_recurring_template` — calendar ICS imports
 - `day_time_overrides` — JSON `{"SA": "10:00", "SU": "10:00"}` (morning tasks only)
-- `travel_buffer_before_mins`, `travel_buffer_after_mins`
+- `travel_buffer_before_mins`, `travel_buffer_after_mins` — rendered as calendar buffer blocks and included in day/week overlap layout
 
 ## Blackouts
 

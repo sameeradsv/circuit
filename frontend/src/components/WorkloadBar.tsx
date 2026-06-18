@@ -9,7 +9,7 @@ const ZONES = [
   { pct: 100, label: "Overloaded",sub: "> 8h",       color: "text-red-400" },
 ];
 
-export function WorkloadBar({ pendingMinutes }: { pendingMinutes: number }) {
+export function WorkloadBar({ pendingMinutes, label = "Today's workload" }: { pendingMinutes: number; label?: string }) {
   const pct = Math.min(110, Math.round((pendingMinutes / CAPACITY_MINUTES) * 100));
   const zone = [...ZONES].reverse().find((z) => pct >= z.pct) ?? ZONES[0];
 
@@ -23,7 +23,7 @@ export function WorkloadBar({ pendingMinutes }: { pendingMinutes: number }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs text-circuit-muted">
-        <span>Today's workload — {timeLabel} scheduled</span>
+        <span>{label} - {timeLabel} scheduled</span>
         <span className={zone.color}>{zone.label}</span>
       </div>
 

@@ -5,15 +5,19 @@ export interface TaskLayoutSlot {
   totalColumns: number;
 }
 
-function taskEndMs(task: ApiTask): number {
-  return task.scheduled_at! + (task.duration ?? 30) * 60_000;
+function renderedStartMs(task: ApiTask): number {
+  return task.scheduled_at! - (task.travel_buffer_before_mins ?? 0) * 60_000;
+}
+
+function renderedEndMs(task: ApiTask): number {
+  return task.scheduled_at! + ((task.duration ?? 30) + (task.travel_buffer_after_mins ?? 0)) * 60_000;
 }
 
 function eventsOverlap(a: ApiTask, b: ApiTask): boolean {
-  const aStart = a.scheduled_at!;
-  const aEnd = taskEndMs(a);
-  const bStart = b.scheduled_at!;
-  const bEnd = taskEndMs(b);
+  const aStart = renderedStartMs(a);
+  const aEnd = renderedEndMs(a);
+  const bStart = renderedStartMs(b);
+  const bEnd = renderedEndMs(b);
   return aStart < bEnd && bStart < aEnd;
 }
 
@@ -24,7 +28,7 @@ function columnFits(task: ApiTask, col: ApiTask[]): boolean {
 /** Group tasks that transitively overlap in time. */
 function buildClusters(tasks: ApiTask[]): ApiTask[][] {
   const sorted = [...tasks].sort(
-    (a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0) || taskEndMs(b) - taskEndMs(a),
+    (a, b) => renderedStartMs(a) - renderedStartMs(b) || renderedEndMs(b) - renderedEndMs(a),
   );
   const clusters: ApiTask[][] = [];
   const used = new Set<number>();
@@ -55,7 +59,7 @@ export function layoutOverlappingTasks(tasks: ApiTask[]): Map<number, TaskLayout
   const result = new Map<number, TaskLayoutSlot>();
   for (const cluster of buildClusters(tasks)) {
     const sorted = [...cluster].sort(
-      (a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0) || taskEndMs(b) - taskEndMs(a),
+      (a, b) => renderedStartMs(a) - renderedStartMs(b) || renderedEndMs(b) - renderedEndMs(a),
     );
     const columns: ApiTask[][] = [];
     for (const task of sorted) {

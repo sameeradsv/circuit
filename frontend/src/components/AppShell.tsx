@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
-import { TabBar } from "./TabBar";
 import { useAuth } from "@shared/cortex";
 import { api, ApiTask } from "@/lib/api";
 import { useNotificationScheduler } from "@/lib/use-notifications";
@@ -98,6 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, loading } = useAuth();
   const [notifTasks, setNotifTasks] = useState<ApiTask[]>([]);
+  const [navOpen, setNavOpen] = useState(false);
   useNotificationScheduler(notifTasks);
   const { banner, dismiss } = useIcsRenewalBanner();
 
@@ -117,7 +117,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
-      <Sidebar />
+      <button
+        type="button"
+        className="mobile-nav-toggle"
+        aria-label={navOpen ? "Close navigation" : "Open navigation"}
+        aria-expanded={navOpen}
+        onClick={() => setNavOpen((v) => !v)}
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+      {navOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
+      <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
       <main className="app-content">
         {banner && (() => {
           const expired = banner.daysLeft <= 0;
@@ -153,7 +165,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         })()}
         {children}
       </main>
-      <TabBar />
     </div>
   );
 }

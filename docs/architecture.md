@@ -40,13 +40,13 @@ Key routers: see `CLAUDE.md` router table.
 | `app/(app)/` | Authenticated pages — tasks, calendar, account, chat |
 | `components/task-detail/` | TaskDetailModal sections (priority, cognitive, time, blackouts, series) |
 | `components/calendar/` | Blackout calendar overlays |
-| `components/` | `AppShell`, `TabBar`, `Sidebar`, `WorkloadBar`, `BehavioralInsights`, `EnergyModeSwitcher`, `TerminalChat`, `task-detail/*`, `calendar/BlackoutLayers` |
+| `components/` | `AppShell`, `Sidebar`, `WorkloadBar`, `BehavioralInsights`, `EnergyModeSwitcher`, `TerminalChat`, `SwipeTaskRow`, `task-detail/*`, `calendar/BlackoutLayers` |
 | `lib/task-ranking.ts` | Shared Home/Tasks ranking → engine `scoreTasks` |
 | `lib/vanilla-migrate.ts` | Detect/import `localStorage` `circuit_tasks_v1*` → `POST /api/tasks/migrate` |
-| `lib/api.ts` | Typed fetch — `migrateTasks`, `getSummary`, search, classify, energy, tasks |
+| `lib/api.ts` | Typed fetch - `migrateTasks`, date-aware `getSummary`, search, classify, energy, tasks |
 | `lib/engine-adapter.ts` | `ApiTask` → engine `Task` |
 | `lib/blackout-utils.ts` | Calendar blackout overlap + tint colors |
-| `lib/calendar-layout.ts` | Side-by-side columns for overlapping day/week events |
+| `lib/calendar-layout.ts` | Side-by-side columns for overlapping day/week events, including travel-buffer spans |
 | `lib/use-effective-energy.ts` | Canopy-default effective energy; Account manual override |
 | `lib/use-combined-energy.ts` | Per-app sync fetch + composite blend (Add page) |
 | `lib/task-cache.ts` | 30s in-memory task list cache |

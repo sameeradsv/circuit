@@ -350,10 +350,60 @@ body {
   max-height: calc(100dvh - 200px - var(--content-bottom-inset));
   border-radius: 8px;
 }
+.cal-month-scroll .cal-grid {
+  min-width: 900px;
+}
 .cal-week-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   min-width: 0;
+}
+.cal-view-pan {
+  touch-action: pan-y;
+}
+.cal-datebar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(64px, 1fr));
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.cal-datebar::-webkit-scrollbar { display: none; }
+.cal-datebar-day {
+  min-height: 54px;
+  min-width: 64px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+}
+.cal-datebar-day.is-selected {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.cal-datebar-day.is-today:not(.is-selected) {
+  border-color: var(--terra);
+  color: var(--terra);
+}
+.cal-datebar-weekday {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.cal-datebar-date {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
 }
 /* Mobile-only import/export footer (replaces hidden header buttons) */
 .cal-ics-footer { display: none; }
@@ -361,6 +411,9 @@ body {
 @media (max-width: 768px) {
   .cal-scroll-grid { height: calc(100dvh - 220px - var(--content-bottom-inset)); }
   .cal-month-scroll { max-height: calc(100dvh - 220px - var(--content-bottom-inset)); }
+  .cal-datebar {
+    grid-template-columns: repeat(7, 64px);
+  }
   .cal-ics-btns { display: none; }
   .cal-ics-footer { display: flex; gap: 8px; flex-wrap: wrap; }
 }
@@ -374,7 +427,7 @@ body {
   overflow: hidden;
 }
 
-/* Fixed overlays — keep actions above mobile tab bar */
+/* Fixed overlays — keep actions clear of mobile safe areas */
 .modal-scrim,
 .safe-overlay-pad {
   padding: 16px;
@@ -408,6 +461,10 @@ body {
   position: fixed; top: 0; bottom: 0; left: 0;
   z-index: 50;
 }
+.mobile-nav-toggle,
+.mobile-nav-backdrop {
+  display: none;
+}
 .sidenav .brand {
   font-family: var(--font-display); font-size: 22px; font-weight: 600;
   letter-spacing: -0.03em; margin-bottom: 28px;
@@ -434,7 +491,7 @@ body {
 }
 .sidenav .navitem.is-active .nav-meta { color: var(--paper); opacity: .6; }
 
-/* ── Mobile tab bar ── */
+/* ── Legacy mobile tab bar styles (not rendered by AppShell) ── */
 .tabbar {
   display: none;
   border-top: 1px solid var(--line);
@@ -442,12 +499,21 @@ body {
   padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
   padding-left: max(4px, env(safe-area-inset-left, 0px));
   padding-right: max(4px, env(safe-area-inset-right, 0px));
-  justify-content: space-around;
+  justify-content: flex-start;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
   position: fixed; bottom: 0; left: 0; right: 0;
   z-index: 50;
 }
+.tabbar::-webkit-scrollbar { display: none; }
 .tabbar .tabitem {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  flex: 0 0 72px; min-width: 72px; min-height: 44px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   padding: 6px 4px; font-size: 10px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--ink-3); font-weight: 500;
   cursor: pointer; text-decoration: none; transition: color .12s;
@@ -464,12 +530,54 @@ body {
 /* ── Responsive ── */
 @media (max-width: 768px) {
   :root {
-    --content-bottom-inset: calc(var(--mobile-tab-bar-height) + env(safe-area-inset-bottom, 0px));
+    --content-bottom-inset: 0px;
   }
 
-  .sidenav                     { display: none; }
-  .app-content                 { margin-left: 0; }
-  .tabbar                      { display: flex; }
+  .app-content                 { margin-left: 0; padding-top: calc(var(--pad-page) + 48px); }
+  .tabbar                      { display: none; }
+  .sidenav {
+    display: flex;
+    width: min(82vw, 280px);
+    transform: translateX(-100%);
+    transition: transform .18s ease;
+    box-shadow: 8px 0 30px rgba(0,0,0,0.12);
+    z-index: 80;
+  }
+  .sidenav.is-open             { transform: translateX(0); }
+  .mobile-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.18);
+    border: 0;
+    padding: 0;
+    z-index: 70;
+  }
+  .mobile-nav-toggle {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top, 0px));
+    left: max(12px, env(safe-area-inset-left, 0px));
+    z-index: 90;
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper);
+    color: var(--ink);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    cursor: pointer;
+  }
+  .mobile-nav-toggle span {
+    width: 18px;
+    height: 1.5px;
+    border-radius: 2px;
+    background: currentColor;
+  }
 
   /* Home page — stack header and energy card vertically on mobile */
   .home-header                 { flex-direction: column; align-items: flex-start; gap: 12px; }

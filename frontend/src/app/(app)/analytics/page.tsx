@@ -10,11 +10,28 @@ import { apiTaskToTask } from "@/lib/engine-adapter";
 import { analyzeBehavior } from "@/engines/src/behavioral-engine";
 import type { BehavioralInsight } from "@/engines/src/types/task";
 import { useEnergyMode } from "@/lib/use-energy-mode";
+import { todayIST } from "@/lib/tz";
+
+function offsetDate(date: string, days: number): string {
+  const next = new Date(`${date}T00:00:00+05:30`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(next);
+}
+
+function formatSelectedDate(date: string): string {
+  return new Date(`${date}T00:00:00+05:30`).toLocaleDateString("en-IN", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+}
 
 export default function AnalyticsPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [mode] = useEnergyMode();
+  const [date, setDate] = useState(todayIST);
   const [summary, setSummary] = useState<ApiSummary | null>(null);
   const [insights, setInsights] = useState<BehavioralInsight[]>([]);
   const [fetching, setFetching] = useState(false);
@@ -26,7 +43,7 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (!user) return;
     setFetching(true);
-    Promise.all([api.getSummary(), api.listTasks({ completed: false })])
+    Promise.all([api.getSummary(date), api.listTasks({ completed: false })])
       .then(([s, tasks]) => {
         setSummary(s);
         const engineTasks = tasks.map(apiTaskToTask);
@@ -34,22 +51,46 @@ export default function AnalyticsPage() {
       })
       .catch(() => {})
       .finally(() => setFetching(false));
-  }, [user, mode]);
+  }, [user, mode, date]);
 
   if (loading || !user) return null;
 
   const tags = summary ? Object.entries(summary.by_tag).sort((a, b) => b[1] - a[1]) : [];
   const totalHours = summary ? Math.round(summary.total_pending_minutes / 60 * 10) / 10 : 0;
+  const isToday = date === todayIST();
+  const workloadLabel = `${isToday ? "Today's" : "Selected day's"} workload (${formatSelectedDate(date)})`;
 
   return (
     <div className="space-y-8">
-      <h1 className="text-xl font-medium text-circuit-text">Analytics</h1>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 className="text-xl font-medium text-circuit-text">Analytics</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, -1))}>
+            Previous
+          </button>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value || todayIST())}
+            className="input-field"
+            style={{ width: 160 }}
+          />
+          <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, 1))}>
+            Next
+          </button>
+          {!isToday && (
+            <button type="button" className="btn" onClick={() => setDate(todayIST())}>
+              Today
+            </button>
+          )}
+        </div>
+      </div>
 
       {fetching && <p className="text-sm text-circuit-muted">Loading…</p>}
 
       {summary && (
         <>
-          <WorkloadBar pendingMinutes={summary.total_pending_minutes} />
+          <WorkloadBar pendingMinutes={summary.total_pending_minutes} label={workloadLabel} />
 
           {insights.length > 0 && (
             <section className="panel p-4">
@@ -74,7 +115,7 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <StatCard label="Completion rate" value={`${Math.round(summary.completion_rate * 100)}%`} accent />
             <StatCard label="Pending tasks" value={String(summary.pending_tasks)} />
-            <StatCard label="Today's time" value={`${totalHours}h`} />
+            <StatCard label="Selected day" value={`${totalHours}h`} />
             <StatCard label="Avg skips" value={summary.avg_skip_count.toFixed(1)} warn={summary.avg_skip_count > 1} />
           </div>
 

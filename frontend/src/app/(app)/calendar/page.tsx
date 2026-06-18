@@ -133,6 +133,19 @@ interface PendingDrop {
   origMs: number;
 }
 
+function weekDates(date: Date): Date[] {
+  const start = startOfWeek(date);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
+  });
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.toDateString() === b.toDateString();
+}
+
 // ── Hour grid (shared) ────────────────────────────────────────────────────────
 
 function HourLines() {
@@ -361,6 +374,37 @@ function ContinuationBlock({
 }
 
 // ── Day view ──────────────────────────────────────────────────────────────────
+
+function CalendarDateBar({
+  focusDate,
+  today,
+  onSelect,
+}: {
+  focusDate: Date;
+  today: Date;
+  onSelect: (date: Date) => void;
+}) {
+  return (
+    <div className="cal-datebar" aria-label="Week date picker">
+      {weekDates(focusDate).map((d) => {
+        const selected = sameDay(d, focusDate);
+        const isToday = sameDay(d, today);
+        return (
+          <button
+            key={d.toISOString()}
+            type="button"
+            className={"cal-datebar-day" + (selected ? " is-selected" : "") + (isToday ? " is-today" : "")}
+            onClick={() => onSelect(startOfDay(d))}
+            aria-pressed={selected}
+          >
+            <span className="cal-datebar-weekday">{DAY_SHORT[d.getDay()]}</span>
+            <span className="cal-datebar-date">{d.getDate()}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function DayView({
   date, tasks, today, blackouts, onTaskClick,
@@ -891,6 +935,8 @@ export default function CalendarPage() {
   const [dragTask, setDragTask] = useState<ApiTask | null>(null);
   const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const gestureStart = useRef<{ x: number; y: number } | null>(null);
+  const lastWheelNav = useRef(0);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -984,6 +1030,58 @@ export default function CalendarPage() {
   }
 
   function goToday() { setFocusDate(startOfDay(new Date())); }
+
+  function maybeNavigateFromWheel(e: React.WheelEvent<HTMLDivElement>) {
+    if (dragTask) return;
+    const now = Date.now();
+    if (now - lastWheelNav.current < 450) return;
+
+    const target = e.target as HTMLElement;
+    const scrollBox = target.closest(".cal-week-scroll, .cal-month-scroll") as HTMLElement | null;
+    const dominantX = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+    const dominantY = Math.abs(e.deltaY) > Math.abs(e.deltaX);
+
+    if (dominantX && Math.abs(e.deltaX) > 40) {
+      if (scrollBox && scrollBox.scrollWidth > scrollBox.clientWidth) {
+        const atStart = scrollBox.scrollLeft <= 1;
+        const atEnd = scrollBox.scrollLeft + scrollBox.clientWidth >= scrollBox.scrollWidth - 1;
+        if ((e.deltaX < 0 && !atStart) || (e.deltaX > 0 && !atEnd)) return;
+      }
+      e.preventDefault();
+      lastWheelNav.current = now;
+      navigate(e.deltaX > 0 ? 1 : -1);
+      return;
+    }
+
+    if (view === "month" && dominantY && Math.abs(e.deltaY) > 60) {
+      if (scrollBox && scrollBox.scrollHeight > scrollBox.clientHeight) {
+        const atTop = scrollBox.scrollTop <= 1;
+        const atBottom = scrollBox.scrollTop + scrollBox.clientHeight >= scrollBox.scrollHeight - 1;
+        if ((e.deltaY < 0 && !atTop) || (e.deltaY > 0 && !atBottom)) return;
+      }
+      e.preventDefault();
+      lastWheelNav.current = now;
+      navigate(e.deltaY > 0 ? 1 : -1);
+    }
+  }
+
+  function onGestureStart(e: React.PointerEvent<HTMLDivElement>) {
+    if (dragTask) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a, input, select, textarea, [draggable='true']")) return;
+    gestureStart.current = { x: e.clientX, y: e.clientY };
+  }
+
+  function onGestureEnd(e: React.PointerEvent<HTMLDivElement>) {
+    if (!gestureStart.current || dragTask) return;
+    const dx = e.clientX - gestureStart.current.x;
+    const dy = e.clientY - gestureStart.current.y;
+    gestureStart.current = null;
+    if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      navigate(dx < 0 ? 1 : -1);
+    }
+  }
 
   const year    = focusDate.getFullYear();
   const month   = focusDate.getMonth();
@@ -1103,10 +1201,20 @@ export default function CalendarPage() {
 
       {fetching && <p className="serif" style={{ color: "var(--ink-3)" }}>Loading…</p>}
 
+      <CalendarDateBar focusDate={focusDate} today={today} onSelect={setFocusDate} />
+
       {/* View content */}
-      {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
-      {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
-      {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
+      <div
+        className="cal-view-pan"
+        onWheel={maybeNavigateFromWheel}
+        onPointerDown={onGestureStart}
+        onPointerUp={onGestureEnd}
+        onPointerCancel={() => { gestureStart.current = null; }}
+      >
+        {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
+        {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
+        {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
+      </div>
 
       {pendingDrop && (
         <DropConfirmBanner

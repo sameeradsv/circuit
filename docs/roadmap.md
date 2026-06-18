@@ -7,12 +7,13 @@
 - Blackouts: on-hold UI, post-blackout behaviors, calendar shading, proactive reschedule on create
 - Sleep from **Sleep** calendar task + quality/disturbed overrides + default quality setting
 - Cumulative energy timeline with cross-day carry-over (`energy_eod`); task events mapped to scheduled slot on timeline
-- Calendar day/week/month with drag-and-drop
+- Calendar day/week/month with drag-and-drop, date strip, swipe/trackpad navigation, and scrollable month grid
 - TaskDetailModal (modular `task-detail/` sections)
 - TerminalChat batch commands + Circuit native **Groq** agent
 - Encrypted export/import
 - Cross-app energy hook (Canopy, Chef)
-- Analytics — `GET /api/summary` + **WorkloadBar** + **BehavioralInsights** (engine-driven)
+- Analytics - date-aware `GET /api/summary` + selected-day **WorkloadBar** + **BehavioralInsights** (engine-driven)
+- Hideable mobile sidebar navigation
 - Unified task ranking on Home/Tasks via `lib/task-ranking.ts` → scheduling engine
 - Account → vanilla PWA `localStorage` import (`POST /api/tasks/migrate`)
 - Home top-pick actions wired (snooze, rationale, focus block → task detail)

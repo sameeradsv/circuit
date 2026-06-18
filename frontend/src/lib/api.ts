@@ -326,7 +326,8 @@ export const api = {
 
   // search & summary
   search: (q: string) => req<ApiSearchResult>("GET", `/api/search?q=${encodeURIComponent(q)}`),
-  getSummary: () => req<ApiSummary>("GET", "/api/summary"),
+  getSummary: (date?: string) =>
+    req<ApiSummary>("GET", `/api/summary${date ? `?date=${encodeURIComponent(date)}` : ""}`),
 
   getEnergyTimeline: (date?: string) =>
     req<EnergyTimeline>("GET", `/api/energy/timeline${date ? `?date=${date}` : ""}`),
