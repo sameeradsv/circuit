@@ -31,7 +31,7 @@ async function req<T>(
 }
 
 export interface ApiTask {
-  id: number;
+  id: number | string;
   client_id: string | null;
   text: string;
   tag: string;
@@ -84,6 +84,11 @@ export interface ApiTask {
   notification_offset_2_mins: number | null;
   recurrence_anchor_ms: number | null;
   import_review_pending: boolean;
+  is_virtual_occurrence?: boolean;
+  recurring_task_id?: number | null;
+  occurrence_start_ms?: number | null;
+  source_task_id?: number | null;
+  occurrence_override_status?: "completed" | "skipped" | "rescheduled";
 }
 
 export type TaskIn = Partial<Omit<ApiTask, "id" | "created_at" | "updated_at">> & { text: string };
@@ -161,6 +166,7 @@ export interface ApiSettings {
 export interface ApiUserState {
   energy_level: number;
   energy_manual_override?: boolean;
+  energy_manual_override_date?: string | null;
   stress_level: number;
   time_available_minutes: number;
   focus_mode: string;
@@ -282,7 +288,7 @@ export const api = {
   createTask: (payload: TaskIn) => req<ApiTask>("POST", "/api/tasks", payload),
   migrateTasks: (payload: TaskIn[]) =>
     req<{ created: number; skipped: number }>("POST", "/api/tasks/migrate", payload),
-  updateTask: (id: number, patch: TaskPatch) => req<ApiTask>("PATCH", `/api/tasks/${id}`, patch),
+  updateTask: (id: ApiTask["id"], patch: TaskPatch) => req<ApiTask>("PATCH", `/api/tasks/${id}`, patch),
   batchUpdate: (ids: number[], patch: TaskPatch) =>
     req<{ updated: number; ids: number[] }>("POST", "/api/tasks/batch-update", { ids, patch }),
   deleteTask: (id: number) => req<void>("DELETE", `/api/tasks/${id}`),

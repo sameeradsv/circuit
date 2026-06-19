@@ -65,6 +65,8 @@ Key routers: see `CLAUDE.md` router table.
 
 **Full-stack**: PostgreSQL (prod) or SQLite (`backend/data/circuit.db` dev). All user data keyed by `user_id`.
 
+**Recurring commitments**: `CircuitTask` remains the current/actionable task record, while `recurring_tasks` stores the durable recurrence definition (`start_datetime_ms`, `duration`, `recurrence` / `rrule`, metadata). `occurrence_overrides` stores only per-instance state: completed, skipped, or rescheduled with modified start/duration. Ranged task reads expand only the requested window, and scheduler availability expands a bounded planning horizon so future recurring slots are busy without materializing unlimited rows.
+
 **Vanilla PWA**: `localStorage` `circuit_tasks_v1[_username]`, account hashes in `circuit_auth_users_v1`.
 
 ## Cross-app energy

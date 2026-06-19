@@ -12,12 +12,20 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import require_user
-from app.models import CircuitTask, TaskEvent, User
+from app.models import CircuitTask, RecurringTask, TaskEvent, User
 from app.behavioral import record_completion_rate
 from app.engines.recurrence import is_hourly_recurrence, next_occurrence, skip_occurrences_too_close_after_catchup
 from app.services.blackout import adjust_for_blackouts
 from app.services.adaptive_learning import apply_complete_learning, update_delay_pattern_on_skip
 from app.services.suggest_slot import suggest_slot_for_task
+from app.services.virtual_recurrence import (
+    expand_virtual_occurrences,
+    is_virtual_id,
+    parse_virtual_id,
+    sync_recurring_definition,
+    upsert_occurrence_override,
+    virtual_busy_tasks,
+)
 from app.task_event_time import task_event_occurred_at
 
 _IST = ZoneInfo("Asia/Kolkata")
@@ -196,6 +204,10 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "notification_offset_1_mins": t.notification_offset_1_mins,
         "notification_offset_2_mins": t.notification_offset_2_mins,
         "import_review_pending": bool(t.import_review_pending),
+        "is_virtual_occurrence": False,
+        "recurring_task_id": None,
+        "occurrence_start_ms": None,
+        "source_task_id": None,
     }
 
 
@@ -242,6 +254,10 @@ def list_tasks(
             )
         else:
             q = q.filter(scheduled_in_window)
+        # Recurring rows act as definitions for ranged views; virtual occurrences
+        # below provide the concrete blocks so future slots are visible without
+        # materializing every instance.
+        q = q.filter(CircuitTask.recurrence.is_(None), CircuitTask.rrule.is_(None))
 
     if page is not None or limit is not None:
         page_n = max(1, page or 1)
@@ -279,7 +295,13 @@ def list_tasks(
         CircuitTask.scheduled_at.asc().nulls_last(),
         CircuitTask.id.desc(),
     ).all()
-    return [_task_to_dict(t) for t in tasks]
+    items = [_task_to_dict(t) for t in tasks]
+    if scheduled_from_ms is not None or scheduled_to_ms is not None:
+        from_ms = scheduled_from_ms if scheduled_from_ms is not None else 0
+        to_ms = scheduled_to_ms if scheduled_to_ms is not None else 2**62
+        items.extend(expand_virtual_occurrences(db, user.id, from_ms, to_ms, completed=completed))
+        items.sort(key=lambda t: (t.get("completed", False), t.get("scheduled_at") is None, t.get("scheduled_at") or 0, str(t.get("id"))))
+    return items
 
 
 @router.post("", status_code=201)
@@ -296,14 +318,54 @@ def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session
         # travel buffers come through via the ** spread (int fields, not JSON)
     )
     db.add(task)
+    db.flush()
+    sync_recurring_definition(db, task)
     db.commit()
     db.refresh(task)
     return _task_to_dict(task)
 
 
 @router.patch("/{task_id}")
-def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_user), db: Session = Depends(get_db)):
-    task = db.get(CircuitTask, task_id)
+def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if is_virtual_id(task_id):
+        recurring_id, occurrence_start = parse_virtual_id(task_id)
+        recurring = db.get(RecurringTask, recurring_id)
+        if not recurring or recurring.user_id != user.id or not recurring.active:
+            raise HTTPException(status_code=404, detail="Task not found")
+        status = "rescheduled" if payload.scheduled_at is not None else "completed" if payload.completed else "skipped"
+        modified_duration = payload.duration if payload.duration is not None else None
+        upsert_occurrence_override(
+            db,
+            user.id,
+            recurring_id,
+            occurrence_start,
+            status=status,
+            modified_start_ms=payload.scheduled_at if status == "rescheduled" else None,
+            modified_duration=modified_duration if status == "rescheduled" else None,
+        )
+        source_task_id = json.loads(recurring.metadata_json or "{}").get("source_task_id")
+        if status == "completed" and source_task_id:
+            source = db.get(CircuitTask, int(source_task_id))
+            if source and source.user_id == user.id:
+                source.historical_completion_rate = record_completion_rate(source.historical_completion_rate)
+                db.add(TaskEvent(
+                    user_id=user.id,
+                    task_id=source.id,
+                    event_type="completed",
+                    occurred_at=datetime.fromtimestamp(occurrence_start / 1000, tz=timezone.utc).replace(tzinfo=None),
+                    metadata_json=json.dumps({"virtual_occurrence_id": task_id}),
+                ))
+        db.commit()
+        from_ms = min(occurrence_start, payload.scheduled_at or occurrence_start) - 60_000
+        to_ms = max(occurrence_start, payload.scheduled_at or occurrence_start) + (payload.duration or recurring.duration or 30) * 60_000
+        matches = expand_virtual_occurrences(db, user.id, from_ms, to_ms)
+        updated = next((item for item in matches if item.get("id") == task_id), None)
+        if updated:
+            return updated
+        return {"id": task_id, "completed": status == "completed", "is_virtual_occurrence": True}
+
+    task_int_id = int(task_id)
+    task = db.get(CircuitTask, task_int_id)
     if not task or task.user_id != user.id:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -343,7 +405,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
             db.query(CircuitTask)
             .filter(
                 CircuitTask.group_id == task.group_id,
-                CircuitTask.id != task_id,
+                CircuitTask.id != task_int_id,
                 CircuitTask.user_id == user.id,
                 CircuitTask.completed == False,  # noqa: E712
             )
@@ -363,7 +425,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
         event_type = "completed" if payload.completed else "uncompleted"
         db.add(TaskEvent(
             user_id=user.id,
-            task_id=task_id,
+            task_id=task_int_id,
             event_type=event_type,
             occurred_at=task_event_occurred_at(task),
             metadata_json="{}",
@@ -492,6 +554,7 @@ def update_task(task_id: int, payload: TaskPatch, user: User = Depends(require_u
                 # Silently fail recurrence creation; don't block task completion
                 pass
 
+    sync_recurring_definition(db, task)
     db.commit()
     db.refresh(task)
     return _task_to_dict(task)
@@ -591,6 +654,8 @@ def suggest_slot(
         .filter(CircuitTask.user_id == user.id, CircuitTask.completed == False)  # noqa: E712
         .all()
     )
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    others.extend(virtual_busy_tasks(db, user.id, now_ms, now_ms + 90 * 86_400_000))
     return suggest_slot_for_task(task, others, energy_level=energy, stress_level=stress)
 
 
@@ -632,6 +697,8 @@ def migrate_from_localstorage(
             # travel buffer ints pass through via ** spread
         )
         db.add(task)
+        db.flush()
+        sync_recurring_definition(db, task)
         created += 1
     db.commit()
     return {"created": created, "skipped": skipped}

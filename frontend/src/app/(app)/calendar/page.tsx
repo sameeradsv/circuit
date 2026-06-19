@@ -288,7 +288,9 @@ function TaskBlock({
           whiteSpace: "nowrap",
           color: "var(--ink)",
         }}>
-          {task.text}
+          {height <= 38
+            ? `${fmtTime(task.scheduled_at!)} · ${task.duration ?? 30}m · ${task.text}`
+            : task.text}
         </span>
         {height > 38 && (
           <span style={{ fontSize: compact ? 9 : 10, color: "var(--ink-3)", fontFamily: "var(--font-mono)", marginTop: 1 }}>
@@ -963,7 +965,7 @@ export default function CalendarPage() {
 
   if (loading || !user) return null;
 
-  async function applyDrop(taskId: number, patch: { scheduled_at: number; recurrence_anchor_ms?: number }) {
+  async function applyDrop(taskId: ApiTask["id"], patch: { scheduled_at: number; recurrence_anchor_ms?: number }) {
     try {
       const updated = await api.updateTask(taskId, patch);
       updateTaskInCache(updated);
@@ -1037,7 +1039,7 @@ export default function CalendarPage() {
     if (now - lastWheelNav.current < 450) return;
 
     const target = e.target as HTMLElement;
-    const scrollBox = target.closest(".cal-week-scroll, .cal-month-scroll") as HTMLElement | null;
+    const scrollBox = target.closest(".cal-scroll-grid, .cal-week-scroll, .cal-month-scroll") as HTMLElement | null;
     const dominantX = Math.abs(e.deltaX) > Math.abs(e.deltaY);
     const dominantY = Math.abs(e.deltaY) > Math.abs(e.deltaX);
 
@@ -1053,7 +1055,7 @@ export default function CalendarPage() {
       return;
     }
 
-    if (view === "month" && dominantY && Math.abs(e.deltaY) > 60) {
+    if (dominantY && Math.abs(e.deltaY) > 60) {
       if (scrollBox && scrollBox.scrollHeight > scrollBox.clientHeight) {
         const atTop = scrollBox.scrollTop <= 1;
         const atBottom = scrollBox.scrollTop + scrollBox.clientHeight >= scrollBox.scrollHeight - 1;
@@ -1201,7 +1203,7 @@ export default function CalendarPage() {
 
       {fetching && <p className="serif" style={{ color: "var(--ink-3)" }}>Loading…</p>}
 
-      <CalendarDateBar focusDate={focusDate} today={today} onSelect={setFocusDate} />
+      {view === "day" && <CalendarDateBar focusDate={focusDate} today={today} onSelect={setFocusDate} />}
 
       {/* View content */}
       <div

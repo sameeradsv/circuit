@@ -55,6 +55,20 @@ function pickNextScheduledTask(list: ApiTask[]): ApiTask | null {
     .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0))[0] ?? null;
 }
 
+function pickCurrentScheduledTask(list: ApiTask[]): ApiTask | null {
+  const nowMs = Date.now();
+  return list
+    .filter((t) => {
+      if (t.completed || !t.scheduled_at) return false;
+      return t.scheduled_at <= nowMs && nowMs < t.scheduled_at + (t.duration ?? 30) * 60_000;
+    })
+    .sort((a, b) => {
+      const aEnd = (a.scheduled_at ?? 0) + (a.duration ?? 30) * 60_000;
+      const bEnd = (b.scheduled_at ?? 0) + (b.duration ?? 30) * 60_000;
+      return aEnd - bEnd;
+    })[0] ?? null;
+}
+
 function minutesUntil(ms: number): number {
   return Math.max(0, Math.floor((ms - Date.now()) / 60_000));
 }
@@ -257,11 +271,13 @@ export default function HomePage() {
   const [detailTask, setDetailTask] = useState<ApiTask | null>(null);
   const [calendarExpiry, setCalendarExpiry] = useState<{ expires_at_ms: number | null; expires_at_iso: string | null; days_until_expiry: number | null } | null>(null);
   const [nextMeeting, setNextMeeting] = useState<ApiTask | null>(null);
+  const [currentMeeting, setCurrentMeeting] = useState<ApiTask | null>(null);
   const [timeAvail, setTimeAvail] = useState<number | null>(null);
 
   const scoringTimeAvail = timeAvail ?? userState?.time_available_minutes ?? 480;
 
   async function snoozeTask(task: ApiTask) {
+    if (typeof task.id !== "number") return;
     const now = Date.now();
     const scheduledAt = now + SNOOZE_MS;
     const newPattern = updateDelayPattern(task, now);
@@ -284,12 +300,27 @@ export default function HomePage() {
       api.listTasks().then((list) => {
         setTasks(list);
         setNextMeeting(pickNextScheduledTask(list));
+        setCurrentMeeting(pickCurrentScheduledTask(list));
       }).catch(() => {}),
       api.getCalendarExpiry().then(setCalendarExpiry).catch(() => {}),
     ]).finally(() => setFetching(false));
   }, [user]);
 
   useEffect(() => {
+    const tick = () => {
+      setCurrentMeeting(pickCurrentScheduledTask(tasks));
+      setNextMeeting(pickNextScheduledTask(tasks));
+    };
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, [tasks]);
+
+  useEffect(() => {
+    if (currentMeeting?.scheduled_at) {
+      setTimeAvail(0);
+      return;
+    }
     if (!nextMeeting?.scheduled_at) {
       setTimeAvail(null);
       return;
@@ -298,7 +329,7 @@ export default function HomePage() {
     tick();
     const id = window.setInterval(tick, 60_000);
     return () => window.clearInterval(id);
-  }, [nextMeeting]);
+  }, [currentMeeting, nextMeeting]);
 
   if (!user) return null;
 
@@ -352,7 +383,7 @@ export default function HomePage() {
           {timeAvail !== null && (
             <span className="pill">
               <span className="dot" style={{ background: "var(--mustard)" }} />
-              {fmtTime(timeAvail)} until next event
+              {currentMeeting ? "busy now" : `${fmtTime(timeAvail)} until next event`}
             </span>
           )}
         </div>
@@ -389,17 +420,21 @@ export default function HomePage() {
             <div className="label" style={{ marginBottom: 8 }}>Window</div>
             <div className="row aib gap-2" style={{ marginBottom: 4 }}>
               <span className="display tnum home-window-num" style={{ fontSize: 40, lineHeight: 1 }}>
-                {timeAvail !== null ? fmtTime(timeAvail) : "—"}
+                {currentMeeting ? "Busy" : timeAvail !== null ? fmtTime(timeAvail) : "—"}
               </span>
               <span className="serif" style={{ fontSize: 18, color: "var(--ink-3)" }}>
-                {nextMeeting
+                {currentMeeting
+                  ? <>blocked by <em>{currentMeeting.text.slice(0, 32)}{currentMeeting.text.length > 32 ? "…" : ""}</em></>
+                  : nextMeeting
                   ? <>until <em>{nextMeeting.text.slice(0, 32)}{nextMeeting.text.length > 32 ? "…" : ""}</em></>
                   : "no upcoming events on calendar"}
               </span>
             </div>
-            {nextMeeting?.scheduled_at && (
+            {(currentMeeting?.scheduled_at || nextMeeting?.scheduled_at) && (
               <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
-                {new Date(nextMeeting.scheduled_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
+                {currentMeeting?.scheduled_at
+                  ? `${new Date(currentMeeting.scheduled_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}-${new Date(currentMeeting.scheduled_at + (currentMeeting.duration ?? 30) * 60_000).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`
+                  : new Date(nextMeeting!.scheduled_at!).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
               </div>
             )}
           </div>

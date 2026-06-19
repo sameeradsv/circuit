@@ -68,6 +68,10 @@ type FilterFn = (t: ApiTask) => boolean;
 interface FilterDef { fn: FilterFn; label: string; }
 interface DateTarget { ms: number; label: string; }
 
+function isStoredBatchTask(t: ApiTask): t is ApiTask & { id: number } {
+  return typeof t.id === "number" && !t.is_recurring_template;
+}
+
 function resolveDate(text: string): DateTarget | null {
   const now = new Date();
   const DAY = 86_400_000;
@@ -169,7 +173,7 @@ export function parseTaskCommand(text: string, allTasks: ApiTask[]): TaskAction 
     const date   = resolveDate(lower);
     if (!date) return null;
 
-    const matched = open.filter(filter.fn).filter((t) => !t.is_recurring_template);
+    const matched = open.filter(filter.fn).filter(isStoredBatchTask);
     if (!matched.length) return null;
 
     return {
@@ -184,7 +188,7 @@ export function parseTaskCommand(text: string, allTasks: ApiTask[]): TaskAction 
   // ── Mark complete ─────────────────────────────────────────────────────────
   if (/\b(complete|finish|done|close|mark)\b.*(overdue|today)/i.test(lower)) {
     const filter = resolveFilter(lower, open) ?? { fn: (t) => !!(t.scheduled_at && t.scheduled_at < Date.now()), label: "overdue tasks" };
-    const matched = open.filter(filter.fn).filter((t) => !t.is_recurring_template);
+    const matched = open.filter(filter.fn).filter(isStoredBatchTask);
     if (!matched.length) return null;
 
     return {
@@ -200,7 +204,7 @@ export function parseTaskCommand(text: string, allTasks: ApiTask[]): TaskAction 
   if (/\b(priorit(is|iz)|boost|elevat|surface|raise)\b.*(urgency|importance|priority)/i.test(lower)) {
     const filter = resolveFilter(lower, open);
     if (!filter) return null;
-    const matched = open.filter(filter.fn).filter((t) => !t.is_recurring_template);
+    const matched = open.filter(filter.fn).filter(isStoredBatchTask);
     if (!matched.length) return null;
 
     return {

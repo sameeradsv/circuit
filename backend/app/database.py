@@ -224,15 +224,36 @@ def _migrate_energy_eod() -> None:
 def _migrate_energy_manual_override() -> None:
     inspector = inspect(engine)
     existing_cols = {c["name"] for c in inspector.get_columns("user_state")}
-    if "energy_manual_override" in existing_cols:
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        if "energy_manual_override" not in existing_cols and is_sqlite:
+            conn.execute(text("ALTER TABLE user_state ADD COLUMN energy_manual_override BOOLEAN DEFAULT 0"))
+        elif "energy_manual_override" not in existing_cols:
+            conn.execute(text(
+                "ALTER TABLE user_state ADD COLUMN IF NOT EXISTS energy_manual_override BOOLEAN DEFAULT FALSE"
+            ))
+        if "energy_manual_override_date" not in existing_cols:
+            if is_sqlite:
+                conn.execute(text("ALTER TABLE user_state ADD COLUMN energy_manual_override_date VARCHAR(10)"))
+            else:
+                conn.execute(text(
+                    "ALTER TABLE user_state ADD COLUMN IF NOT EXISTS energy_manual_override_date VARCHAR(10)"
+                ))
+        conn.commit()
+
+
+def _migrate_energy_manual_override_date() -> None:
+    inspector = inspect(engine)
+    existing_cols = {c["name"] for c in inspector.get_columns("user_state")}
+    if "energy_manual_override_date" in existing_cols:
         return
     is_sqlite = DATABASE_URL.startswith("sqlite")
     with engine.connect() as conn:
         if is_sqlite:
-            conn.execute(text("ALTER TABLE user_state ADD COLUMN energy_manual_override BOOLEAN DEFAULT 0"))
+            conn.execute(text("ALTER TABLE user_state ADD COLUMN energy_manual_override_date VARCHAR(10)"))
         else:
             conn.execute(text(
-                "ALTER TABLE user_state ADD COLUMN IF NOT EXISTS energy_manual_override BOOLEAN DEFAULT FALSE"
+                "ALTER TABLE user_state ADD COLUMN IF NOT EXISTS energy_manual_override_date VARCHAR(10)"
             ))
         conn.commit()
 
@@ -345,6 +366,85 @@ def _migrate_task_notifications() -> None:
                     conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN {col_name} {col_def}"))
                 else:
                     conn.execute(text(f"ALTER TABLE circuit_tasks ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
+        conn.commit()
+
+
+def _migrate_virtual_recurrence_tables() -> None:
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        if "recurring_tasks" not in existing_tables:
+            if is_sqlite:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS recurring_tasks ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "source_task_id INTEGER UNIQUE REFERENCES circuit_tasks(id) ON DELETE CASCADE, "
+                    "title TEXT NOT NULL, "
+                    "start_datetime_ms INTEGER NOT NULL, "
+                    "duration INTEGER DEFAULT 30, "
+                    "recurrence VARCHAR(50), "
+                    "rrule TEXT, "
+                    "rrule_dtstart_ms INTEGER, "
+                    "recurrence_ends_at INTEGER, "
+                    "metadata_json TEXT DEFAULT '{}', "
+                    "active BOOLEAN DEFAULT 1, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS recurring_tasks ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "source_task_id INTEGER UNIQUE REFERENCES circuit_tasks(id) ON DELETE CASCADE, "
+                    "title TEXT NOT NULL, "
+                    "start_datetime_ms BIGINT NOT NULL, "
+                    "duration INTEGER DEFAULT 30, "
+                    "recurrence VARCHAR(50), "
+                    "rrule TEXT, "
+                    "rrule_dtstart_ms BIGINT, "
+                    "recurrence_ends_at BIGINT, "
+                    "metadata_json TEXT DEFAULT '{}', "
+                    "active BOOLEAN DEFAULT TRUE, "
+                    "created_at TIMESTAMP DEFAULT NOW(), "
+                    "updated_at TIMESTAMP DEFAULT NOW())"
+                ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_recurring_tasks_user ON recurring_tasks (user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_recurring_tasks_source_task ON recurring_tasks (source_task_id)"))
+
+        if "occurrence_overrides" not in existing_tables:
+            if is_sqlite:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS occurrence_overrides ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "recurring_task_id INTEGER NOT NULL REFERENCES recurring_tasks(id) ON DELETE CASCADE, "
+                    "occurrence_start_ms INTEGER NOT NULL, "
+                    "status VARCHAR(20) NOT NULL, "
+                    "modified_start_ms INTEGER, "
+                    "modified_duration INTEGER, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "UNIQUE(recurring_task_id, occurrence_start_ms))"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS occurrence_overrides ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "recurring_task_id INTEGER NOT NULL REFERENCES recurring_tasks(id) ON DELETE CASCADE, "
+                    "occurrence_start_ms BIGINT NOT NULL, "
+                    "status VARCHAR(20) NOT NULL, "
+                    "modified_start_ms BIGINT, "
+                    "modified_duration INTEGER, "
+                    "created_at TIMESTAMP DEFAULT NOW(), "
+                    "updated_at TIMESTAMP DEFAULT NOW(), "
+                    "UNIQUE(recurring_task_id, occurrence_start_ms))"
+                ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_occurrence_overrides_user ON occurrence_overrides (user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_occurrence_overrides_start ON occurrence_overrides (occurrence_start_ms)"))
         conn.commit()
 
 

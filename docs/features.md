@@ -35,6 +35,7 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 
 ## Calendar
 
+- **Virtual recurring slots** are generated only for the visible range; completed, skipped, and rescheduled instances are stored as overrides so future availability stays accurate without unlimited task rows
 - **Day / week / month** views with 24-hour grid (day/week)
 - **Overlapping events** in day/week use side-by-side columns; travel buffers are included in overlap detection so painted blocks do not collide
 - **Date strip + gestures** let users switch across dates/weeks/months with clicks, horizontal swipes, or trackpad/wheel motion in addition to arrow buttons

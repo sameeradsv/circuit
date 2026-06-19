@@ -176,3 +176,13 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Reason:** Users need event-specific reminders without adding server-push infrastructure.
 
 **Implication:** Server-push notifications remain out of scope; reminders are local browser notifications scheduled while the app is open and within the 24-hour timer horizon.
+
+---
+
+## Recurrence: virtual future occurrences (2026-06-19)
+
+**Decision:** Recurring commitments have durable definitions in `recurring_tasks`, while `occurrence_overrides` stores only completed, skipped, and rescheduled single instances. Calendar range reads and scheduler availability expand bounded windows on demand.
+
+**Reason:** Materializing one occurrence at a time kept storage small, but made future recurring slots look free to the auto-scheduler.
+
+**Implication:** Do not add background jobs that pre-create unbounded future rows. Use `services/virtual_recurrence.py` for visible calendar windows and planning horizons.

@@ -5,12 +5,17 @@ export interface TaskLayoutSlot {
   totalColumns: number;
 }
 
+const HOUR_HEIGHT_PX = 64;
+const MIN_RENDERED_HEIGHT_PX = 24;
+const MIN_RENDERED_MINUTES = (MIN_RENDERED_HEIGHT_PX / HOUR_HEIGHT_PX) * 60;
+
 function renderedStartMs(task: ApiTask): number {
   return task.scheduled_at! - (task.travel_buffer_before_mins ?? 0) * 60_000;
 }
 
 function renderedEndMs(task: ApiTask): number {
-  return task.scheduled_at! + ((task.duration ?? 30) + (task.travel_buffer_after_mins ?? 0)) * 60_000;
+  const visibleDuration = Math.max(task.duration ?? 30, MIN_RENDERED_MINUTES);
+  return task.scheduled_at! + (visibleDuration + (task.travel_buffer_after_mins ?? 0)) * 60_000;
 }
 
 function eventsOverlap(a: ApiTask, b: ApiTask): boolean {
@@ -31,7 +36,7 @@ function buildClusters(tasks: ApiTask[]): ApiTask[][] {
     (a, b) => renderedStartMs(a) - renderedStartMs(b) || renderedEndMs(b) - renderedEndMs(a),
   );
   const clusters: ApiTask[][] = [];
-  const used = new Set<number>();
+  const used = new Set<ApiTask["id"]>();
 
   for (const task of sorted) {
     if (used.has(task.id)) continue;
@@ -55,8 +60,8 @@ function buildClusters(tasks: ApiTask[]): ApiTask[][] {
 }
 
 /** Side-by-side column layout for overlapping scheduled tasks (day/week views). */
-export function layoutOverlappingTasks(tasks: ApiTask[]): Map<number, TaskLayoutSlot> {
-  const result = new Map<number, TaskLayoutSlot>();
+export function layoutOverlappingTasks(tasks: ApiTask[]): Map<ApiTask["id"], TaskLayoutSlot> {
+  const result = new Map<ApiTask["id"], TaskLayoutSlot>();
   for (const cluster of buildClusters(tasks)) {
     const sorted = [...cluster].sort(
       (a, b) => renderedStartMs(a) - renderedStartMs(b) || renderedEndMs(b) - renderedEndMs(a),

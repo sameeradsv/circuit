@@ -92,11 +92,11 @@ export default function TasksPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [detailTask, setDetailTask] = useState<ApiTask | null>(null);
   const [reschedulingTask, setReschedulingTask] = useState<ApiTask | null>(null);
-  const [completingIds, setCompletingIds] = useState<Set<number>>(new Set());
+  const [completingIds, setCompletingIds] = useState<Set<ApiTask["id"]>>(new Set());
   const [showDone, setShowDone] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [textFilter, setTextFilter] = useState("");
-  const [searchIds, setSearchIds] = useState<Set<number> | null>(null);
+  const [searchIds, setSearchIds] = useState<Set<ApiTask["id"]> | null>(null);
   const [activeBlackouts, setActiveBlackouts] = useState<ApiBlackout[]>([]);
 
   useEffect(() => {
@@ -230,7 +230,8 @@ export default function TasksPage() {
     setCompletingIds((prev) => { const s = new Set(prev); s.delete(t.id); return s; });
   }
 
-  async function deleteTask(id: number, fromDone = false) {
+  async function deleteTask(id: ApiTask["id"], fromDone = false) {
+    if (typeof id !== "number") return;
     await api.deleteTask(id);
     invalidateTaskCache();
     setTasks((prev) => prev.filter((t) => t.id !== id));
@@ -245,7 +246,8 @@ export default function TasksPage() {
     }
   }
 
-  async function deleteSeriesTasks(id: number, fromScheduledAt?: number) {
+  async function deleteSeriesTasks(id: ApiTask["id"], fromScheduledAt?: number) {
+    if (typeof id !== "number") return;
     await api.deleteSeries(id, fromScheduledAt);
     invalidateTaskCache();
     const updated = await api.listTasks({ completed: false });
@@ -258,6 +260,7 @@ export default function TasksPage() {
   }
 
   async function skipTask(task: ApiTask) {
+    if (typeof task.id !== "number") return;
     const now = Date.now();
     const { scheduledAt } = suggestSlot(task, tasks, now);
     const newPattern = updateDelayPattern(task, now);
@@ -275,6 +278,7 @@ export default function TasksPage() {
   }
 
   async function confirmReschedule(task: ApiTask, scheduledAt: number) {
+    if (typeof task.id !== "number") return;
     const now = Date.now();
     const newPattern = updateDelayPattern(task, now);
     const [updated] = await Promise.all([
@@ -298,6 +302,7 @@ export default function TasksPage() {
   }
 
   async function splitTask(task: ApiTask) {
+    if (typeof task.id !== "number") return;
     const [updated, child] = await Promise.all([
       api.updateTask(task.id, { text: `${task.text} (part 1)`, effort: "medium" }),
       api.createTask({ text: `${task.text} (part 2)`, tag: task.tag, effort: "medium", duration: Math.ceil((task.duration ?? 30) / 2), urgency: task.urgency, importance: task.importance, tiny_step: "" }),
@@ -636,7 +641,7 @@ function ImportReviewSection({
   onMarkDone: (t: ApiTask) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const [markingId, setMarkingId] = useState<number | null>(null);
+  const [markingId, setMarkingId] = useState<ApiTask["id"] | null>(null);
 
   return (
     <section>
@@ -800,12 +805,10 @@ function TaskRow({
 
   return (
     <div
-      className={`task${isNow ? " is-now" : ""} ${completing ? "task-completing" : ""}`}
+      className={`task task-no-rank${isNow ? " is-now" : ""} ${completing ? "task-completing" : ""}`}
       style={{ cursor: "default", opacity: blackedOut ? 0.35 : undefined }}
       title={blackedOut ? "Skipped during active blackout" : undefined}
     >
-      <div className="rank">{String(rank).padStart(2, "0")}</div>
-
       <div>
         <div className="row aic gap-2">
           <span className={`type-dot type-${type.cls}`} />

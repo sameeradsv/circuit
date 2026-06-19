@@ -3,7 +3,7 @@
 ## Implemented (full-stack app)
 
 - FastAPI backend with JWT + WebAuthn passkeys
-- Task CRUD, recurrence auto-creation, batch-update, ICS calendar import (RRULE snap to next valid occurrence; iCloud `FREQ=WEEKLY` without `BYDAY`)
+- Task CRUD, recurrence definitions + virtual occurrence expansion, per-occurrence overrides, batch-update, ICS calendar import (RRULE snap to next valid occurrence; iCloud `FREQ=WEEKLY` without `BYDAY`)
 - Blackouts: on-hold UI, post-blackout behaviors, calendar shading, proactive reschedule on create
 - Sleep from **Sleep** calendar task + quality/disturbed overrides + default quality setting
 - Cumulative energy timeline with cross-day carry-over (`energy_eod`); task events mapped to scheduled slot on timeline

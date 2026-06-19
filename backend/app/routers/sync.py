@@ -11,6 +11,7 @@ from app.deps.auth import require_user
 from app.models import CircuitTask, User, UserSettings, UserState
 from app.schemas import ExportRequest, ImportRequest
 from app.services.export_crypto import decrypt_export, encrypt_export
+from app.services.virtual_recurrence import sync_recurring_definition
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -68,6 +69,7 @@ def _collect_export(db: Session, user_id: int) -> dict:
         "user_state": {
             "energy_level": state.energy_level if state else 0.7,
             "energy_manual_override": bool(state.energy_manual_override) if state else False,
+            "energy_manual_override_date": state.energy_manual_override_date if state else None,
             "stress_level": state.stress_level if state else 0.3,
             "time_available_minutes": state.time_available_minutes if state else 480,
             "focus_mode": state.focus_mode if state else "normal",
@@ -169,6 +171,8 @@ def import_data(
             client_updated_at=task_data.get("client_updated_at"),
         )
         db.add(task)
+        db.flush()
+        sync_recurring_definition(db, task)
         created += 1
 
     # Upsert settings
@@ -192,6 +196,7 @@ def import_data(
             db.add(row)
         row.energy_level = state_data.get("energy_level", 0.7)
         row.energy_manual_override = bool(state_data.get("energy_manual_override", False))
+        row.energy_manual_override_date = state_data.get("energy_manual_override_date")
         row.stress_level = state_data.get("stress_level", 0.3)
         row.time_available_minutes = state_data.get("time_available_minutes", 480)
         row.focus_mode = state_data.get("focus_mode", "normal")

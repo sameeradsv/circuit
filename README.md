@@ -65,12 +65,13 @@ Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed fr
 | Feature | Notes |
 |---------|-------|
 | **Canopy-default energy** | Home/Tasks/Sidebar use Canopy `energy_so_far` by default; optional manual override in Account → Today's context |
-| **Calendar navigation + layout** | Day/week/month support arrows, date strip, and swipe/trackpad navigation; day/week overlaps account for travel buffers; month view scrolls horizontally and vertically |
+| **Calendar navigation + layout** | Day/week/month support arrows, date strip, and swipe/trackpad navigation; day/week overlaps account for travel buffers and virtual recurring slots; month view scrolls horizontally and vertically |
 | **Home focus window** | Read-only countdown to next scheduled event (no manual duration override) |
 | **Account preferences fix** | Form waits for API load before render; default bedtime and wake time on shared row |
 | **Manual datetime picker** | Set exact scheduled date + time when adding or editing a task |
 | **Voice input** | Dictate tasks on the Add page and quick-add row (Web Speech API) |
-| **ICS import** | Upload `.ics` from iCloud or any calendar; recurring series → one template at **next occurrence on or after today** (re-import to refresh after importer updates) |
+| **Virtual recurrence** | Recurring commitments are stored once in `recurring_tasks`, expanded only for visible/planning windows, and customized through `occurrence_overrides` |
+| **ICS import** | Upload `.ics` from iCloud or any calendar; recurring series → one template at **next occurrence on or after today** plus a virtual recurrence definition |
 | **Hideable mobile nav** | Mobile uses a slide-in vertical sidebar with a menu button instead of bottom tabs |
 | **Selected-day analytics load** | Analytics workload can be switched by date; Sleep blocks are excluded from load but still block the calendar |
 | **Per-task reminders** | Task detail supports two browser notification timings per scheduled task, gated by the global sidebar bell |

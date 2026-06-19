@@ -51,7 +51,8 @@ export function TaskDetailModal({
   });
   const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
 
-  const isSeries = /^ics:.+:\d{10,}$/.test(task.client_id ?? "");
+  const hasStoredId = typeof task.id === "number";
+  const isSeries = hasStoredId && /^ics:.+:\d{10,}$/.test(task.client_id ?? "");
   const merged: MergedTask = { ...task, ...patch };
 
   const scored = scoreTask(apiTaskToTask({ ...task, ...patch } as ApiTask), {
@@ -66,6 +67,7 @@ export function TaskDetailModal({
   }
 
   async function handleApplyToSeries() {
+    if (typeof task.id !== "number") return;
     setPropagating(true);
     setSaveError(null);
     setPropagateMsg(null);

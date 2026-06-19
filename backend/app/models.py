@@ -123,6 +123,47 @@ class CircuitTask(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
+class RecurringTask(Base):
+    __tablename__ = "recurring_tasks"
+    __table_args__ = (UniqueConstraint("source_task_id", name="uq_recurring_tasks_source_task"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    source_task_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("circuit_tasks.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    start_datetime_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    duration: Mapped[int] = mapped_column(Integer, default=30)
+    recurrence: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    rrule: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rrule_dtstart_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    recurrence_ends_at: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class OccurrenceOverride(Base):
+    __tablename__ = "occurrence_overrides"
+    __table_args__ = (
+        UniqueConstraint("recurring_task_id", "occurrence_start_ms", name="uq_occurrence_override_start"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    recurring_task_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("recurring_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    occurrence_start_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    modified_start_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    modified_duration: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
 class UserSettings(Base):
     __tablename__ = "user_settings"
     __table_args__ = (UniqueConstraint("user_id", "key", name="uq_user_settings_user_key"),)
@@ -141,6 +182,7 @@ class UserState(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
     energy_level: Mapped[float] = mapped_column(Float, default=0.7)
     energy_manual_override: Mapped[bool] = mapped_column(Boolean, default=False)
+    energy_manual_override_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     stress_level: Mapped[float] = mapped_column(Float, default=0.3)
     time_available_minutes: Mapped[int] = mapped_column(Integer, default=480)
     focus_mode: Mapped[str] = mapped_column(String(20), default="normal")

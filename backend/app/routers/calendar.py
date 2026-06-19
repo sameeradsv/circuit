@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, User
+from app.services.virtual_recurrence import sync_recurring_definition
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
@@ -773,7 +774,10 @@ async def import_ics(
                 cid = _client_id(uid) if uid else ""
                 if _seen(cid, ev["scheduled_at"], ev["summary"]):
                     continue
-                db.add(_make_task(user.id, ev, client_id=cid))
+                task = _make_task(user.id, ev, client_id=cid)
+                db.add(task)
+                db.flush()
+                sync_recurring_definition(db, task)
                 existing_cids.add(cid)
                 created += 1
                 # Template expiry = original dtstart + 730 days (the full intended horizon)
@@ -784,7 +788,10 @@ async def import_ics(
                 cid = _client_id(uid) if uid else ""
                 if _seen(cid, ev["scheduled_at"], ev["summary"]):
                     continue
-                db.add(_make_task(user.id, ev, client_id=cid))
+                task = _make_task(user.id, ev, client_id=cid)
+                db.add(task)
+                db.flush()
+                sync_recurring_definition(db, task)
                 existing_cids.add(cid)
                 created += 1
         if created:

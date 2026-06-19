@@ -21,6 +21,13 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `travel_buffer_before_mins`, `travel_buffer_after_mins` — rendered as calendar buffer blocks and included in day/week overlap layout
 - `notifications_enabled`, `notification_offset_1_mins`, `notification_offset_2_mins` — per-task browser reminder config; default is enabled with a 10-minute first reminder and no second reminder
 
+## Virtual recurrence
+
+- `recurring_tasks` stores recurring definitions instead of materializing every future slot: source task id, title, start datetime, duration, simple `recurrence` or imported `rrule`, optional end date, and metadata copied from the source task.
+- `occurrence_overrides` stores only per-occurrence changes: `completed`, `skipped`, or `rescheduled`, plus modified start/duration when needed.
+- Ranged task reads return materialized one-off tasks plus virtual occurrences with stable ids like `r_<recurringTaskId>_<occurrenceStart>`.
+- Completing/skipping/rescheduling a virtual occurrence writes an override row; future occurrences remain virtual and bounded to the requested calendar/scheduler window.
+
 ## Blackouts
 
 - `blackout_skip_flags` — JSON array: `travelling`, `period`, `sickness`, `leave`, `wfh`; each type requires explicit opt-in (no tag-based auto-apply)
