@@ -133,13 +133,13 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 **Reason:** Capacity planning needs the chosen day's scheduled load, not the entire backlog and not only the current day.
 
-**Implication:** Exact-title `Sleep` tasks are excluded from workload capacity but still remain scheduled calendar blocks. Summary counts, tag breakdowns, stale tasks, and behavioral insights still cover open tasks overall unless explicitly changed.
+**Implication:** Exact-title `Sleep` tasks are included when their scheduled minutes overlap the selected day. Summary counts, tag breakdowns, stale tasks, and behavioral insights still cover open tasks overall unless explicitly changed.
 
 ---
 
 ## Calendar: date strip and gesture navigation (2026-06-18)
 
-**Decision:** `/calendar` keeps arrow navigation and adds a week date strip plus horizontal swipe/trackpad navigation. Day view moves by one day, week view by one week, and month view by one month. Month view keeps vertical grid scrolling and switches month only when scrolling past the top or bottom edge.
+**Decision:** `/calendar` keeps arrow navigation and adds a date strip on day view only, plus swipe/trackpad navigation. Day view moves by one day, week view by one week, and month view by one month. Scroll navigation is edge-aware so native scrolling still wins inside scrollable grids.
 
 **Reason:** The calendar should support Outlook-like fast movement across dates without hiding the existing explicit controls.
 
@@ -147,9 +147,27 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 ## Calendar: overlap detection includes travel buffers (2026-06-18)
 
-**Decision:** `calendar-layout.ts` computes overlap columns from the rendered span: travel buffer before + task duration + travel buffer after.
+**Decision:** `calendar-layout.ts` computes overlap columns from the rendered span: travel buffer before + max(task duration, minimum rendered event height) + travel buffer after.
 
 **Reason:** The visual blocks include travel buffers, so overlap detection must use the same span to avoid collisions on some dates.
+
+**Implication:** Very short events, such as adjacent 5-minute blocks, are treated as overlapping when their painted blocks would otherwise collide.
+
+---
+
+## Energy: duration scaling cap (2026-06-19)
+
+**Decision:** Task-event energy deltas scale cost by `duration_minutes / 60`, clamped from `0.5` to `8.0`. The previous effective 2-hour cap was too low for 6-8 hour commitments.
+
+**Reason:** Long tasks should carry materially higher energy cost than two-hour tasks. The 8-hour cap still prevents a single all-day or malformed duration from dominating the entire day.
+
+---
+
+## Energy: same-day manual override (2026-06-19)
+
+**Decision:** Account manual energy override is date-scoped with `user_state.energy_manual_override_date` in IST. Home, Tasks, and Sidebar use the manual value only when that date is today; otherwise they return to Canopy/Circuit defaults.
+
+**Reason:** Manual energy is a same-day context override, not a persistent preference.
 
 ---
 

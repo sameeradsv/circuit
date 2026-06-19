@@ -16,6 +16,23 @@ _MAX_EXPANSION_DAYS = 120
 _MAX_OCCURRENCES_PER_SERIES = 500
 
 
+def _series_key(task: CircuitTask) -> str:
+    if task.client_id:
+        return f"client:{task.client_id}"
+    anchor_ms = task.rrule_dtstart_ms or task.recurrence_anchor_ms or task.scheduled_at or 0
+    anchor_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
+    clock = f"{anchor_dt.hour:02d}:{anchor_dt.minute:02d}:{anchor_dt.second:02d}"
+    rule = task.rrule or task.recurrence or ""
+    return "|".join([
+        f"user:{task.user_id}",
+        f"title:{task.text.strip().lower()}",
+        f"rule:{rule}",
+        f"duration:{task.duration or 30}",
+        f"clock:{clock}",
+        f"ends:{task.recurrence_ends_at or ''}",
+    ])
+
+
 def is_virtual_id(value: str) -> bool:
     return value.startswith("r_")
 
@@ -81,8 +98,16 @@ def sync_recurring_definition(db: Session, task: CircuitTask) -> Optional[Recurr
             existing.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         return None
 
+    key = _series_key(task)
+    metadata = _task_metadata(task)
+    metadata["series_key"] = key
+
     row = db.query(RecurringTask).filter(RecurringTask.source_task_id == task.id).first()
     if row is None:
+        for candidate in db.query(RecurringTask).filter(RecurringTask.user_id == task.user_id, RecurringTask.active == True).all():  # noqa: E712
+            candidate_meta = json.loads(candidate.metadata_json or "{}")
+            if candidate_meta.get("series_key") == key:
+                return candidate
         row = RecurringTask(user_id=task.user_id, source_task_id=task.id)
         db.add(row)
     row.title = task.text
@@ -92,7 +117,7 @@ def sync_recurring_definition(db: Session, task: CircuitTask) -> Optional[Recurr
     row.rrule = task.rrule
     row.rrule_dtstart_ms = task.rrule_dtstart_ms
     row.recurrence_ends_at = task.recurrence_ends_at
-    row.metadata_json = json.dumps(_task_metadata(task))
+    row.metadata_json = json.dumps(metadata)
     row.active = True
     row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     return row
@@ -106,10 +131,32 @@ def ensure_recurring_definitions(db: Session, user_id: int) -> None:
             CircuitTask.scheduled_at.isnot(None),
             or_(CircuitTask.recurrence.isnot(None), CircuitTask.rrule.isnot(None)),
         )
+        .order_by(CircuitTask.scheduled_at.asc(), CircuitTask.id.asc())
         .all()
     )
+    seen: set[str] = set()
     for task in tasks:
+        key = _series_key(task)
+        existing = db.query(RecurringTask).filter(RecurringTask.source_task_id == task.id).first()
+        if key in seen:
+            if existing:
+                existing.active = False
+                existing.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            continue
+        seen.add(key)
         sync_recurring_definition(db, task)
+    active_defs = db.query(RecurringTask).filter(RecurringTask.user_id == user_id, RecurringTask.active == True).all()  # noqa: E712
+    active_seen: set[str] = set()
+    for row in sorted(active_defs, key=lambda r: (r.start_datetime_ms, r.id)):
+        meta = json.loads(row.metadata_json or "{}")
+        key = meta.get("series_key")
+        if not key:
+            continue
+        if key in active_seen:
+            row.active = False
+            row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        else:
+            active_seen.add(key)
     db.flush()
 
 

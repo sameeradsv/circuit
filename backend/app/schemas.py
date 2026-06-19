@@ -16,6 +16,7 @@ class TaskEventRead(BaseModel):
 class UserStateRead(BaseModel):
     energy_level: float
     energy_manual_override: bool = False
+    energy_manual_override_date: Optional[str] = None
     stress_level: float
     time_available_minutes: int
     focus_mode: str

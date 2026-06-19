@@ -70,10 +70,6 @@ def _day_bounds_ist(date_str: str | None) -> tuple[int, int]:
     return day_start_ms, day_start_ms + 86_400_000
 
 
-def _counts_toward_workload(task: CircuitTask) -> bool:
-    return task.text.strip().lower() != "sleep"
-
-
 @router.get("/summary", response_model=SummaryResponse)
 def get_summary(
     date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
@@ -90,7 +86,7 @@ def get_summary(
     _day_start_ms, _day_end_ms = _day_bounds_ist(date)
     total_pending_minutes = 0
     for t in open_tasks:
-        if not t.scheduled_at or not _counts_toward_workload(t):
+        if not t.scheduled_at:
             continue
         task_start = t.scheduled_at
         task_end = task_start + (t.duration or 0) * 60_000

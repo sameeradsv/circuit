@@ -172,3 +172,18 @@ def test_expansion_respects_requested_boundary(client, auth):
     starts = [i["scheduled_at"] for i in items if i["text"] == "Boundary daily"]
 
     assert starts == [_ms(start + timedelta(days=1))]
+
+
+def test_existing_materialized_recurrence_rows_do_not_double_expand(client, auth):
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
+    _create_recurring(client, auth, "Legacy daily", start, "daily")
+    _create_recurring(client, auth, "Legacy daily", start + timedelta(days=1), "daily")
+
+    items = _range(client, auth, start, start + timedelta(days=2))
+    legacy = [i for i in items if i["text"] == "Legacy daily"]
+
+    assert [i["scheduled_at"] for i in legacy] == [
+        _ms(start),
+        _ms(start + timedelta(days=1)),
+        _ms(start + timedelta(days=2)),
+    ]

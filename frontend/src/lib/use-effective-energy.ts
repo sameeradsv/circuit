@@ -38,7 +38,9 @@ function resolveEffective(
   userState: ApiUserState | null,
 ): Pick<EffectiveEnergy, "value" | "valueZeroOne" | "source" | "manualOverride" | "canopyPreset"> {
   const canopyPreset = canopyPresetZeroOne(combined);
-  const manualOverride = userState?.energy_manual_override ?? false;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const manualOverride = (userState?.energy_manual_override ?? false)
+    && userState?.energy_manual_override_date === today;
 
   if (manualOverride && userState) {
     return {

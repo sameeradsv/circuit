@@ -15,7 +15,7 @@ Authenticated routes under `frontend/src/app/(app)/`:
 |------|-------|---------|
 | Home | `/` | Ranked open tasks — Canopy energy (read-only), focus window, snooze/why/detail on top pick |
 | Tasks | `/tasks` | Full list, type filters, **server search** (`GET /api/search`), energy mode switcher, **On hold** during blackouts |
-| Calendar | `/calendar` | Day / week / month views, date strip, swipe/trackpad navigation, drag-and-drop, blackout shading, ICS import |
+| Calendar | `/calendar` | Day / week / month views, day-view date strip, swipe/trackpad navigation, drag-and-drop, blackout shading, ICS import |
 | Add | `/add` | Quick capture — regex parse + `POST /api/ai/classify` enrichment on submit |
 | Account | `/account` | Preferences, sleep overrides, blackouts, energy manual override, encrypted export/import, **vanilla PWA localStorage import**, passkey |
 | Analytics | `/analytics` | Summary stats, selected-day **WorkloadBar**, **BehavioralInsights**, attention/stale/skipped lists |
@@ -37,8 +37,8 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 
 - **Virtual recurring slots** are generated only for the visible range; completed, skipped, and rescheduled instances are stored as overrides so future availability stays accurate without unlimited task rows
 - **Day / week / month** views with 24-hour grid (day/week)
-- **Overlapping events** in day/week use side-by-side columns; travel buffers are included in overlap detection so painted blocks do not collide
-- **Date strip + gestures** let users switch across dates/weeks/months with clicks, horizontal swipes, or trackpad/wheel motion in addition to arrow buttons
+- **Overlapping events** in day/week use side-by-side columns; travel buffers and minimum rendered event height are included in overlap detection so painted blocks do not collide
+- **Day-view date strip + gestures** let users switch across dates/weeks/months with clicks, horizontal swipes, or trackpad/wheel motion in addition to arrow buttons
 - **Month view** scrolls vertically when the grid exceeds viewport height, horizontally when narrow, and moves to the next/previous month when scrolling past the vertical edge
 - **Drag-and-drop** to reschedule; recurring tasks ask *this occurrence* vs *shift series*
 - **Blackout shading** — unavailable date ranges tinted on all views
@@ -62,12 +62,13 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 ## Sleep & energy
 
 - **Sleep timing** from a calendar/task event titled **Sleep** (`scheduled_at` = bedtime, `duration` = length)
-- Sleep tasks still block calendar time, but exact-title `Sleep` events are excluded from Analytics workload capacity.
+- Sleep tasks block calendar time and count toward Analytics selected-day scheduled minutes.
 - **Account → Sleep & recovery**: optional quality / disturbed / notes overrides
 - **Default sleep quality** (0–10, default 7) and **default bedtime / wake time** (paired row) in Preferences
 - Override history: toggle **Show sleep overrides** with pagination; **Edit** or **Delete** per row
 - Energy baseline: `sleep_factor × 0.70 + energy_eod × 0.30` + cumulative task-event deltas through the day
-- **Effective energy for task ranking (Home, Tasks, Sidebar):** Canopy total (`energy_so_far`) by default via `NEXT_PUBLIC_CANOPY_API_URL`; optional **manual override** in Account → Today's context. No energy slider on Home.
+- **Effective energy for task ranking (Home, Tasks, Sidebar):** Canopy total (`energy_so_far`) by default via `NEXT_PUBLIC_CANOPY_API_URL`; optional **manual override** in Account → Today's context applies only for the IST day it was set. No energy slider on Home.
+- **Task-event duration scaling:** energy cost uses `duration_minutes / 60`, clamped from 0.5× to 8.0×, so long 6–8h tasks have proportionally larger impact than short tasks.
 - **Time window for ranking:** `UserState.time_available_minutes` (Account) on Tasks; Home uses calendar window with same setting as fallback.
 - **Energy mode:** `UserState.focus_mode` synced via `use-energy-mode.ts`; switchable on Tasks header.
 - **Task ranking:** Home and Tasks use shared `lib/task-ranking.ts` → engine `scoreTasks` (energy mode + available minutes aware).

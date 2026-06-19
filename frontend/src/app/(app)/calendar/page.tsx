@@ -98,7 +98,7 @@ function taskTop(scheduledAt: number): number {
 }
 
 function taskHeight(durationMin: number): number {
-  return Math.max(24, durationMin / 60 * HOUR_H - 2);
+  return Math.max(42, durationMin / 60 * HOUR_H - 2);
 }
 
 function inRange(scheduledAt: number): boolean {
@@ -266,7 +266,7 @@ function TaskBlock({
           borderLeft: `3px solid ${taskAccent(task)}`,
           borderRadius: overflows ? "0 4px 0 0" : "0 4px 4px 0",
           borderBottom: overflows ? `2px dashed ${taskAccent(task)}` : undefined,
-          padding: compact ? "2px 4px" : "3px 6px",
+          padding: compact ? "3px 4px" : "4px 6px",
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
@@ -288,12 +288,10 @@ function TaskBlock({
           whiteSpace: "nowrap",
           color: "var(--ink)",
         }}>
-          {height <= 38
-            ? `${fmtTime(task.scheduled_at!)} · ${task.duration ?? 30}m · ${task.text}`
-            : task.text}
+          {task.text}
         </span>
-        {height > 38 && (
-          <span style={{ fontSize: compact ? 9 : 10, color: "var(--ink-3)", fontFamily: "var(--font-mono)", marginTop: 1 }}>
+        {height >= 34 && (
+          <span style={{ fontSize: compact ? 9 : 10, color: "var(--ink-3)", fontFamily: "var(--font-mono)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {fmtTime(task.scheduled_at!)} · {task.duration ?? 30}m{overflows ? " →" : ""}
           </span>
         )}

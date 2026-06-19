@@ -64,6 +64,13 @@ A task titled **Sleep** supplies bedtime/wake for the energy system (`scheduled_
 
 Optional per-day rows keyed by IST wake-up date: `quality`, `disturbed`, `notes`. Timing normally derived from Sleep task; overrides merged at read time.
 
+## User state (`UserState` table)
+
+- `energy_level` — saved 0-1 manual energy value.
+- `energy_manual_override` — true only when the user explicitly overrides today's energy.
+- `energy_manual_override_date` — IST `YYYY-MM-DD`; manual override is ignored after this date so the UI returns to Canopy/Circuit defaults daily.
+- `stress_level`, `time_available_minutes`, `focus_mode`, `energy_eod`.
+
 ## JSON blobs
 
 - `required_resources`, `dependencies`, `metadata_json`

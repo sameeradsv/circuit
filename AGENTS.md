@@ -1,0 +1,350 @@
+# AGENTS.md
+
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+
+## Commands
+
+### Vanilla PWA (root)
+
+```bash
+npm install           # Install dependencies
+npm run dev           # Watch mode (rebuilds on save)
+npm run build         # Bundle src/ → app.js (esbuild IIFE)
+npm run typecheck     # TypeScript strict-mode check (no emit)
+npm run test:unit     # Jest unit tests only
+npm run test:e2e      # Playwright e2e tests only
+npm test              # build + unit tests
+npm run test:all      # build + unit + e2e
+```
+
+Running a single test file:
+```bash
+npx jest tests/unit/engines.test.ts
+```
+
+### Next.js frontend (`frontend/`)
+
+```bash
+cd frontend
+npm install
+npm run dev      # dev server at localhost:3000 — set NEXT_PUBLIC_API_URL in .env.local for API proxy
+npm run build
+npm run start
+```
+
+TypeScript check (exclude stale `.next/` artifacts):
+```bash
+npx tsc --noEmit --skipLibCheck 2>&1 | grep "error TS" | grep -v "validator.ts"
+```
+
+### Python backend (`backend/`)
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload   # API at localhost:8000
+```
+
+Database: SQLite in `backend/data/circuit.db` (dev) or PostgreSQL via `DATABASE_URL` env var (prod).
+
+## Architecture
+
+Circuit has two separate apps that share the same TypeScript engine layer:
+
+1. **Vanilla PWA** (root `src/`) — pure TypeScript, esbuild IIFE bundle, data in `localStorage`. No backend required.
+2. **Next.js frontend** (`frontend/`) + **FastAPI backend** (`backend/`) — full-stack version with server-side persistence, multi-device sync, and calendar import.
+
+### Backend stack
+
+- **Framework:** FastAPI (Python)
+- **ORM:** SQLAlchemy 2.0 with declarative models
+- **Database:** SQLite (dev) / PostgreSQL (prod)
+- **Auth:** JWT sessions + WebAuthn passkey / biometric sign-in
+- **Migrations:** additive `ALTER TABLE` / `CREATE TABLE IF NOT EXISTS` functions called on startup in `app/main.py` → `app/database.py`
+
+### Backend routers (`backend/app/routers/`)
+
+| Router | Prefix | Purpose |
+|--------|--------|---------|
+| `auth.py` | `/api/auth` | Register, login, JWT, WebAuthn begin/complete. `GET /api/auth/debug` only when `CIRCUIT_AUTH_DEBUG=true`. |
+| `tasks.py` | `/api/tasks` | Task CRUD, recurrence auto-creation on completion, blackout-aware next-occurrence, batch-update. Range filter includes overnight overlap: tasks where `scheduled_at < from_ms AND scheduled_at + duration*60000 > from_ms` (e.g. a Sleep task at 11 PM spanning into the next day) |
+| `calendar.py` | `/api/calendar` | ICS import (lazy-load RRULE, first-future-occurrence), series propagation, expiry |
+| `blackouts.py` | `/api/blackouts` | Blackout date-range CRUD + `PATCH /{id}` update |
+| `sleep.py` | `/api/sleep` | Sleep overrides + factor; timing from **Sleep** calendar task |
+| `settings.py` | `/api/settings` | Per-user key-value settings |
+| `user.py` | `/api/user` | User state (energy/stress/focus mode), delete account |
+| `energy.py` | `/api/energy` | Cumulative energy timeline (signed deltas, running balance, cross-day carry-over) + real-time sync |
+| `history.py` | `/api/history` | Task event log |
+| `search.py` | `/api/search` | Full-text task search |
+| `ai.py` | `/api/ai` | Task classification heuristics |
+| `agent.py` | `/api/agent` | Circuit-native Groq agent with task/energy tools |
+| `sync.py` | `/api/sync` | AES-256 encrypted export/import |
+| `webauthn.py` | `/api/auth/webauthn` | Passkey registration and login |
+
+### Key database models (`backend/app/models.py`)
+
+**`CircuitTask`** — core task record (~47 columns):
+- Scheduling: `scheduled_at` (ms epoch), `recurrence` (pattern string), `duration`, `effort`
+- Recurrence/calendar: `rrule` (raw RRULE string), `rrule_dtstart_ms`, `is_recurring_template` — calendar imports store one template task per series; next occurrences are generated on completion
+- Recurrence control: `recurrence_ends_at` (ms epoch, optional cutoff; null = indefinite), `post_blackout_behavior` (`"resume"` | `"catch_up"` | `"catch_up_once"` | `"catch_up_immediate"` | `"catch_up_imm_shift"`), `recurrence_anchor_ms` (ms epoch, nullable — set on anchor-preserving catch-up modes to preserve the pre-blackout series anchor)
+- Blackouts: `blackout_skip_flags` (JSON array of types that cause this task to be skipped)
+- Cognitive: `cognitive_load`, `emotional_resistance`, `activation_energy`, `recovery_cost`
+- Priority: `importance`, `urgency`, `consequence_of_delay`, `momentum_value`
+- Behavioral: `historical_completion_rate`, `skipped_count`, `delay_pattern`
+- Grouping: `group_id` (String, nullable, indexed) — tasks sharing the same label shift together when any one is rescheduled
+- Weekend override: `day_time_overrides` (JSON `{"SA": "10:00", "SU": "10:00"}`) — overrides recurrence time on Sat/Sun, but **only for morning tasks** (original `scheduled_at` hour < 12); afternoon/evening tasks are never shifted
+- Travel: `travel_buffer_before_mins`, `travel_buffer_after_mins` (Integer, nullable) — travel/transit time blocked before/after; shown as hatched buffer zones in calendar
+
+**`Blackout`** — date ranges when user is unavailable (`blackout_type`: `travelling` / `period` / `sickness` / `leave` / `wfh`)
+
+**`SleepLog`** — optional daily overrides keyed by `(user_id, date)` IST wake-up date:
+- `quality`, `disturbed`, `notes` — user overrides from Account → Sleep & recovery
+- `bedtime_ms` / `wake_ms` — optional manual override (legacy); normally derived from a **Sleep** task (`scheduled_at` + `duration`)
+- Default quality from `UserSettings.default_sleep_quality` (7/10) when not overridden
+- `GET /api/sleep/overrides` — paginated list of saved override rows
+
+**Sleep resolution priority** (`resolve_sleep_with_fallback` in `sleep.py`):
+1. Sleep task for today (primary — `scheduled_at` = bedtime, wake = bedtime + duration)
+2. Manual `SleepLog` times for today (if `bedtime_ms`/`wake_ms` set)
+3. `default_bedtime` / `default_wake_time` user settings (e.g. "23:00" / "07:00") — set in Account → Preferences
+4. Yesterday's Sleep task times only (legacy fallback; manual overrides from prior days are **not** carried forward)
+
+**`UserState`** — `energy_level` (0–1 stored value; preset from Canopy when override off), `energy_manual_override` (bool — when false, UI uses Canopy `energy_so_far` as default), `stress_level`, `focus_mode`, `energy_eod` (nullable float — closing energy balance of the previous day, used for cross-day carry-over in `_start_energy()`).
+
+**`User`**, **`AuthSession`**, **`WebAuthnCredential`**, **`WebAuthnChallenge`**, **`UserSettings`**, **`TaskEvent`**
+
+### Database migration pattern
+
+Schema changes are additive — never destructive. Add a `_migrate_*()` function in `database.py` that uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (Postgres) or inspector-checked `ALTER TABLE` (SQLite), then call it from `on_startup` in `main.py`. Do not use Alembic.
+
+Current migrations in startup order: `_migrate_sqlite`, `_migrate_postgres`, `_migrate_webauthn_tables`, `_migrate_blackout_and_rrule`, `_migrate_recurrence_extra`, `_migrate_sleep_log`, `_migrate_energy_eod` (adds `user_state.energy_eod`), `_migrate_task_groups` (adds `group_id`, `day_time_overrides`, `travel_buffer_before_mins`, `travel_buffer_after_mins`), `_migrate_recurrence_anchor` (adds `circuit_tasks.recurrence_anchor_ms`), `_migrate_energy_manual_override` (adds `user_state.energy_manual_override`).
+
+### Frontend (`frontend/src/`)
+
+```
+app/(app)/          # Authenticated routes
+  page.tsx          # Home — ranked tasks, read-only energy (Canopy default), focus window until next calendar event
+  tasks/page.tsx    # Task list with scoring, On hold section for blacked-out tasks
+  calendar/page.tsx # Day / week / month views, drag-and-drop reschedule, side-by-side overlap layout, blackout shading, ICS import
+  account/page.tsx  # Preferences (default bedtime/wake on shared row; form waits for API load), sleep overrides, blackouts, energy manual override, export/import, passkey
+  add/page.tsx
+  analytics/page.tsx
+  energy/page.tsx   # Per-day task-event timeline (GET /api/energy/timeline); cross-app chart on Canopy
+  chat/page.tsx     # App-native chat — batch command parser + Circuit Groq agent (not Conduit terminal hub)
+app/(auth)/login/   # Login page
+components/
+  TaskDetailModal.tsx   # Re-export from task-detail/
+  task-detail/          # Modal sections: priority, cognitive, time/recurrence, blackouts, series panel
+                        # All label/input rows use flex-col on mobile (<sm) and flex-row on sm+; w-44 label width only applies at sm+
+                        # Recurrence fields (Repeat until, After blackout, Weekend time) are hidden behind a "+ Make recurring" disclosure; collapsed by default for one-off tasks, expanded when recurrence/rrule is set. ✕ button clears recurrence (suppressed for rrule/calendar-import tasks).
+  calendar/BlackoutLayers.tsx  # Calendar blackout tint overlays
+  TerminalChat.tsx      # Command parsing + ActionPreview + client-side recurrence/blackout help + Circuit native agent fallback
+  EnergyModeSwitcher.tsx # Energy mode pills (Tasks header); syncs with UserState.focus_mode
+  WorkloadBar.tsx / BehavioralInsights.tsx  # Analytics workload + behavioral insights
+  AppShell.tsx / TabBar.tsx / Sidebar.tsx
+lib/
+  task-ranking.ts         # Home/Tasks ranking → engine scoreTasks
+  vanilla-migrate.ts      # localStorage circuit_tasks_v1* → POST /api/tasks/migrate
+  api.ts                  # Typed fetch wrapper — `NEXT_PUBLIC_API_URL` (empty = relative `/api` in dev). Search, classify, settings, energy, tasks, etc.
+  recurrence.ts           # formatRecurrence(), QUICK_PATTERNS
+  engine-adapter.ts       # Converts ApiTask → engine Task type
+  tz.ts                   # IST helpers: todayIST(), fmtTimeIST(), fmtDateIST(), dateStrToISTMs(), dateStrToISTEndMs()
+  calendar-layout.ts      # Side-by-side column layout for overlapping day/week calendar events
+  use-combined-energy.ts  # Fetches Circuit /api/energy/sync, Canopy /api/sync/energy, Chef /sync/energy (separate paths).
+                          # Returns per-source breakdown + composite blend (used by Add page slot suggest).
+  use-effective-energy.ts # Effective 1–10 energy for Home/Tasks/Sidebar: Canopy total by default, Account manual override when enabled.
+  use-energy-level.ts     # energyDescriptor() helper only (no localStorage slider)
+  use-energy-mode.ts      # Energy mode (normal/deep/low/social); syncs localStorage + UserState.focus_mode via API
+```
+
+### Recurrence system
+
+**User-created tasks** (`recurrence` field): patterns like `daily`, `weekly:MO,WE,FR`, `monthly:1MO`. On completion, `tasks.py` calls `engines/recurrence.py → next_occurrence()` and auto-creates the next task.
+
+Supported recurrence patterns:
+- `daily` — every day
+- `every:4d`, `every:2w`, `every:4h` — every N days / N weeks / N hours (e.g. `every:4d` = every 4 days)
+- `weekday` — Mon–Fri
+- `weekend` — Sat & Sun
+- `monday` … `sunday` — every specific weekday
+- `weekly:MO,WE,FR` — specific days (comma-separated two-letter codes)
+- `monthly:15` — 15th of each month
+- `monthly:1MO` — 1st Monday; `monthly:3FR` — 3rd Friday; `monthly:LFR` — last Friday
+- `monthly:LWD` — last working day (last Mon–Fri) of the month; exports as `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1`
+
+**Calendar imports** (`rrule` field): ICS events with RRULE are stored as a single template task (`is_recurring_template=True`). The template's `scheduled_at` is set to the **first occurrence on or after today** (import date); `rrule_dtstart_ms` retains the original DTSTART for correct future expansion. On completion, `_expand_rrule()` finds the next date and creates the next template.
+
+RRULE cutoff snapping (`_snap_start_to_cutoff` in `calendar.py`): when advancing from an old DTSTART, the expander aligns to the **pattern** (e.g. `FREQ=WEEKLY` without `BYDAY` repeats on DTSTART's weekday — common iCloud export). Without this, everything incorrectly landed on import day.
+
+Detached instances with `RECURRENCE-ID` import as **one-offs** (not series masters), even if the VEVENT also carries an RRULE line.
+
+One-off future events use their ICS `DTSTART` directly. Past one-offs are skipped. **Re-import** is required to fix tasks imported before the snap fix; there is no DB migration.
+
+IST timezone note: `_first_future_ms()` validates the IST weekday of each candidate against explicit `BYDAY` before accepting it, guarding against UTC/IST date-boundary mismatches in the expander.
+
+**RRULE → recurrence mapping** (`_rrule_to_recurrence()` in `calendar.py`): On import, the raw RRULE is also parsed into Circuit's simple `recurrence` pattern (e.g. `FREQ=WEEKLY;BYDAY=MO,WE` → `weekly:MO,WE`). Keyword detection from event titles (`_detect_recurrence()`) is the fallback.
+
+**Recurrence end date**: `recurrence_ends_at` (ms epoch) prevents new occurrences from being created past this date. Null = indefinite.
+
+### Blackout system
+
+Users mark date ranges in Account → Blackouts. Types: `travelling`, `period`, `sickness`, `leave`, `wfh`.
+
+Tasks carry `blackout_skip_flags` specifying which types cause them to be skipped. All blackout types (`travelling`, `period`, `sickness`, `leave`, `wfh`) require explicit per-task opt-in via the skip flags — task `tag` does not auto-apply any blackout.
+
+**During an active blackout**: blacked-out tasks are **hidden** from the Right now / Soon / Later sections and shown in a collapsed **"On hold"** section at the bottom of the task list.
+
+**Calendar**: blackout date ranges render as tinted day backgrounds (day/week/month views) via `lib/blackout-utils.ts`.
+
+**On blackout create**: `POST /api/blackouts` calls `services/blackout.py → reschedule_tasks_for_blackout()` — affected open tasks scheduled inside the range are moved per each task's `post_blackout_behavior`. Response includes `tasks_rescheduled` count. `PATCH /api/blackouts/{id}` updates type/dates without re-running rescheduling.
+
+**Date storage**: blackout `start_date_ms` / `end_date_ms` are stored as **IST midnight** and **IST 23:59:59.999** respectively. The frontend uses `dateStrToISTMs` / `dateStrToISTEndMs` from `lib/tz.ts` when building these from date-picker strings — never `new Date("YYYY-MM-DD").getTime()` (which gives UTC midnight and bleeds into the next IST day).
+
+**Post-blackout behavior** (per task, set in TaskDetailModal → task-detail sections):
+- `"resume"` — skips ahead through the recurrence pattern until an occurrence falls after all blackouts; the series continues from that occurrence on the original schedule (no catch-up)
+- `"catch_up"` — moves to the **next valid recurrence slot** after the blackout and anchors the **entire series** from that new date
+- `"catch_up_once"` — next valid slot once, then resumes the original schedule via `recurrence_anchor_ms`; anchor-based occurrences within **2 days** of the catch-up date are skipped
+- `"catch_up_immediate"` — moves to the **first day after the blackout ends**, preserves the original series anchor, and does **not** skip the next anchor slot (even if close)
+- `"catch_up_imm_shift"` — same immediate catch-up, but **re-anchors the whole series** from that date (like `catch_up`, but first day after blackout instead of next pattern slot)
+
+Backend: `services/blackout.py → adjust_for_blackouts()` runs after `next_ms` is computed at task completion (and on blackout create). `catch_up` / `catch_up_once` use the next pattern slot; `catch_up_immediate` / `catch_up_imm_shift` use the day after blackout. One-off tasks on `resume` move to the first day after the blackout ends.
+
+### Scheduling algorithm (`src/scheduling-engine/scoring.ts`)
+
+Tasks are ranked by a deterministic multi-factor score (no ML, no external API):
+- Importance + urgency: up to 40 pts
+- Overdue scheduled time: +25 pts
+- Energy mode fit: mode-aware bonus/penalty
+- Tiny-step presence: +10 pts
+- Momentum value: +15 pts
+- Cognitive load / emotional resistance / skip count: penalties
+- Energy-to-reward ratio: +12 pts
+- Duration fit: ±5–15 pts
+
+Each `ScoredTask` carries an `explanation` string so the UI can show *why* a task was ranked where it was.
+
+### Energy system
+
+Energy is modelled as a **running balance** (0–1) that accumulates through the day and carries over across days — not as isolated per-event snapshots.
+
+**Three layers:**
+
+1. **Effective energy (UI scoring)** — `use-effective-energy.ts`:
+   - **Default:** Canopy `energy_so_far` via `NEXT_PUBLIC_CANOPY_API_URL` + shared Cortex JWT; falls back to Circuit `running_energy` when Canopy is unreachable.
+   - **Manual override:** Account → Today's context → **Override with manual energy level** sets `UserState.energy_manual_override=true` and uses the saved `energy_level` slider (0–1). Home, Tasks, and Sidebar are read-only; no on-page energy slider.
+   - Requires `NEXT_PUBLIC_CANOPY_API_URL` (and optionally `NEXT_PUBLIC_CHEF_API_URL` for Add-page composite hints).
+
+2. **Cumulative task-event balance** — `GET /api/energy/timeline` returns a day's events each with:
+   - `delta` — signed energy change (positive = restores, negative = drains)
+   - `running_energy` — cumulative balance after this event (0–1)
+   - `start_energy` / `end_energy` — opening and closing balance for the day
+   
+   Task deltas: completing a high `energy_to_reward_ratio` task can be net-positive; skipping costs willpower (−0.05 to −0.30); uncompleting costs recovery (−0.05 to −0.35); heavy cognitive-load completions drain even if "done". **Duration scales the cost** (30 min = 0.5×, 60 min = 1.0×, 120 min = 2.0×, capped at 2.0×) — the effort drain grows with task length, while the reward/accomplishment bonus stays fixed.
+
+   **Event time on the timeline** uses the task's **scheduled slot** (`scheduled_at`) when present, not wall-clock completion time (`app/task_event_time.py`). New `TaskEvent` rows are written the same way; the timeline read path also maps existing rows via `effective_event_time()` so historical data aligns without migration. Unscheduled tasks and explicit `POST /api/history/events` `occurred_at` still use actual/log time. **Sleep work signals** (`sleep.py → _get_work_signals`) intentionally keep raw `TaskEvent.occurred_at` (actual work hours matter for late-night penalties).
+
+   `GET /api/energy/sync` also returns `start_energy` and `running_energy` (real-time balance for Circuit's task events only), plus legacy `drain_so_far` / `drain_ahead` for backward compat.
+
+3. **Sleep + work-session factor** — timing from the **Sleep** calendar task; quality/disturbed overrides optional on Account. `GET /api/sleep/factor` (also embedded in `/api/energy/sync` as `sleep_factor`) computes a 0–1 multiplier from:
+ - **Sleep task** (or manual times): duration, late bedtime, early wake
+ - **Override quality** (default 7/10 from settings unless overridden)
+ - **Disturbed sleep** penalty when flagged
+ - **Work signals** derived automatically from task events (no user input needed): yesterday's last task event hour (late-night work penalty), yesterday's work span (>8 h penalty), today's first task event hour (early-start penalty)
+
+**Cross-day carry-over:**
+
+`start_energy = sleep_factor × 0.70 + energy_eod × 0.30`
+
+- `energy_eod` (stored in `UserState.energy_eod`, nullable float) = closing balance of the previous day.
+- Written automatically when yesterday's timeline is fetched (the energy page does this on load).
+- Sleep is the primary restorer: perfect sleep (factor 1.0) after a bad day (eod 0.3) → start at ~79%.
+- Consistently draining weeks lower eod, compounding into lower starts even with adequate sleep.
+
+`sleep_factor = 1.0` means fully rested; lower values indicate impairment. The frontend can use this alongside `manual_energy` to surface warnings like "you've been flagged as tired — high cognitive-load tasks are deprioritized".
+
+### TerminalChat (`frontend/src/components/TerminalChat.tsx`)
+
+Three-tier message handling:
+
+1. **Command parser** (client-side, no API call needed): Matches action phrases before sending to the agent:
+   - `push / move / reschedule / defer / shift / bump` + filter + date → batch-reschedule
+   - `complete / finish / done` + filter → batch-complete
+   - `prioritize / boost` + filter → batch-urgency boost
+   - Filters: high cognitive-load, deep work, work, social, overdue, today, all
+   - Dates: tomorrow, next week, Monday–Sunday, end of week, end of day, next month
+   - Shows **ActionPreview** panel listing matched tasks and proposed change; requires **Approve / Cancel** before executing via `POST /api/tasks/batch-update`
+
+2. **Client-side recurrence/blackout help**: Messages mentioning recurrence/repeat/patterns/blackout/catch-up are answered client-side with the full format reference — avoids an API round-trip.
+
+3. **Circuit native agent** (`POST /api/agent/chat`): For all other messages, streams to Circuit's backend agent (`backend/app/routers/agent.py`). **Groq only** (`GROQ_API_KEY`, model `llama-3.3-70b-versatile` via `CIRCUIT_AGENT_MODEL`) with tool calling — same stack as Conduit. Tools available:
+   - `get_today_summary` — today's tasks: completed, pending, overdue, time blocked, by-tag breakdown
+   - `get_tasks` — filtered task list (focus_type, tag, min_cognitive_load, days_ahead)
+   - `get_energy_context` — current energy_level, stress_level, focus_mode from UserState
+   - Agent knows all recurrence patterns from its system prompt; no tool needed for format questions
+   - Requires `GROQ_API_KEY` on the backend
+   - **429 fallback chain** (`_FALLBACK_CHAIN` in `circuit_agent.py`): on rate-limit, retries `llama-3.3-70b-versatile` → `llama-3.1-8b-instant` silently; yields `{error}` only if all fail
+   - **`_NO_TOOL_MODELS` denylist** (replaces old whitelist): new models default to tool-capable; only known non-tool models excluded
+   - **Text-format tool call recovery** (`_FUNC_RE`): when `finish_reason="stop"` with `<function=name>{args}</function>` content, parses and executes tools then streams a follow-up response
+
+Quick-command chips: "How busy is today?", "What are my deep work tasks this week?", plus batch-move commands that trigger the command parser.
+
+### Calendar view (`frontend/src/app/(app)/calendar/page.tsx`)
+
+Day and week views show a full 24-hour grid (midnight to midnight, 64 px/hour) and auto-scroll to 7 AM on open. **Overlapping events** in day/week columns use side-by-side layout (`lib/calendar-layout.ts`) so labels stay visible instead of stacking on top of each other. Month view shows task chips with overflow counts inside a **scrollable** container (`.cal-month-scroll`) when the grid exceeds viewport height. All views support **drag-and-drop** reschedule (recurring tasks prompt occurrence vs series). Blackout ranges appear as tinted backgrounds. Clicking any event opens `TaskDetailModal` for inline editing.
+
+Tasks with `travel_buffer_before_mins` / `travel_buffer_after_mins` render hatched gray blocks before/after the task block in day and week views, indicating blocked transit time.
+
+**Overnight tasks** (e.g. Sleep at 11 PM with 480 min duration): `TaskBlock` caps its rendered height at midnight (`min(rawHeight, TOTAL_H - top - 2)`) and shows a dashed bottom border + `→` suffix when the task overflows. The next day's view renders a `ContinuationBlock` — a dashed-top block starting at midnight (top: 0) whose height equals the overlap into that day. The backend `GET /api/tasks` range filter returns overnight tasks via an OR condition so they appear in both days' fetches.
+
+### Home page (`frontend/src/app/(app)/page.tsx`)
+
+Read-only **energy** display (Canopy preset or Account manual override via `use-effective-energy.ts`). **Focus window** shows time until the next scheduled calendar task (updates every minute). Task ranking uses effective energy + calendar window, with `UserState.time_available_minutes` as fallback when no upcoming event. **Only tasks due within 3 days** (or with no `scheduled_at`) are ranked for top picks — tasks scheduled further out are excluded so suggestions stay actionable.
+
+**Top pick actions:** Snooze 2h (reschedules + logs skip), Not now why? (inline score rationale), Start focus block (opens `TaskDetailModal`). **After that** rows show fit % with hover rationale; click opens task detail.
+
+### Energy modes
+
+Four modes — `normal | deep | low | social` — shift how the scoring algorithm weights tasks. **Next.js:** `use-energy-mode.ts` syncs `UserState.focus_mode` (Account + Tasks `EnergyModeSwitcher`). **Vanilla PWA:** `app/modes.ts` + localStorage.
+
+### Analytics
+
+`/analytics` uses `WorkloadBar` + `BehavioralInsights` (`analyzeBehavior` on open tasks) alongside `GET /api/summary`. Home and Tasks rank via shared `lib/task-ranking.ts` → engine `scoreTasks`. Account → **Import from browser (vanilla PWA)** migrates `localStorage` via `POST /api/tasks/migrate`. Product decisions: `docs/DECISIONS.md`.
+
+`WorkloadBar` shows **today's scheduled workload** vs an 8-hour capacity — `total_pending_minutes` in `GET /api/summary` sums only tasks with `scheduled_at` falling within today (IST), not the total backlog. The by-tag breakdown and pending task count still cover all open tasks. The bar has zone tick marks at 50% and 80% with threshold labels (`Light < 4h`, `Moderate 4–6.5h`, `Heavy 6.5–8h`, `Overloaded > 8h`) rendered below the bar.
+
+## Key constraints
+
+- **Strict TypeScript** — `"strict": true` in `frontend/tsconfig.json`. The `.next/types/validator.ts` errors are stale build artifacts; filter them out when checking source errors.
+- **Explainability first** — scheduling decisions must be deterministic and produce human-readable rationale.
+- **Additive migrations only** — never drop columns or tables; always add `IF NOT EXISTS` / inspector guards.
+- **Fail-safe recurrence** — recurrence auto-creation is wrapped in `try/except`; failures must never block task completion.
+- **Sleep factor is advisory** — a low `sleep_factor` should surface warnings and de-prioritize demanding tasks, but must never block the user from doing anything.
+- **`slowapi` + FastAPI body injection incompatibility**: `@limiter.limit` wraps the route function, hiding Pydantic model type annotations from FastAPI's dependency injector — FastAPI treats the parameter as a query param and returns 422 "Field required". Using `= Body()` as default is worse: FastAPI injects the raw `FieldInfo` object, causing `AttributeError` that escapes past `CORSMiddleware` to `ServerErrorMiddleware` (outside CORS) → 500 with no CORS headers → "Failed to fetch" in browser. **Fix**: all rate-limited endpoints that take a JSON body must use `async def` + `await request.json()` + `Model.model_validate()` via the `_parse_body` helper in `routers/auth.py`. Never add a typed Pydantic parameter to a `@limiter.limit`-decorated route.
+
+## UI & Responsive Standards
+
+All UI changes must work correctly across **every** combination of these views before being considered done:
+
+| View | Width | Notes |
+|------|-------|-------|
+| Mobile portrait | ≤ 430 px | Primary design target; no horizontal scroll |
+| Mobile landscape | ≤ 932 px, short viewport | Reflow; critical controls must stay on-screen |
+| Tablet / iPad portrait | 768–1024 px | Two-column layouts where content warrants |
+| Tablet / iPad landscape | 1024–1366 px | Same as portrait but wider; avoid dead whitespace |
+| Laptop / desktop | ≥ 1025 px | Full layout; sidebar nav preferred over bottom tabs |
+
+### Touch & gesture rules
+- **Minimum tap target: 44 × 44 px** — applies to all buttons, chips, and icon controls.
+- **Swipe-left to complete** (green reveal, ~72 px): implemented on the task list via `SwipeTaskRow`. Deeper swipe-left reveals **skip** (amber). Use the same component for any new swipeable list.
+- Swipe is layered on top of existing tap controls — the complete (✓) and skip buttons in `task-actions` must remain functional for desktop / keyboard users.
+
+### Voice input
+- The task quick-add input (`QuickAddCard`) has a mic button using `useVoiceInput` from `src/lib/use-voice-input.ts`. Add the same hook + button to any other primary free-text input.
+- Show a clear "listening…" state; hide the mic button when `!voice.supported`.
+- `autoFocus` **off** by default on mobile to avoid keyboard jump on load.
+
+### Calendar & drag-and-drop
+- Drag-and-drop reschedule works in day/week views. On mobile, long-press should be the drag trigger — do not use raw mouse-down as a drag start.
+
+### Config & environment
+- **Never** add `localhost` or `127.0.0.1` to `CORS_ORIGINS`, `render.yaml`, or Pydantic config defaults. Dev origins belong in `.env` only.

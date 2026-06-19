@@ -117,17 +117,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
-      <button
-        type="button"
-        className="mobile-nav-toggle"
-        aria-label={navOpen ? "Close navigation" : "Open navigation"}
-        aria-expanded={navOpen}
-        onClick={() => setNavOpen((v) => !v)}
-      >
-        <span />
-        <span />
-        <span />
-      </button>
+      {!navOpen && (
+        <button
+          type="button"
+          className="mobile-nav-toggle"
+          aria-label="Open navigation"
+          aria-expanded={false}
+          onClick={() => setNavOpen(true)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+      )}
       {navOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
       <main className="app-content">

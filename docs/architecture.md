@@ -46,8 +46,8 @@ Key routers: see `CLAUDE.md` router table.
 | `lib/api.ts` | Typed fetch - `migrateTasks`, date-aware `getSummary`, search, classify, energy, tasks |
 | `lib/engine-adapter.ts` | `ApiTask` → engine `Task` |
 | `lib/blackout-utils.ts` | Calendar blackout overlap + tint colors |
-| `lib/calendar-layout.ts` | Side-by-side columns for overlapping day/week events, including travel-buffer spans |
-| `lib/use-effective-energy.ts` | Canopy-default effective energy; Account manual override |
+| `lib/calendar-layout.ts` | Side-by-side columns for overlapping day/week events, including travel-buffer spans and minimum rendered event height |
+| `lib/use-effective-energy.ts` | Canopy-default effective energy; same-day Account manual override |
 | `lib/use-combined-energy.ts` | Per-app sync fetch + composite blend (Add page) |
 | `lib/task-cache.ts` | 30s in-memory task list cache |
 
@@ -77,7 +77,7 @@ Key routers: see `CLAUDE.md` router table.
 | Canopy | `GET /api/sync/energy` | `GET /api/sync/energy/timeline` | Interaction `occurred_at` |
 | Chef | `GET /sync/energy` | `GET /energy/timeline` | Meal `timestamp` |
 
-**Circuit UI energy (Home, Tasks, Sidebar):** `use-effective-energy.ts` — **Canopy `energy_so_far` by default**; Account **Override with manual energy level** (`user_state.energy_manual_override`) switches to saved `energy_level`. Set `NEXT_PUBLIC_CANOPY_API_URL` (+ shared Cortex JWT) in `frontend/.env.local`.
+**Circuit UI energy (Home, Tasks, Sidebar):** `use-effective-energy.ts` — **Canopy `energy_so_far` by default**; Account **Override with manual energy level** (`user_state.energy_manual_override`) switches to saved `energy_level` only when `user_state.energy_manual_override_date` is today in IST. Set `NEXT_PUBLIC_CANOPY_API_URL` (+ shared Cortex JWT) in `frontend/.env.local`.
 
 **Add page slot suggest:** `use-combined-energy.ts` blends Circuit + Canopy + Chef for composite hints.
 

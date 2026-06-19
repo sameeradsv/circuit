@@ -25,10 +25,10 @@ def _task_delta(event_type: str, task: CircuitTask) -> float:
 
     Completing a high-reward task can be net-positive because the sense of
     accomplishment offsets the cognitive cost. Low-reward/heavy tasks drain.
-    Duration scales the cost linearly (30 min = 0.5×, 60 min = 1.0×, 120 min = 2.0×).
+    Duration scales the cost linearly (30 min = 0.5×, 60 min = 1.0×, 480 min = 8.0×).
     """
     duration_mins = max(5, task.duration or 30)
-    dur_factor = min(2.0, max(0.5, duration_mins / 60))
+    dur_factor = min(8.0, max(0.5, duration_mins / 60))
 
     if event_type == "completed":
         reward = task.energy_to_reward_ratio        # 0–1; sense of accomplishment is fixed
@@ -42,7 +42,7 @@ def _task_delta(event_type: str, task: CircuitTask) -> float:
         delta = -min(0.35, base * min(1.5, dur_factor))
     else:
         delta = -0.02   # created/rescheduled: tiny planning overhead
-    return round(max(-0.35, min(0.15, delta)), 3)
+    return round(max(-0.85, min(0.15, delta)), 3)
 
 
 def _task_label(delta: float) -> str:
@@ -171,21 +171,25 @@ def energy_timeline(
 
 def _task_drain(event_type: str, task: CircuitTask) -> float:
     """Absolute drain cost for sync endpoint — kept for backward compat."""
+    duration_mins = max(5, task.duration or 30)
+    dur_factor = min(8.0, max(0.5, duration_mins / 60))
     if event_type == "completed":
-        base = task.cognitive_load * 0.35 * (1.0 - task.energy_to_reward_ratio * 0.5)
+        base = task.cognitive_load * 0.35 * (1.0 - task.energy_to_reward_ratio * 0.5) * dur_factor
     elif event_type == "skipped":
-        base = task.activation_energy * 0.25
+        base = task.activation_energy * 0.25 * min(2.0, dur_factor)
     elif event_type == "uncompleted":
-        base = task.recovery_cost * 0.30
+        base = task.recovery_cost * 0.30 * min(2.0, dur_factor)
     else:
         base = 0.08
-    return round(max(0.05, min(0.40, base)), 3)
+    return round(max(0.05, min(0.85, base)), 3)
 
 
 def _scheduled_drain(task: CircuitTask) -> float:
     effort_mult = {"high": 1.3, "medium": 1.0, "low": 0.6}.get(task.effort or "medium", 1.0)
-    base = (task.cognitive_load * 0.4 + task.activation_energy * 0.2) * effort_mult
-    return round(max(0.05, min(0.40, base)), 3)
+    duration_mins = max(5, task.duration or 30)
+    dur_factor = min(8.0, max(0.5, duration_mins / 60))
+    base = (task.cognitive_load * 0.4 + task.activation_energy * 0.2) * effort_mult * dur_factor
+    return round(max(0.05, min(0.85, base)), 3)
 
 
 @router.get("/sync")
