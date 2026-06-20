@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -18,7 +19,7 @@ _IST = ZoneInfo("Asia/Kolkata")
 router = APIRouter(prefix="/api/energy", tags=["energy"])
 
 
-def _task_delta(event_type: str, task: CircuitTask) -> float:
+def _task_delta(event_type: str, task: CircuitTask, metadata_json: str | None = None) -> float:
     """
     Signed energy delta for a task event.
     Positive = restores energy, negative = drains it.
@@ -33,7 +34,14 @@ def _task_delta(event_type: str, task: CircuitTask) -> float:
     if event_type == "completed":
         reward = task.energy_to_reward_ratio        # 0–1; sense of accomplishment is fixed
         cost   = task.cognitive_load * 0.15 * dur_factor   # effort cost scales with duration
-        delta  = reward * 0.12 - cost
+        delay_minutes = 0
+        if metadata_json:
+            try:
+                delay_minutes = max(0, int(json.loads(metadata_json).get("delay_minutes") or 0))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                delay_minutes = 0
+        delay_penalty = min(0.18, (delay_minutes / 60) * 0.025) if delay_minutes > 30 else 0.0
+        delta  = reward * 0.12 - cost - delay_penalty
     elif event_type == "skipped":
         base  = task.activation_energy * 0.15 + 0.05
         delta = -min(0.30, base * min(1.5, dur_factor))
@@ -134,7 +142,7 @@ def energy_timeline(
     running = s_energy
     events = []
     for ev, task in rows:
-        delta = _task_delta(ev.event_type, task)
+        delta = _task_delta(ev.event_type, task, ev.metadata_json)
         running = round(min(1.0, max(0.0, running + delta)), 3)
         label   = _task_label(delta)
         event_at = effective_event_time(ev, task)
@@ -258,7 +266,7 @@ def energy_sync(
     s_energy = _start_energy(state, sleep_factor)
 
     # Running energy: start + cumulative deltas from past events
-    delta_so_far = sum(_task_delta(ev.event_type, task) for ev, task in past_rows)
+    delta_so_far = sum(_task_delta(ev.event_type, task, ev.metadata_json) for ev, task in past_rows)
     running_energy = round(min(1.0, max(0.0, s_energy + delta_so_far)), 3)
 
     # Also compute legacy drain fields for backward compat

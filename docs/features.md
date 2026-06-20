@@ -13,11 +13,12 @@ Authenticated routes under `frontend/src/app/(app)/`:
 
 | Page | Route | Purpose |
 |------|-------|---------|
-| Home | `/` | Ranked open tasks — Canopy energy (read-only), focus window, snooze/why/detail on top pick |
-| Tasks | `/tasks` | Full list, type filters, **server search** (`GET /api/search`), energy mode switcher, **On hold** during blackouts |
+| Home | `/` | Capture-first dashboard — add tasks with auto-filled metrics, Canopy energy (read-only), focus window |
+| Tasks | `/tasks` | Ranked list, type filters, direct done/skip/reschedule actions, **server search** (`GET /api/search`), energy mode switcher, **On hold** during blackouts |
 | Calendar | `/calendar` | Day / week / month views, day-view date strip, swipe/trackpad navigation, drag-and-drop, blackout shading, ICS import |
-| Add | `/add` | Quick capture — regex parse + `POST /api/ai/classify` enrichment on submit |
+| Add | `/add` | Redirects to Home; quick capture now lives on `/` |
 | Account | `/account` | Preferences, sleep overrides, blackouts, energy manual override, encrypted export/import, **vanilla PWA localStorage import**, passkey |
+| More | nav section | Hides lower-frequency pages: Analytics, Energy, Chat |
 | Analytics | `/analytics` | Summary stats, selected-day **WorkloadBar**, **BehavioralInsights**, attention/stale/skipped lists |
 | Energy | `/energy` | Per-day task-event balance (`GET /api/energy/timeline`); combined cross-app chart on Canopy → Energy |
 | Chat | `/chat` | TerminalChat — batch commands (no API) + Circuit native **Groq** agent |
@@ -69,10 +70,10 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 - Energy baseline: `sleep_factor × 0.70 + energy_eod × 0.30` + cumulative task-event deltas through the day
 - **Effective energy for task ranking (Home, Tasks, Sidebar):** Canopy total (`energy_so_far`) by default via `NEXT_PUBLIC_CANOPY_API_URL`; optional **manual override** in Account → Today's context applies only for the IST day it was set. No energy slider on Home.
 - **Task-event duration scaling:** energy cost uses `duration_minutes / 60`, clamped from 0.5× to 8.0×, so long 6–8h tasks have proportionally larger impact than short tasks.
-- **Time window for ranking:** `UserState.time_available_minutes` (Account) on Tasks; Home uses calendar window with same setting as fallback.
+- **Time window for ranking:** `UserState.time_available_minutes` (Account) on Tasks.
 - **Energy mode:** `UserState.focus_mode` synced via `use-energy-mode.ts`; switchable on Tasks header.
-- **Task ranking:** Home and Tasks use shared `lib/task-ranking.ts` → engine `scoreTasks` (energy mode + available minutes aware).
-- **Circuit task energy on the timeline** is anchored to each task's **scheduled time** (when the work was planned), not when you tapped complete — matches Canopy (`occurred_at`) and Chef (meal `timestamp`). Cross-app chart lives on **Canopy → Energy** when sibling apps are configured.
+- **Task ranking:** Tasks uses shared `lib/task-ranking.ts` → engine `scoreTasks` (energy mode + available minutes aware). Home is capture-first and no longer shows suggested next/after-that recommendations.
+- **Circuit task energy on the timeline** is anchored to each task's **scheduled time** (when the work was planned), not when you tapped complete — matches Canopy (`occurred_at`) and Chef (meal `timestamp`). Recurring and virtual recurring completions create `TaskEvent` rows and therefore cost/restore energy like one-off tasks. Optional completion time stores actual completion metadata and delay minutes; delayed completions apply a small capped extra drain and feed scheduling insights.
 
 ## Account and sync
 

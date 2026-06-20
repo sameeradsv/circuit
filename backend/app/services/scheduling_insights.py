@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 
 from sqlalchemy.orm import Session
 
@@ -70,5 +71,37 @@ def compute_scheduling_insights(db: Session, user_id: int) -> list[dict[str, str
             "type": "prediction",
             "message": f'"{t.text}" keeps getting skipped — try a tiny step or reschedule out of peak hours.',
         })
+
+    delayed_rows = (
+        db.query(TaskEvent, CircuitTask)
+        .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
+        .filter(
+            TaskEvent.user_id == user_id,
+            TaskEvent.event_type == "completed",
+            TaskEvent.occurred_at >= week_ago_dt,
+        )
+        .all()
+    )
+    delayed_by_task: dict[int, list[tuple[CircuitTask, int]]] = {}
+    for ev, task in delayed_rows:
+        try:
+            meta = json.loads(ev.metadata_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        delay = int(meta.get("delay_minutes") or 0)
+        if delay < 30:
+            continue
+        delayed_by_task.setdefault(task.id, []).append((task, ev.occurred_at.hour))
+
+    for samples in delayed_by_task.values():
+        if len(samples) < 2:
+            continue
+        task = samples[0][0]
+        avg_hour = round(sum(hour for _, hour in samples) / len(samples))
+        insights.append({
+            "type": "prediction",
+            "message": f'"{task.text}" is usually completed late - try scheduling it around {avg_hour:02d}:00 instead.',
+        })
+        break
 
     return insights[:5]

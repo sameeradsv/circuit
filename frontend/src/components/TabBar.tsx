@@ -8,7 +8,6 @@ import { useAuth } from "@shared/cortex";
 
 const TABS = [
   { href: "/",         label: "Now",   glyph: "•" },
-  { href: "/add",      label: "Add",   glyph: "+" },
   { href: "/tasks",    label: "Tasks", glyph: "≡" },
   { href: "/calendar", label: "Cal",   glyph: "▦" },
 ];

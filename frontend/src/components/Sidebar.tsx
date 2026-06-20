@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { useAuth } from "@shared/cortex";
 import { energyDescriptor } from "@/lib/use-energy-level";
 import { energySourceLabel, useEffectiveEnergy } from "@/lib/use-effective-energy";
@@ -14,14 +15,6 @@ const NAV = [
     icon: (
       <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 11L12 4l9 7v8a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />
-      </svg>
-    ),
-  },
-  {
-    href: "/add", label: "Add", hint: "",
-    icon: (
-      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 5v14M5 12h14" />
       </svg>
     ),
   },
@@ -42,6 +35,9 @@ const NAV = [
       </svg>
     ),
   },
+];
+
+const MORE_NAV = [
   {
     href: "/analytics", label: "Analytics", hint: "",
     icon: (
@@ -74,6 +70,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const { value: energy, source, loading: energyLoading } = useEffectiveEnergy();
   const { theme, setTheme } = useTheme();
   const { permission, enabled, toggle } = useNotificationToggle();
+  const [moreOpen, setMoreOpen] = useState(MORE_NAV.some((n) => pathname.startsWith(n.href)));
   const desc = energyDescriptor(energy);
 
   return (
@@ -96,6 +93,33 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
               {n.icon}
               <span style={{ flex: 1 }}>{n.label}</span>
               {n.hint && <span className="nav-meta">{n.hint}</span>}
+            </Link>
+          );
+        })}
+        <button
+          type="button"
+          className={"navitem" + (MORE_NAV.some((n) => pathname.startsWith(n.href)) ? " is-active" : "")}
+          onClick={() => setMoreOpen((v) => !v)}
+          style={{ border: 0, width: "100%", fontFamily: "var(--font-body)" }}
+        >
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h.01M12 12h.01M19 12h.01" />
+          </svg>
+          <span style={{ flex: 1, textAlign: "left" }}>More</span>
+          <span className="nav-meta">{moreOpen ? "hide" : "show"}</span>
+        </button>
+        {moreOpen && MORE_NAV.map((n) => {
+          const active = pathname.startsWith(n.href);
+          return (
+            <Link
+              key={n.href}
+              href={n.href}
+              className={"navitem" + (active ? " is-active" : "")}
+              onClick={onClose}
+              style={{ paddingLeft: 30 }}
+            >
+              {n.icon}
+              <span style={{ flex: 1 }}>{n.label}</span>
             </Link>
           );
         })}

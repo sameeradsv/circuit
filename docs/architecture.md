@@ -79,6 +79,8 @@ Key routers: see `CLAUDE.md` router table.
 
 **Circuit UI energy (Home, Tasks, Sidebar):** `use-effective-energy.ts` — **Canopy `energy_so_far` by default**; Account **Override with manual energy level** (`user_state.energy_manual_override`) switches to saved `energy_level` only when `user_state.energy_manual_override_date` is today in IST. Set `NEXT_PUBLIC_CANOPY_API_URL` (+ shared Cortex JWT) in `frontend/.env.local`.
 
+**Account isolation:** Authenticated API routes use `require_user` and query/mutate rows through the authenticated `user.id`. Core tables (`circuit_tasks`, task events, settings, blackouts, sleep logs, user state, sessions, WebAuthn credentials) are scoped by `user_id`, so one login cannot read another account's Circuit data through the API.
+
 **Add page slot suggest:** `use-combined-energy.ts` blends Circuit + Canopy + Chef for composite hints.
 
 **Canopy Energy page** (`canopy/frontend/src/app/energy/page.tsx`) renders the merged chart when `NEXT_PUBLIC_CIRCUIT_API_URL` / `CHEF_API_URL` are set; it authenticates sibling calls with Canopy's Cortex JWT (`canopy_auth_token`), not per-app tokens from other origins.

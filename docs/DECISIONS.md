@@ -4,13 +4,13 @@ Records intentional choices from the 2026 stub cleanup and restore-and-rewire pa
 
 ---
 
-## Scoring: unified engine on Home and Tasks (2026-06)
+## Scoring: Tasks owns ranked recommendations (2026-06)
 
-**Decision:** Home and Tasks rank open tasks via `frontend/src/lib/task-ranking.ts` → `engines/src/scheduling-engine/scoring.ts` (`scoreTask` / `scoreTasks`), not inline simplified formulas.
+**Decision:** Tasks ranks open tasks via `frontend/src/lib/task-ranking.ts` → `engines/src/scheduling-engine/scoring.ts` (`scoreTask` / `scoreTasks`), not inline simplified formulas. Home is capture-first and does not show suggested-next or after-that recommendations.
 
-**Reason:** Single explainable scoring path; energy mode (`focus_mode`) affects rank consistently with TaskDetailModal preview.
+**Reason:** User feedback favored fast input on Home and kept ranked decision support on Tasks. Energy mode (`focus_mode`) affects rank consistently with TaskDetailModal preview.
 
-**Implication:** Fit % on Home uses `SCORE_REFERENCE_MAX` (~120) from the engine scale, not the legacy 88-point inline model.
+**Implication:** Fit % and rationale live on Tasks. Home task creation auto-fills scoring metrics from the task description, with overrides available through TaskDetailModal.
 
 ---
 
@@ -175,7 +175,7 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 **Decision:** Mobile renders the existing `Sidebar` as a slide-in drawer opened by a fixed menu button. `AppShell` no longer renders the bottom `TabBar`.
 
-**Reason:** Vertical navigation stays consistent with desktop and Canopy, exposes all routes without a More sheet, and avoids bottom-nav layout pressure.
+**Reason:** Vertical navigation stays consistent with desktop and Canopy, avoids bottom-nav layout pressure, and can group lower-frequency owner tools under More.
 
 ---
 
@@ -204,3 +204,23 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Reason:** Materializing one occurrence at a time kept storage small, but made future recurring slots look free to the auto-scheduler.
 
 **Implication:** Do not add background jobs that pre-create unbounded future rows. Use `services/virtual_recurrence.py` for visible calendar windows and planning horizons.
+
+---
+
+## Capture-first home and More nav (2026-06-21)
+
+**Decision:** Home owns quick task capture and `/add` redirects to Home. Analytics, Energy, and Chat are grouped under the Sidebar **More** section.
+
+**Reason:** Feedback showed adding tasks is the most common Home action, while Analytics/Energy/Chat are lower-frequency owner tools.
+
+**Implication:** Task recommendations and ranking live on Tasks. Home capture auto-fills metrics from natural language and the TaskDetailModal remains the override path.
+
+---
+
+## Completion time delay learning (2026-06-21)
+
+**Decision:** Completing a task can include an explicit completion timestamp. Completion events store actual completion time, scheduled time, and delay minutes.
+
+**Reason:** Recurring and frequently delayed tasks need feedback loops based on when work really happens, not only when it was planned.
+
+**Implication:** Recurring and virtual recurring completions create energy-costing `TaskEvent` rows. Energy drain applies a small capped delay penalty, and analytics can suggest a more realistic hour for tasks repeatedly completed late.

@@ -6,7 +6,7 @@ import { api, ApiTask, ApiBlackout } from "@/lib/api";
 import { getTaskCache, updateTaskInCache, invalidateTaskCache } from "@/lib/task-cache";
 import { useAuth } from "@shared/cortex";
 import { useEffectiveEnergy } from "@/lib/use-effective-energy";
-import { parseUtterance } from "@/lib/parse-utterance";
+import { parseUtterance, taskInputFromUtterance } from "@/lib/parse-utterance";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { EnergyModeSwitcher } from "@/components/EnergyModeSwitcher";
 import { SwipeTaskRow } from "@/components/SwipeTaskRow";
@@ -92,6 +92,7 @@ export default function TasksPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [detailTask, setDetailTask] = useState<ApiTask | null>(null);
   const [reschedulingTask, setReschedulingTask] = useState<ApiTask | null>(null);
+  const [completingTask, setCompletingTask] = useState<ApiTask | null>(null);
   const [completingIds, setCompletingIds] = useState<Set<ApiTask["id"]>>(new Set());
   const [showDone, setShowDone] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -205,7 +206,7 @@ export default function TasksPage() {
   const soonGroup  = flexible.slice(2, 6);
   const laterGroup = [...flexible.slice(6), ...futureScheduled];
 
-  async function handleToggle(t: ApiTask) {
+  async function handleToggle(t: ApiTask, completedAt?: number) {
     if (t.completed) {
       const updated = await api.updateTask(t.id, { completed: false });
       updateTaskInCache(updated);
@@ -216,7 +217,10 @@ export default function TasksPage() {
     }
     setCompletingIds((prev) => new Set([...prev, t.id]));
     await new Promise((r) => setTimeout(r, 360));
-    const updated = await api.updateTask(t.id, { completed: true });
+    const updated = await api.updateTask(t.id, {
+      completed: true,
+      ...(completedAt != null ? { completion_occurred_at: completedAt } : {}),
+    });
     updateTaskInCache(updated);
     setTasks((prev) => prev.filter((x) => x.id !== updated.id));
     setDoneTotal((n) => n + 1);
@@ -228,6 +232,7 @@ export default function TasksPage() {
       }
     }
     setCompletingIds((prev) => { const s = new Set(prev); s.delete(t.id); return s; });
+    setCompletingTask(null);
   }
 
   async function deleteTask(id: ApiTask["id"], fromDone = false) {
@@ -277,7 +282,7 @@ export default function TasksPage() {
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
   }
 
-  async function confirmReschedule(task: ApiTask, scheduledAt: number) {
+  async function confirmReschedule(task: ApiTask, scheduledAt: number, moveGroup: boolean) {
     if (typeof task.id !== "number") return;
     const now = Date.now();
     const newPattern = updateDelayPattern(task, now);
@@ -286,12 +291,15 @@ export default function TasksPage() {
         scheduled_at: scheduledAt,
         skipped_count: (task.skipped_count ?? 0) + 1,
         last_skipped_at: now,
+        propagate_group: moveGroup,
         ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
       }),
-      api.logEvent(task.id, "rescheduled", { scheduled_to: scheduledAt }).catch(() => {}),
+      api.logEvent(task.id, "rescheduled", { scheduled_to: scheduledAt, move_group: moveGroup }).catch(() => {}),
     ]);
     updateTaskInCache(updated);
-    setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    const fresh = await api.listTasks({ completed: false }).catch(() => null);
+    if (fresh) setTasks(fresh);
+    else setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     setReschedulingTask(null);
   }
 
@@ -416,14 +424,14 @@ export default function TasksPage() {
           tone="terra"
         >
           {nowGroup.map((t, i) => (
-            <SwipeTaskRow key={t.id} onComplete={() => handleToggle(t)} onSkip={() => skipTask(t)}>
+            <SwipeTaskRow key={t.id} onComplete={() => setCompletingTask(t)} onSkip={() => skipTask(t)}>
               <TaskRow
                 task={t}
                 rank={i + 1}
                 isNow
                 completing={completingIds.has(t.id)}
                 blackedOut={false}
-                onToggle={() => handleToggle(t)}
+                onToggle={() => setCompletingTask(t)}
                 onDelete={() => deleteTask(t.id)}
                 onDeleteSeries={() => deleteSeriesTasks(t.id)}
                 onSkip={() => skipTask(t)}
@@ -444,13 +452,13 @@ export default function TasksPage() {
           tone="sage"
         >
           {soonGroup.map((t, i) => (
-            <SwipeTaskRow key={t.id} onComplete={() => handleToggle(t)} onSkip={() => skipTask(t)}>
+            <SwipeTaskRow key={t.id} onComplete={() => setCompletingTask(t)} onSkip={() => skipTask(t)}>
               <TaskRow
                 task={t}
                 rank={i + 1 + nowGroup.length}
                 completing={completingIds.has(t.id)}
                 blackedOut={false}
-                onToggle={() => handleToggle(t)}
+                onToggle={() => setCompletingTask(t)}
                 onDelete={() => deleteTask(t.id)}
                 onDeleteSeries={() => deleteSeriesTasks(t.id)}
                 onSkip={() => skipTask(t)}
@@ -471,13 +479,13 @@ export default function TasksPage() {
           tone="muted"
         >
           {laterGroup.map((t, i) => (
-            <SwipeTaskRow key={t.id} onComplete={() => handleToggle(t)} onSkip={() => skipTask(t)}>
+            <SwipeTaskRow key={t.id} onComplete={() => setCompletingTask(t)} onSkip={() => skipTask(t)}>
               <TaskRow
                 task={t}
                 rank={i + 1 + nowGroup.length + soonGroup.length}
                 completing={completingIds.has(t.id)}
                 blackedOut={false}
-                onToggle={() => handleToggle(t)}
+                onToggle={() => setCompletingTask(t)}
                 onDelete={() => deleteTask(t.id)}
                 onDeleteSeries={() => deleteSeriesTasks(t.id)}
                 onSkip={() => skipTask(t)}
@@ -557,8 +565,15 @@ export default function TasksPage() {
         <RescheduleModal
           task={reschedulingTask}
           allTasks={tasks}
-          onConfirm={(at) => confirmReschedule(reschedulingTask, at)}
+          onConfirm={(at, moveGroup) => confirmReschedule(reschedulingTask, at, moveGroup)}
           onClose={() => setReschedulingTask(null)}
+        />
+      )}
+      {completingTask && (
+        <CompleteModal
+          task={completingTask}
+          onConfirm={(completedAt) => handleToggle(completingTask, completedAt)}
+          onClose={() => setCompletingTask(null)}
         />
       )}
       {detailTask && (
@@ -834,18 +849,18 @@ function TaskRow({
         <div className="task-actions-extra">
           <button
             onClick={onDetail}
-            style={{ fontSize: 13, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+            className="task-action-text"
             title="Details"
           >···</button>
           <button
             onClick={onReschedule}
-            style={{ fontSize: 13, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
             title="Reschedule"
+            className="task-action-text"
           >↷</button>
           <button
             onClick={async () => { setSkipping(true); try { await onSkip(); } finally { setSkipping(false); } }}
             disabled={skipping}
-            style={{ fontSize: 12, color: "var(--ink-3)", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+            className="task-action-text"
           >
             {skipping ? "…" : "skip"}
           </button>
@@ -921,13 +936,8 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
     setSubmitting(true);
     try {
       const created = await api.createTask({
+        ...taskInputFromUtterance(value),
         text: utterance.text,
-        tag: utterance.tag ?? "general",
-        urgency: utterance.urgency ?? 0.5,
-        importance: utterance.importance ?? 0.5,
-        tiny_step: "",
-        effort: utterance.effort ?? "medium",
-        cognitive_load: utterance.cognitive_load,
         ...(utterance.scheduledAt ? { scheduled_at: utterance.scheduledAt } : {}),
         ...(utterance.duration ? { duration: utterance.duration } : {}),
       });
@@ -1008,15 +1018,83 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
 
 // ── RescheduleModal ───────────────────────────────────────────────────────────
 
+function CompleteModal({
+  task, onConfirm, onClose,
+}: {
+  task: ApiTask;
+  onConfirm: (completedAt?: number) => void;
+  onClose: () => void;
+}) {
+  const [completedAt, setCompletedAt] = useState(Date.now());
+  const [useCustomTime, setUseCustomTime] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const delayMins = task.scheduled_at ? Math.round((completedAt - task.scheduled_at) / 60_000) : 0;
+
+  return (
+    <div
+      className="modal-scrim"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="card col gap-5" style={{ maxWidth: 420, width: "100%", margin: "0 16px" }}>
+        <div>
+          <h2 className="display" style={{ fontSize: 22, margin: "0 0 6px" }}>Mark done</h2>
+          <p style={{ fontSize: 14, color: "var(--ink-2)", margin: 0 }}>{task.text}</p>
+        </div>
+        <label className="row gap-2 aic" style={{ fontSize: 13, color: "var(--ink-2)" }}>
+          <input
+            type="checkbox"
+            checked={useCustomTime}
+            onChange={(e) => setUseCustomTime(e.target.checked)}
+          />
+          Use a specific completion time
+        </label>
+        {useCustomTime && (
+          <div className="col gap-2">
+            <label className="label">Completed at</label>
+            <input
+              type="datetime-local"
+              value={toInputValue(completedAt)}
+              onChange={(e) => setCompletedAt(new Date(e.target.value).getTime())}
+              className="input-base"
+            />
+            {task.scheduled_at && (
+              <p className="mono" style={{ margin: 0, fontSize: 11, color: "var(--ink-3)" }}>
+                {delayMins >= 0 ? `${delayMins}m after scheduled time` : `${Math.abs(delayMins)}m before scheduled time`}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="row gap-3">
+          <button
+            onClick={async () => {
+              setSaving(true);
+              try { await onConfirm(useCustomTime ? completedAt : Date.now()); }
+              finally { setSaving(false); }
+            }}
+            disabled={saving}
+            className="btn btn-primary"
+            style={{ flex: 1 }}
+          >
+            {saving ? "Saving..." : "Done"}
+          </button>
+          <button onClick={onClose} className="btn" style={{ flex: 1 }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RescheduleModal({
   task, allTasks, onConfirm, onClose,
 }: {
   task: ApiTask; allTasks: ApiTask[];
-  onConfirm: (scheduledAt: number) => void; onClose: () => void;
+  onConfirm: (scheduledAt: number, moveGroup: boolean) => void; onClose: () => void;
 }) {
   const suggestion: SlotSuggestion = suggestSlot(task, allTasks);
   const [chosen, setChosen] = useState(suggestion.scheduledAt);
+  const [moveGroup, setMoveGroup] = useState(Boolean(task.group_id));
   const [saving, setSaving] = useState(false);
+  const groupCount = task.group_id ? allTasks.filter((t) => t.group_id === task.group_id && !t.completed).length : 0;
 
   return (
     <div
@@ -1049,9 +1127,19 @@ function RescheduleModal({
             className="input-base"
           />
         </div>
+        {task.group_id && groupCount > 1 && (
+          <label className="row gap-2 aic" style={{ fontSize: 13, color: "var(--ink-2)" }}>
+            <input
+              type="checkbox"
+              checked={moveGroup}
+              onChange={(e) => setMoveGroup(e.target.checked)}
+            />
+            Move all {groupCount} tasks in this group
+          </label>
+        )}
         <div className="row gap-3">
           <button
-            onClick={async () => { setSaving(true); try { await onConfirm(chosen); } finally { setSaving(false); } }}
+            onClick={async () => { setSaving(true); try { await onConfirm(chosen, moveGroup); } finally { setSaving(false); } }}
             disabled={saving}
             className="btn btn-primary"
             style={{ flex: 1 }}

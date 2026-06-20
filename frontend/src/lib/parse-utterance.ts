@@ -23,6 +23,17 @@ export interface ParsedUtterance {
   scheduledAt?: number;
   effort?: "low" | "medium" | "high";
   cognitive_load?: number;
+  emotional_resistance?: number;
+  activation_energy?: number;
+  recovery_cost?: number;
+  energy_to_reward_ratio?: number;
+  consequence_of_delay?: number;
+  momentum_value?: number;
+  compound_benefit?: number;
+  identity_alignment?: number;
+  task_decomposition_potential?: number;
+  focus_type?: "shallow" | "deep" | "admin" | "creative";
+  tiny_step?: string;
   chips: ParseChip[];
   preview: ParsePreview;
 }
@@ -36,6 +47,8 @@ const _EASY = new Set(["quick", "simple", "easy", "brief", "small", "minor"]);
 const _HARD = new Set(["complex", "difficult", "hard", "thorough", "comprehensive", "refactor", "redesign", "multiple", "several", "extensive"]);
 
 const EFFORT_COG: Record<string, number> = { low: 0.3, medium: 0.5, high: 0.7 };
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, Math.round(n * 100) / 100));
 
 /** Sync heuristic — mirrors backend `ai._classify_heuristic` (no network). */
 export function classifyUtteranceHeuristic(text: string, context?: string): UtteranceClassification {
@@ -96,6 +109,53 @@ function applyEnergyHints(
   return { effort, cognitive_load };
 }
 
+function firstTinyStep(text: string): string {
+  const lower = text.toLowerCase();
+  if (/\breply|email|message|dm\b/.test(lower)) return "Open the thread and write the first sentence.";
+  if (/\bcall|phone\b/.test(lower)) return "Find the contact and start the call.";
+  if (/\bwrite|draft|doc|narrative|deck\b/.test(lower)) return "Open the document and add a rough heading.";
+  if (/\bcode|build|fix|debug|implement|test\b/.test(lower)) return "Open the relevant file and reproduce the current state.";
+  if (/\bbuy|pick up|groceries|errand\b/.test(lower)) return "Check what you need before leaving.";
+  return "Do the first visible two-minute step.";
+}
+
+function inferMetrics(text: string, classified: UtteranceClassification, chips: ParseChip[]) {
+  const full = text.toLowerCase();
+  const positivePayoff = /\b(feel(s|ing)? (nice|good|great|better)|satisfying|rewarding|relief|nice to finish|fun)\b/.test(full);
+  const healthy = /\b(healthy|health|workout|exercise|walk|run|stretch|sleep|meditat(e|ion)|therapy|rest)\b/.test(full);
+  const blocks = /\b(blocks?|unblocks?|dependent|dependency|before i can|launch|release|client|investor|deadline)\b/.test(full);
+  const dread = /\b(dread|avoid|avoiding|anxious|scary|awkward|hard to start)\b/.test(full);
+  const easyStart = /\b(quick|simple|easy|tiny|small|5 min|10 min)\b/.test(full);
+  const deep = /\b(deep|focus|focused|write|code|design|research|analy[sz]e|strategy)\b/.test(full);
+  const admin = classified.effort === "low" || /\b(admin|email|reply|schedule|book|pay|file)\b/.test(full);
+
+  const focus_type: "shallow" | "deep" | "admin" | "creative" =
+    classified.tag === "social" ? "shallow"
+    : deep && classified.effort === "high" ? "deep"
+    : admin ? "admin"
+    : "shallow";
+
+  return {
+    emotional_resistance: clamp01(dread ? 0.75 : positivePayoff || healthy ? 0.25 : 0.45),
+    activation_energy: clamp01(easyStart ? 0.25 : classified.effort === "high" ? 0.7 : 0.5),
+    recovery_cost: clamp01(classified.effort === "high" ? 0.55 : classified.effort === "low" ? 0.2 : 0.35),
+    energy_to_reward_ratio: clamp01(positivePayoff ? 0.85 : healthy ? 0.75 : classified.effort === "high" ? 0.45 : 0.6),
+    consequence_of_delay: clamp01(classified.urgency > 0.7 || blocks ? 0.75 : 0.35),
+    momentum_value: clamp01(blocks ? 0.85 : classified.urgency > 0.7 ? 0.65 : 0.5),
+    compound_benefit: clamp01(blocks || healthy ? 0.7 : 0.35),
+    identity_alignment: clamp01(healthy ? 0.85 : positivePayoff ? 0.6 : 0.4),
+    task_decomposition_potential: clamp01(classified.effort === "high" ? 0.7 : 0.3),
+    focus_type,
+    tiny_step: firstTinyStep(text),
+    chips: [
+      ...chips,
+      ...(positivePayoff ? [{ k: "payoff", v: "feels good" }] : []),
+      ...(healthy ? [{ k: "good-for-me", v: "healthy" }] : []),
+      ...(blocks ? [{ k: "unblocks", v: "yes" }] : []),
+    ],
+  };
+}
+
 /** Merge scheduling parse + NL chips + local classification. */
 export function parseUtterance(input: string): ParsedUtterance {
   const { parsed, preview } = parseTaskText(input);
@@ -105,6 +165,7 @@ export function parseUtterance(input: string): ParsedUtterance {
   const tag = parsed.tag ?? classified.tag;
   const urgency = parsed.urgency ?? classified.urgency;
   const { effort, cognitive_load } = applyEnergyHints(classified.effort, classified.cognitive_load, chips);
+  const metrics = inferMetrics(parsed.text || input.trim(), { ...classified, effort, cognitive_load }, chips);
 
   return {
     text: parsed.text,
@@ -115,7 +176,32 @@ export function parseUtterance(input: string): ParsedUtterance {
     scheduledAt: parsed.scheduledAt,
     effort,
     cognitive_load,
-    chips,
+    ...metrics,
     preview,
+  };
+}
+
+export function taskInputFromUtterance(input: string) {
+  const u = parseUtterance(input);
+  return {
+    text: u.text,
+    tag: u.tag ?? "general",
+    urgency: u.urgency ?? 0.5,
+    importance: u.importance ?? 0.5,
+    tiny_step: u.tiny_step ?? "",
+    effort: u.effort ?? "medium",
+    duration: u.duration ?? 30,
+    cognitive_load: u.cognitive_load ?? 0.5,
+    emotional_resistance: u.emotional_resistance ?? 0.45,
+    activation_energy: u.activation_energy ?? 0.5,
+    recovery_cost: u.recovery_cost ?? 0.35,
+    energy_to_reward_ratio: u.energy_to_reward_ratio ?? 0.6,
+    consequence_of_delay: u.consequence_of_delay ?? 0.35,
+    momentum_value: u.momentum_value ?? 0.5,
+    compound_benefit: u.compound_benefit ?? 0.35,
+    identity_alignment: u.identity_alignment ?? 0.4,
+    task_decomposition_potential: u.task_decomposition_potential ?? 0.3,
+    focus_type: u.focus_type ?? "shallow",
+    ...(u.scheduledAt ? { scheduled_at: u.scheduledAt } : {}),
   };
 }

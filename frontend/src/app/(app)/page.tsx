@@ -1,24 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, ApiTask } from "@/lib/api";
-import { updateDelayPattern } from "@/lib/suggest-slot";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { useEnergyMode } from "@/lib/use-energy-mode";
 import { useAuth } from "@shared/cortex";
 import { energyDescriptor } from "@/lib/use-energy-level";
 import { energySourceLabel, useEffectiveEnergy } from "@/lib/use-effective-energy";
-import {
-  fitPercent,
-  rankApiTasks,
-  type RankedApiTask,
-} from "@/lib/task-ranking";
+import { parseUtterance, taskInputFromUtterance } from "@/lib/parse-utterance";
+import { useVoiceInput } from "@/lib/use-voice-input";
+import { fitPercent } from "@/lib/task-ranking";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const DAY_MS = 86_400_000;
-const SNOOZE_MS = 2 * 60 * 60 * 1000;
 
 const SEG_LABELS: Record<string, string> = {
   urgency: "urgent",
@@ -89,7 +85,7 @@ function taskTypeMeta(task: ApiTask): { label: string; color: string; cls: strin
   return                                          { label: "Task",      color: "var(--sage)",    cls: "deep" };
 }
 
-type ScoredTask = RankedApiTask;
+type ScoredTask = ApiTask & { score: number; segs: { k: string; v: number; max: number }[]; reason?: string };
 
 function segDetail(task: ScoredTask, k: string): string {
   const dueIn = dueInDays(task);
@@ -262,6 +258,109 @@ function TaskRow({ task, rank, onOpen }: { task: ScoredTask; rank: number; onOpe
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+function HomeQuickCapture({ onCreated }: { onCreated: (task: ApiTask, review: boolean) => void }) {
+  const [text, setText] = useState("");
+  const [reviewAfterAdd, setReviewAfterAdd] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const voice = useVoiceInput();
+  const utterance = text.trim() ? parseUtterance(text) : null;
+  const chips = utterance
+    ? [
+        ...(utterance.preview.date ? [{ k: "date", v: utterance.preview.date }] : []),
+        ...(utterance.preview.tag ? [{ k: "tag", v: utterance.preview.tag }] : []),
+        ...(utterance.preview.duration ? [{ k: "time", v: utterance.preview.duration }] : []),
+        ...(utterance.preview.priority ? [{ k: "priority", v: utterance.preview.priority }] : []),
+        ...utterance.chips,
+        { k: "effort", v: utterance.effort ?? "medium" },
+        { k: "payoff", v: `${Math.round((utterance.energy_to_reward_ratio ?? 0.6) * 100)}%` },
+      ]
+    : [];
+
+  async function submit() {
+    if (!utterance?.text.trim()) return;
+    setSubmitting(true);
+    try {
+      const created = await api.createTask(taskInputFromUtterance(text));
+      onCreated(created, reviewAfterAdd);
+      setText("");
+      setReviewAfterAdd(false);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="card home-capture" style={{ padding: 20 }}>
+      <div className="between" style={{ marginBottom: 10 }}>
+        <div>
+          <div className="label">Add task</div>
+          <p className="serif" style={{ margin: "2px 0 0", color: "var(--ink-3)", fontSize: 16 }}>
+            write it naturally; metrics are filled in for you
+          </p>
+        </div>
+        <label className="row gap-2 aic" style={{ fontSize: 13, color: "var(--ink-2)" }}>
+          <input
+            type="checkbox"
+            checked={reviewAfterAdd}
+            onChange={(e) => setReviewAfterAdd(e.target.checked)}
+          />
+          Review after add
+        </label>
+      </div>
+      <textarea
+        ref={inputRef}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+        rows={2}
+        placeholder="walk after lunch because it is healthy, 20m"
+        className="input-base"
+        style={{ resize: "vertical", fontFamily: "var(--font-display)", fontSize: 18 }}
+      />
+      {chips.length > 0 && (
+        <div className="row gap-2 wrap" style={{ marginTop: 10 }}>
+          {chips.slice(0, 8).map((chip, i) => (
+            <span key={`${chip.k}-${i}`} className="parse-chip"><span className="k">{chip.k}</span>{chip.v}</span>
+          ))}
+        </div>
+      )}
+      <div className="between" style={{ marginTop: 12 }}>
+        <div className="row gap-2 aic">
+          {voice.supported && (
+            <button
+              type="button"
+              className="btn-icon"
+              onClick={() => voice.listening ? voice.stop() : voice.start((spoken) => {
+                setText((prev) => prev ? `${prev} ${spoken}` : spoken);
+                inputRef.current?.focus();
+              })}
+              title={voice.listening ? "Stop listening" : "Voice input"}
+              style={{ color: voice.listening ? "var(--terra)" : "var(--ink-3)" }}
+            >
+              {voice.listening ? "■" : "◉"}
+            </button>
+          )}
+          {voice.listening && <span className="mono" style={{ fontSize: 11, color: "var(--terra)" }}>listening...</span>}
+          {voice.error && <span className="mono" style={{ fontSize: 11, color: "var(--terra)" }}>{voice.error}</span>}
+        </div>
+        <button
+          className="btn btn-primary"
+          disabled={submitting || !utterance?.text.trim()}
+          onClick={submit}
+        >
+          {submitting ? "Adding..." : "Add task"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const { user } = useAuth();
   const [mode] = useEnergyMode();
@@ -273,25 +372,6 @@ export default function HomePage() {
   const [nextMeeting, setNextMeeting] = useState<ApiTask | null>(null);
   const [currentMeeting, setCurrentMeeting] = useState<ApiTask | null>(null);
   const [timeAvail, setTimeAvail] = useState<number | null>(null);
-
-  const scoringTimeAvail = timeAvail ?? userState?.time_available_minutes ?? 480;
-
-  async function snoozeTask(task: ApiTask) {
-    if (typeof task.id !== "number") return;
-    const now = Date.now();
-    const scheduledAt = now + SNOOZE_MS;
-    const newPattern = updateDelayPattern(task, now);
-    const [updated] = await Promise.all([
-      api.updateTask(task.id, {
-        scheduled_at: scheduledAt,
-        skipped_count: (task.skipped_count ?? 0) + 1,
-        last_skipped_at: now,
-        ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
-      }),
-      api.logEvent(task.id, "skipped", { rescheduled_to: scheduledAt, snooze_hours: 2 }).catch(() => {}),
-    ]);
-    setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
-  }
 
   useEffect(() => {
     if (!user) return;
@@ -334,14 +414,11 @@ export default function HomePage() {
   if (!user) return null;
 
   const desc = energyDescriptor(energy);
-  const nowMs = Date.now();
-  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-  const nearTermTasks = tasks.filter(
-    (t) => !t.scheduled_at || t.scheduled_at <= nowMs + THREE_DAYS_MS,
-  );
-  const ranked = rankApiTasks(nearTermTasks, { mode, availableMinutes: scoringTimeAvail });
-  const top = ranked[0];
-  const next = ranked.slice(1, 4);
+  const openTasks = tasks.filter((t) => !t.completed);
+  const top = openTasks[0] as ScoredTask;
+  const next: ScoredTask[] = [];
+  const ranked: ScoredTask[] = [];
+  async function snoozeTask(_task: ApiTask) {}
   const completedToday = tasks.filter((t) => {
     if (!t.completed) return false;
     const sod = new Date(); sod.setHours(0, 0, 0, 0);
@@ -475,14 +552,21 @@ export default function HomePage() {
         );
       })()}
 
-      {/* Top pick */}
+      <HomeQuickCapture
+        onCreated={(created, review) => {
+          setTasks((prev) => [created, ...prev]);
+          if (review) setDetailTask(created);
+        }}
+      />
+
+      {/* Loading */}
       {fetching && (
         <div className="serif" style={{ fontSize: 16, color: "var(--ink-3)" }}>
           loading your tasks…
         </div>
       )}
 
-      {!fetching && top && (
+      {false && (
         <div>
           <div className="row aic gap-3" style={{ marginBottom: 10 }}>
             <span className="label">Suggested next →</span>
@@ -499,7 +583,7 @@ export default function HomePage() {
       )}
 
       {/* After that */}
-      {!fetching && next.length > 0 && (
+      {false && (
         <div>
           <div className="between" style={{ marginBottom: 10 }}>
             <div className="label">After that</div>
@@ -516,13 +600,12 @@ export default function HomePage() {
       )}
 
       {/* Empty state */}
-      {!fetching && ranked.length === 0 && (
+      {!fetching && openTasks.length === 0 && (
         <div className="card col gap-4" style={{ padding: 40, alignItems: "center", textAlign: "center" }}>
           <p className="display" style={{ fontSize: 22, margin: 0 }}>Nothing waiting.</p>
           <p className="serif" style={{ color: "var(--ink-3)", fontSize: 16 }}>
-            Add your first task and circuit will rank it for you.
+            Add your first task above and circuit will fill in the metrics for you.
           </p>
-          <Link href="/add" className="btn btn-primary">Add a task →</Link>
         </div>
       )}
 

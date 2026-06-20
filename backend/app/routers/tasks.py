@@ -147,6 +147,8 @@ class TaskPatch(BaseModel):
     notification_offset_2_mins: Optional[int] = None
     recurrence_anchor_ms: Optional[int] = None
     import_review_pending: Optional[bool] = None
+    propagate_group: Optional[bool] = True
+    completion_occurred_at: Optional[int] = None
 
 
 def _task_to_dict(t: CircuitTask) -> dict:
@@ -348,12 +350,19 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             source = db.get(CircuitTask, int(source_task_id))
             if source and source.user_id == user.id:
                 source.historical_completion_rate = record_completion_rate(source.historical_completion_rate)
+                completed_at = payload.completion_occurred_at or occurrence_start
+                delay_mins = round((completed_at - occurrence_start) / 60_000)
                 db.add(TaskEvent(
                     user_id=user.id,
                     task_id=source.id,
                     event_type="completed",
-                    occurred_at=datetime.fromtimestamp(occurrence_start / 1000, tz=timezone.utc).replace(tzinfo=None),
-                    metadata_json=json.dumps({"virtual_occurrence_id": task_id}),
+                    occurred_at=datetime.fromtimestamp(completed_at / 1000, tz=timezone.utc).replace(tzinfo=None),
+                    metadata_json=json.dumps({
+                        "virtual_occurrence_id": task_id,
+                        "scheduled_at_ms": occurrence_start,
+                        "actual_completed_at_ms": completed_at,
+                        "delay_minutes": delay_mins,
+                    }),
                 ))
         db.commit()
         from_ms = min(occurrence_start, payload.scheduled_at or occurrence_start) - 60_000
@@ -374,7 +383,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
     old_skipped = task.skipped_count or 0
     _JSON_FIELDS = {"required_resources", "dependencies"}
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    for field, value in payload.model_dump(exclude_unset=True, exclude={"propagate_group", "completion_occurred_at"}).items():
         if field == "metadata":
             task.metadata_json = json.dumps(value)
         elif field in _JSON_FIELDS:
@@ -396,6 +405,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
     # Group propagation: shift all linked tasks by the same delta when scheduled_at changes
     if (
         payload.scheduled_at is not None
+        and payload.propagate_group is not False
         and task.group_id
         and old_scheduled_at is not None
         and task.scheduled_at != old_scheduled_at
@@ -423,12 +433,21 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             task.historical_completion_rate = record_completion_rate(task.historical_completion_rate)
             apply_complete_learning(task)
         event_type = "completed" if payload.completed else "uncompleted"
+        metadata: dict[str, Any] = {}
+        if payload.completed and payload.completion_occurred_at is not None:
+            metadata["actual_completed_at_ms"] = payload.completion_occurred_at
+            if task.scheduled_at is not None:
+                metadata["scheduled_at_ms"] = task.scheduled_at
+                metadata["delay_minutes"] = round((payload.completion_occurred_at - task.scheduled_at) / 60_000)
         db.add(TaskEvent(
             user_id=user.id,
             task_id=task_int_id,
             event_type=event_type,
-            occurred_at=task_event_occurred_at(task),
-            metadata_json="{}",
+            occurred_at=task_event_occurred_at(
+                task,
+                explicit_ms=payload.completion_occurred_at if payload.completed else None,
+            ),
+            metadata_json=json.dumps(metadata),
         ))
 
         # If task is being completed, create next occurrence if recurring
@@ -578,7 +597,7 @@ def batch_update_tasks(
         .all()
     )
     _JSON_FIELDS = {"required_resources", "dependencies"}
-    patch_data = payload.patch.model_dump(exclude_unset=True)
+    patch_data = payload.patch.model_dump(exclude_unset=True, exclude={"propagate_group", "completion_occurred_at"})
     for task in tasks:
         was_completed = task.completed
         for field, value in patch_data.items():

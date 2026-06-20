@@ -38,11 +38,12 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 
 - `cognitive_load`, `emotional_resistance`, `activation_energy`, `recovery_cost`
 - `focus_type` (`shallow` / `deep` / `admin` / `creative`)
-- `energy_to_reward_ratio`
+- `energy_to_reward_ratio` — shown in the UI as **Feels good after**; high when finishing feels satisfying, relieving, energizing, or worth it.
 
 ## Priority / value
 
 - `importance`, `urgency`, `consequence_of_delay`, `momentum_value`
+- UI aliases: `consequence_of_delay` is **Cost of delay**; `momentum_value` is **Unlocks next steps**.
 - `compound_benefit`, `identity_alignment`
 
 ## Behavioral (tracked)
