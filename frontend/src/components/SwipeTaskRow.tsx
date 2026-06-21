@@ -19,20 +19,38 @@ export function SwipeTaskRow({
 }) {
   const [offset, setOffset] = useState(0);
   const startX = useRef(0);
+  const lastOffset = useRef(0);
   const dragging = useRef(false);
+  const moved = useRef(false);
+
+  function setSwipeOffset(next: number) {
+    lastOffset.current = next;
+    setOffset(next);
+  }
+
+  function isInteractiveTarget(target: EventTarget | null) {
+    return target instanceof Element
+      && Boolean(target.closest("button, a, input, textarea, select, [role='button']"));
+  }
 
   function onPointerDown(e: React.PointerEvent) {
     if (e.button !== 0) return;
+    if (isInteractiveTarget(e.target)) return;
     dragging.current = true;
+    moved.current = false;
     startX.current = e.clientX;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
   function onPointerMove(e: React.PointerEvent) {
     if (!dragging.current) return;
     const dx = e.clientX - startX.current;
     const min = onSkip ? -THRESHOLD : 0;
-    setOffset(Math.max(min, Math.min(THRESHOLD, dx)));
+    const next = Math.max(min, Math.min(THRESHOLD, dx));
+    moved.current = moved.current || Math.abs(dx) > 8;
+    if (moved.current && !(e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }
+    setSwipeOffset(next);
   }
 
   function onPointerUp(e: React.PointerEvent) {
@@ -44,14 +62,15 @@ export function SwipeTaskRow({
       // Pointer capture may already be released by the browser.
     }
 
-    if (offset >= THRESHOLD * 0.6) {
-      setOffset(0);
+    const finalOffset = lastOffset.current;
+    if (finalOffset >= THRESHOLD * 0.6) {
+      setSwipeOffset(0);
       onComplete();
-    } else if (onSkip && offset <= -THRESHOLD * 0.6) {
-      setOffset(0);
+    } else if (onSkip && finalOffset <= -THRESHOLD * 0.6) {
+      setSwipeOffset(0);
       onSkip();
     } else {
-      setOffset(0);
+      setSwipeOffset(0);
     }
   }
 
@@ -109,6 +128,13 @@ export function SwipeTaskRow({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onClickCapture={(e) => {
+          if (moved.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            moved.current = false;
+          }
+        }}
       >
         {children}
       </div>
