@@ -12,6 +12,7 @@ from app.engines.recurrence import next_occurrence
 from app.models import CircuitTask, OccurrenceOverride, RecurringTask
 
 _IST = ZoneInfo("Asia/Kolkata")
+_WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
 _MAX_EXPANSION_DAYS = 120
 _MAX_OCCURRENCES_PER_SERIES = 500
 
@@ -43,6 +44,10 @@ def parse_virtual_id(value: str) -> tuple[int, int]:
 
 
 def _task_metadata(task: CircuitTask) -> dict[str, Any]:
+    task_meta = json.loads(task.metadata_json)
+    recurrence_time_ref_ms = task_meta.get("recurrence_time_ref_ms")
+    if not isinstance(recurrence_time_ref_ms, int):
+        recurrence_time_ref_ms = task.recurrence_anchor_ms or task.scheduled_at
     return {
         "source_task_id": task.id,
         "client_id": task.client_id,
@@ -70,7 +75,8 @@ def _task_metadata(task: CircuitTask) -> dict[str, Any]:
         "task_decomposition_potential": task.task_decomposition_potential,
         "required_resources": json.loads(task.required_resources),
         "dependencies": json.loads(task.dependencies),
-        "metadata": json.loads(task.metadata_json),
+        "metadata": task_meta,
+        "recurrence_time_ref_ms": recurrence_time_ref_ms,
         "preferred_execution_window": task.preferred_execution_window,
         "delay_pattern": task.delay_pattern,
         "location_dependency": task.location_dependency,
@@ -90,6 +96,16 @@ def _task_metadata(task: CircuitTask) -> dict[str, Any]:
     }
 
 
+def _apply_day_time_override(dt: datetime, overrides: dict[str, str], time_ref: datetime) -> datetime:
+    if not overrides or time_ref.hour >= 12:
+        return dt
+    time_str = overrides.get(_WEEKDAY[dt.weekday()])
+    if not time_str:
+        return dt
+    h, m = map(int, time_str.split(":"))
+    return dt.replace(hour=h, minute=m, second=0, microsecond=0)
+
+
 def sync_recurring_definition(db: Session, task: CircuitTask) -> Optional[RecurringTask]:
     if not task.scheduled_at or not (task.recurrence or task.rrule):
         existing = db.query(RecurringTask).filter(RecurringTask.source_task_id == task.id).first()
@@ -102,7 +118,16 @@ def sync_recurring_definition(db: Session, task: CircuitTask) -> Optional[Recurr
     metadata = _task_metadata(task)
     metadata["series_key"] = key
 
-    row = db.query(RecurringTask).filter(RecurringTask.source_task_id == task.id).first()
+    row = next(
+        (
+            pending
+            for pending in db.new
+            if isinstance(pending, RecurringTask) and pending.source_task_id == task.id
+        ),
+        None,
+    )
+    if row is None:
+        row = db.query(RecurringTask).filter(RecurringTask.source_task_id == task.id).first()
     if row is None:
         for candidate in db.query(RecurringTask).filter(RecurringTask.user_id == task.user_id, RecurringTask.active == True).all():  # noqa: E712
             candidate_meta = json.loads(candidate.metadata_json or "{}")
@@ -168,14 +193,27 @@ def _bounded_to_ms(from_ms: int, to_ms: int) -> int:
 def _expand_simple(row: RecurringTask, from_ms: int, to_ms: int) -> list[int]:
     if not row.recurrence:
         return []
+    meta = json.loads(row.metadata_json or "{}")
     anchor = datetime.fromtimestamp(row.start_datetime_ms / 1000, tz=_IST)
+    time_ref_ms = meta.get("recurrence_time_ref_ms")
+    time_ref = datetime.fromtimestamp((time_ref_ms if isinstance(time_ref_ms, int) else row.start_datetime_ms) / 1000, tz=_IST)
+    overrides = meta.get("day_time_overrides", {})
     current = anchor
     out: list[int] = []
     for _ in range(_MAX_OCCURRENCES_PER_SERIES):
-        current_ms = int(current.timestamp() * 1000)
+        display = current
+        if not row.recurrence.lower().startswith("every:") or not row.recurrence.lower().endswith("h"):
+            display = display.replace(
+                hour=time_ref.hour,
+                minute=time_ref.minute,
+                second=time_ref.second,
+                microsecond=0,
+            )
+            display = _apply_day_time_override(display, overrides, time_ref)
+        current_ms = int(display.timestamp() * 1000)
         if current_ms + (row.duration or 30) * 60_000 > from_ms and current_ms <= to_ms:
             out.append(current_ms)
-        if current_ms > to_ms:
+        if int(current.timestamp() * 1000) > to_ms:
             break
         nxt = next_occurrence(row.recurrence, current)
         if not nxt or nxt <= current:
@@ -192,7 +230,10 @@ def _expand_rrule(row: RecurringTask, from_ms: int, to_ms: int) -> list[int]:
     from app.routers.calendar import _expand_rrule as expand_ics_rrule
 
     anchor_ms = row.rrule_dtstart_ms or row.start_datetime_ms
-    orig_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
+    meta = json.loads(row.metadata_json or "{}")
+    time_ref_ms = meta.get("recurrence_time_ref_ms")
+    orig_dt = datetime.fromtimestamp((time_ref_ms if isinstance(time_ref_ms, int) else anchor_ms) / 1000, tz=_IST)
+    overrides = meta.get("day_time_overrides", {})
     out: list[int] = []
     for raw_ms in expand_ics_rrule(anchor_ms, row.rrule, set(), cutoff_ms=from_ms):
         if row.recurrence_ends_at and raw_ms > row.recurrence_ends_at:
@@ -206,6 +247,7 @@ def _expand_rrule(row: RecurringTask, from_ms: int, to_ms: int) -> list[int]:
             second=orig_dt.second,
             microsecond=0,
         )
+        corrected = _apply_day_time_override(corrected, overrides, orig_dt)
         ts = int(corrected.timestamp() * 1000)
         if ts + (row.duration or 30) * 60_000 > from_ms and ts <= to_ms:
             out.append(ts)

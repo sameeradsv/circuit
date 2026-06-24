@@ -3,6 +3,7 @@
  *
  * Supported patterns:
  * - daily
+ * - weekly
  * - every:4d, every:2w, every:4h — every N days, weeks, or hours
  * - weekend
  * - weekday
@@ -20,6 +21,7 @@ export interface RecurrenceOption {
 
 export const QUICK_PATTERNS: RecurrenceOption[] = [
   { label: "Daily", pattern: "daily", description: "Every day" },
+  { label: "Weekly", pattern: "weekly", description: "Every week on the same day" },
   { label: "Weekdays", pattern: "weekday", description: "Monday–Friday" },
   { label: "Weekends", pattern: "weekend", description: "Saturday & Sunday" },
   { label: "Monday", pattern: "monday", description: "Every Monday" },

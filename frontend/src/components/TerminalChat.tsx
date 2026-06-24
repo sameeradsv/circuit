@@ -244,6 +244,7 @@ Type the pattern exactly into the **Recurrence** field when editing a task (not 
 | \`every:4d\` | Every 4 days (\`every:Nd\` — N = day count) |
 | \`every:2w\` | Every 2 weeks (\`every:Nw\` — N = week count) |
 | \`every:4h\` | Every 4 hours (\`every:Nh\` — N = hour count) |
+| \`weekly\` | Every week on the same weekday |
 | \`weekday\` | Mon – Fri |
 | \`weekend\` | Sat & Sun |
 | \`monday\` … \`sunday\` | Every specific weekday |

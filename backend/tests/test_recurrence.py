@@ -30,6 +30,12 @@ def test_daily_still_works():
     assert nxt == datetime(2026, 6, 18, 10, 0)
 
 
+def test_plain_weekly_repeats_same_weekday():
+    base = datetime(2026, 6, 20, 9, 30)
+    nxt = next_occurrence("weekly", base)
+    assert nxt == datetime(2026, 6, 27, 9, 30)
+
+
 def test_rrule_interval_not_accepted_as_recurrence():
     base = datetime(2026, 6, 17, 10, 0)
     assert next_occurrence("FREQ=DAILY;INTERVAL=4", base) is None

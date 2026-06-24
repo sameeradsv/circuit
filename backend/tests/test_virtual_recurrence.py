@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app.limiter import limiter
 from app.main import app
 
 _IST = ZoneInfo("Asia/Kolkata")
@@ -37,8 +38,11 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    old_enabled = limiter.enabled
+    limiter.enabled = False
     with TestClient(app) as c:
         yield c
+    limiter.enabled = old_enabled
     app.dependency_overrides.clear()
 
 
@@ -60,6 +64,12 @@ def _create_recurring(client, auth, text: str, start: datetime, recurrence: str,
         },
         headers=auth,
     )
+    assert r.status_code == 201
+    return r.json()
+
+
+def _create_recurring_with_payload(client, auth, payload: dict):
+    r = client.post("/api/tasks", json=payload, headers=auth)
     assert r.status_code == 201
     return r.json()
 
@@ -187,3 +197,75 @@ def test_existing_materialized_recurrence_rows_do_not_double_expand(client, auth
         _ms(start + timedelta(days=1)),
         _ms(start + timedelta(days=2)),
     ]
+
+
+def test_weekend_time_override_does_not_shift_weekday_clock(client, auth):
+    friday = datetime(2026, 1, 2, 8, 0, tzinfo=_IST)
+    _create_recurring_with_payload(
+        client,
+        auth,
+        {
+            "text": "Morning practice",
+            "scheduled_at": _ms(friday),
+            "duration": 30,
+            "recurrence": "daily",
+            "day_time_overrides": {"SA": "10:00", "SU": "10:00"},
+        },
+    )
+
+    items = _range(client, auth, friday, friday + timedelta(days=3))
+    starts = [
+        datetime.fromtimestamp(i["scheduled_at"] / 1000, tz=_IST)
+        for i in items
+        if i["text"] == "Morning practice"
+    ]
+
+    assert [(dt.weekday(), dt.hour, dt.minute) for dt in starts[:4]] == [
+        (4, 8, 0),
+        (5, 10, 0),
+        (6, 10, 0),
+        (0, 8, 0),
+    ]
+
+
+def test_completing_materialized_recurring_slot_hides_that_virtual_occurrence(client, auth):
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
+    task = _create_recurring(client, auth, "Materialized daily", start, "daily")
+
+    r = client.patch(f"/api/tasks/{task['id']}", json={"completed": True}, headers=auth)
+    assert r.status_code == 200
+
+    open_items = _range(client, auth, start, start, completed=False)
+    assert [i for i in open_items if i["text"] == "Materialized daily"] == []
+
+
+def test_materialized_completion_keeps_original_weekday_time_after_weekend_override(client, auth):
+    saturday = datetime(2026, 1, 3, 10, 0, tzinfo=_IST)
+    task = _create_recurring_with_payload(
+        client,
+        auth,
+        {
+            "text": "Weekend adjusted daily",
+            "scheduled_at": _ms(saturday),
+            "duration": 30,
+            "recurrence": "daily",
+            "metadata": {"recurrence_time_ref_ms": _ms(datetime(2026, 1, 2, 8, 0, tzinfo=_IST))},
+            "day_time_overrides": {"SA": "10:00", "SU": "10:00"},
+        },
+    )
+
+    r = client.patch(f"/api/tasks/{task['id']}", json={"completed": True}, headers=auth)
+    assert r.status_code == 200
+
+    tasks = client.get("/api/tasks?completed=false", headers=auth).json()
+    created = [i for i in tasks if i["text"] == "Weekend adjusted daily"]
+    assert created
+    next_dt = datetime.fromtimestamp(created[0]["scheduled_at"] / 1000, tz=_IST)
+    assert (next_dt.weekday(), next_dt.hour, next_dt.minute) == (6, 10, 0)
+
+    r = client.patch(f"/api/tasks/{created[0]['id']}", json={"completed": True}, headers=auth)
+    assert r.status_code == 200
+    tasks = client.get("/api/tasks?completed=false", headers=auth).json()
+    created = [i for i in tasks if i["text"] == "Weekend adjusted daily"]
+    next_dt = datetime.fromtimestamp(created[0]["scheduled_at"] / 1000, tz=_IST)
+    assert (next_dt.weekday(), next_dt.hour, next_dt.minute) == (0, 8, 0)

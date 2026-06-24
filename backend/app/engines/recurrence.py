@@ -5,6 +5,7 @@ Supported patterns:
 - every:Nd: every N days (e.g. every:4d)
 - every:Nw: every N weeks (e.g. every:2w)
 - every:Nh: every N hours (e.g. every:4h)
+- weekly: every week on the same weekday as the current occurrence
 - weekly:MO,WE,FR: specific weekdays (MO=Mon, TU=Tue, WE=Wed, TH=Thu, FR=Fri, SA=Sat, SU=Sun)
 - weekend: Saturday and Sunday
 - weekday: Monday through Friday
@@ -165,6 +166,9 @@ def next_occurrence(pattern: str, from_dt: datetime) -> Optional[datetime]:
     if interval_next is not None:
         return interval_next
 
+    if pattern == "weekly":
+        return from_dt + timedelta(weeks=1)
+
     if pattern == "weekend":
         return _next_weekend(from_dt)
 
@@ -282,7 +286,7 @@ def _next_monthly(spec: str, dt: datetime) -> Optional[datetime]:
 
 def _next_date_of_month(day: int, dt: datetime) -> datetime:
     """Next occurrence of a specific day of month (1-31)."""
-    current = dt.replace(day=1) + timedelta(days=1)  # Move to next month
+    current = (dt.replace(day=1) + timedelta(days=32)).replace(day=1)
     # Clamp day to valid range for the month
     try:
         return current.replace(day=min(day, 28))  # Use 28 to avoid month-end issues

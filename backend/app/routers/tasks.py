@@ -50,6 +50,28 @@ def _apply_day_time_override(dt: datetime, overrides_json: Optional[str]) -> dat
     return dt
 
 
+def _metadata_dict(task: CircuitTask) -> dict[str, Any]:
+    try:
+        return json.loads(task.metadata_json or "{}")
+    except Exception:
+        return {}
+
+
+def _recurrence_time_ref_ms(task: CircuitTask) -> Optional[int]:
+    meta = _metadata_dict(task)
+    value = meta.get("recurrence_time_ref_ms")
+    if isinstance(value, int):
+        return value
+    return task.recurrence_anchor_ms or task.scheduled_at
+
+
+def _metadata_with_recurrence_time_ref(task: CircuitTask, time_ref_ms: Optional[int]) -> str:
+    meta = _metadata_dict(task)
+    if time_ref_ms is not None:
+        meta["recurrence_time_ref_ms"] = time_ref_ms
+    return json.dumps(meta)
+
+
 class TaskIn(BaseModel):
     client_id: Optional[str] = None
     text: str
@@ -455,11 +477,20 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             try:
                 from app.models import Blackout
                 user_blackouts = db.query(Blackout).filter(Blackout.user_id == user.id).all()
-                # catch_up_once / catch_up_immediate: use stored anchor (original pre-blackout
-                # scheduled_at) so subsequent occurrences compute from the original series.
-                anchor_ms = task.recurrence_anchor_ms or task.scheduled_at
-                from_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
+                occurrence_dt = datetime.fromtimestamp(task.scheduled_at / 1000, tz=_IST)
+                time_ref_ms = _recurrence_time_ref_ms(task)
+                time_ref_dt = datetime.fromtimestamp((time_ref_ms or task.scheduled_at) / 1000, tz=_IST)
                 next_ms: Optional[int] = None
+
+                recurring_def = sync_recurring_definition(db, task)
+                if recurring_def:
+                    upsert_occurrence_override(
+                        db,
+                        user.id,
+                        recurring_def.id,
+                        task.scheduled_at,
+                        status="completed",
+                    )
 
                 if task.rrule and task.is_recurring_template:
                     # RRULE-based calendar template: use RRULE parser for next occurrence.
@@ -477,16 +508,16 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                     raw_next = next((ts for ts in candidates if ts > task.scheduled_at), None)
                     if raw_next:
                         raw_dt = datetime.fromtimestamp(raw_next / 1000, tz=_IST)
-                        raw_dt = raw_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
+                        raw_dt = raw_dt.replace(hour=time_ref_dt.hour, minute=time_ref_dt.minute, second=time_ref_dt.second)
                         raw_dt = _apply_day_time_override(raw_dt, task.day_time_overrides)
                         next_ms = int(raw_dt.timestamp() * 1000)
                 elif task.recurrence:
                     # Simple pattern (user-created tasks)
-                    next_dt = next_occurrence(task.recurrence, from_dt)
+                    next_dt = next_occurrence(task.recurrence, occurrence_dt)
                     if next_dt:
                         hourly = is_hourly_recurrence(task.recurrence)
                         if not hourly:
-                            next_dt = next_dt.replace(hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second)
+                            next_dt = next_dt.replace(hour=time_ref_dt.hour, minute=time_ref_dt.minute, second=time_ref_dt.second)
                             next_dt = _apply_day_time_override(next_dt, task.day_time_overrides)
                         next_ms = int(next_dt.timestamp() * 1000)
 
@@ -498,7 +529,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                 next_anchor_ms: Optional[int] = None
                 if next_ms:
                     pre_adjust_ms = next_ms
-                    next_ms = adjust_for_blackouts(next_ms, task, user_blackouts, from_dt)
+                    next_ms = adjust_for_blackouts(next_ms, task, user_blackouts, time_ref_dt)
                     # catch_up_once: if the date was moved by blackout adjustment, store the
                     # original pre-adjustment scheduled_at as recurrence_anchor_ms so the
                     # next completion computes from that anchor (series stays on schedule).
@@ -559,6 +590,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                         recurrence_ends_at=task.recurrence_ends_at,
                         post_blackout_behavior=task.post_blackout_behavior,
                         recurrence_anchor_ms=next_anchor_ms,
+                        metadata_json=_metadata_with_recurrence_time_ref(task, time_ref_ms),
                         group_id=task.group_id,
                         day_time_overrides=task.day_time_overrides,
                         travel_buffer_before_mins=task.travel_buffer_before_mins,

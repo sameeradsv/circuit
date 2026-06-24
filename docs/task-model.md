@@ -12,12 +12,12 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `scheduled_at` (ms epoch), `duration` (minutes)
 - `effort` (`low` / `medium` / `high`), `deadline_type` (`none` / `soft` / `hard`)
 - `time_sensitivity`, `preferred_execution_window` (`morning` / `afternoon` / `evening`)
-- `recurrence` — user patterns: `daily`, `every:4d`, `every:2w`, `every:4h`, `weekly:MO,WE`, `monthly:1MO`, `monthly:LWD`, …
+- `recurrence` — user patterns: `daily`, `weekly`, `every:4d`, `every:2w`, `every:4h`, `weekly:MO,WE`, `monthly:1MO`, `monthly:LWD`, …
 - `recurrence_ends_at` — optional cutoff (ms); null = indefinite
 - `post_blackout_behavior` — `resume` | `catch_up` | `catch_up_once` | `catch_up_immediate` | `catch_up_imm_shift`
 - `recurrence_anchor_ms` — for `catch_up_once` / `catch_up_immediate`: preserves pre-blackout anchor (`catch_up_once` also skips too-close anchor slots on completion)
 - `rrule`, `rrule_dtstart_ms`, `is_recurring_template` — calendar ICS imports
-- `day_time_overrides` — JSON `{"SA": "10:00", "SU": "10:00"}` (morning tasks only)
+- `day_time_overrides` — JSON `{"SA": "10:00", "SU": "10:00"}` (morning tasks only); weekend occurrences use the override time, then weekday occurrences return to the original recurrence clock.
 - `travel_buffer_before_mins`, `travel_buffer_after_mins` — rendered as calendar buffer blocks and included in day/week overlap layout
 - `notifications_enabled`, `notification_offset_1_mins`, `notification_offset_2_mins` — per-task browser reminder config; default is enabled with a 10-minute first reminder and no second reminder
 
@@ -27,6 +27,7 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `occurrence_overrides` stores only per-occurrence changes: `completed`, `skipped`, or `rescheduled`, plus modified start/duration when needed.
 - Ranged task reads return materialized one-off tasks plus virtual occurrences with stable ids like `r_<recurringTaskId>_<occurrenceStart>`.
 - Completing/skipping/rescheduling a virtual occurrence writes an override row; future occurrences remain virtual and bounded to the requested calendar/scheduler window.
+- Completing a materialized recurring task also records the completed slot in `occurrence_overrides`, preventing ranged calendar reads from re-expanding the same slot as an open virtual duplicate.
 
 ## Blackouts
 

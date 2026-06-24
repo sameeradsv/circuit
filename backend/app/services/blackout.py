@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy.orm import Session
@@ -38,7 +38,10 @@ def _overlapping_blackouts(ms: int, task: CircuitTask, blackouts: list) -> list:
 
 def _catch_up_after_ms(ms: int, hits: list, from_dt: datetime) -> int:
     latest_end = max(b.end_date_ms for b in hits)
-    next_day = datetime.fromtimestamp((latest_end + 1) / 1000, tz=_IST)
+    latest_end_dt = datetime.fromtimestamp(latest_end / 1000, tz=_IST)
+    next_day = (latest_end_dt + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     next_day = next_day.replace(
         hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second, microsecond=0
     )

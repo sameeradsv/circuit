@@ -159,11 +159,12 @@ lib/
 
 ### Recurrence system
 
-**User-created tasks** (`recurrence` field): patterns like `daily`, `weekly:MO,WE,FR`, `monthly:1MO`. On completion, `tasks.py` calls `engines/recurrence.py → next_occurrence()` and auto-creates the next task.
+**User-created tasks** (`recurrence` field): patterns like `daily`, `weekly`, `weekly:MO,WE,FR`, `monthly:1MO`. On completion, `tasks.py` calls `engines/recurrence.py → next_occurrence()` and auto-creates the next task.
 
 Supported recurrence patterns:
 - `daily` — every day
 - `every:4d`, `every:2w`, `every:4h` — every N days / N weeks / N hours (e.g. `every:4d` = every 4 days)
+- `weekly` — every week on the same weekday as the current occurrence
 - `weekday` — Mon–Fri
 - `weekend` — Sat & Sun
 - `monday` … `sunday` — every specific weekday
@@ -171,6 +172,8 @@ Supported recurrence patterns:
 - `monthly:15` — 15th of each month
 - `monthly:1MO` — 1st Monday; `monthly:3FR` — 3rd Friday; `monthly:LFR` — last Friday
 - `monthly:LWD` — last working day (last Mon–Fri) of the month; exports as `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1`
+
+Weekend time overrides use a stable recurrence clock: a morning task can render at `day_time_overrides` time on Saturday/Sunday, then return to its original weekday time on the next weekday. Completing a materialized recurring occurrence also writes an `occurrence_overrides` completion row so ranged calendar reads do not re-expand that same slot as an open virtual duplicate.
 
 **Calendar imports** (`rrule` field): ICS events with RRULE are stored as a single template task (`is_recurring_template=True`). The template's `scheduled_at` is set to the **first occurrence on or after today** (import date); `rrule_dtstart_ms` retains the original DTSTART for correct future expansion. On completion, `_expand_rrule()` finds the next date and creates the next template.
 

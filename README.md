@@ -88,7 +88,7 @@ Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed fr
 | **Account preferences fix** | Form waits for API load before render; default bedtime and wake time on shared row |
 | **Manual datetime picker** | Set exact scheduled date + time when adding or editing a task |
 | **Voice input** | Dictate tasks on the Add page and quick-add row (Web Speech API) |
-| **Virtual recurrence** | Recurring commitments are stored once in `recurring_tasks`, expanded only for visible/planning windows, and customized through `occurrence_overrides` |
+| **Virtual recurrence** | Recurring commitments are stored once in `recurring_tasks`, expanded only for visible/planning windows, customized through `occurrence_overrides`, and support stable weekend time overrides |
 | **ICS import** | Upload `.ics` from iCloud or any calendar; recurring series → one template at **next occurrence on or after today** plus a virtual recurrence definition |
 | **Hideable mobile nav** | Mobile uses a slide-in vertical sidebar with a menu button instead of bottom tabs |
 | **Selected-day analytics load** | Analytics workload can be switched by date and totals scheduled minutes overlapping the selected IST day, including Sleep blocks |
