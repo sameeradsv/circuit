@@ -43,6 +43,24 @@ npm run dev      # dev server at localhost:3000
 npm run build
 ```
 
+### Backend deployment (`backend/`)
+
+The FastAPI backend is configured for Vercel Python Functions:
+
+- Vercel project root: `backend`
+- Framework preset: Other
+- Install command: `pip install -r requirements.txt`
+- Entrypoint: `api/index.py`
+- Required production env: `DATABASE_URL`, `CORS_ORIGINS`, `CORTEX_AUTH_URL`, `INIT_DB_ON_STARTUP=false`
+- Optional env: `GROQ_API_KEY`
+
+For a new database, or before deploying schema changes while startup DB init is disabled:
+
+```bash
+cd backend
+DATABASE_URL="postgresql://..." python -m app.database
+```
+
 ## Architecture
 
 ### Vanilla PWA

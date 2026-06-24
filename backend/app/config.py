@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     cors_origins: str = "https://sameeradsv.github.io"
+    init_db_on_startup: bool = Field(default=True, validation_alias="INIT_DB_ON_STARTUP")
     # Populated from CORTEX_AUTH_URL env var (shared Cortex Auth Server), same as Canopy/Conduit.
     cortex_auth_url: str = Field(default="", validation_alias="CORTEX_AUTH_URL")
     groq_api_key: str = ""

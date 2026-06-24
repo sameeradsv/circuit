@@ -7,9 +7,10 @@ from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'circuit.db'}")
+if DATABASE_URL.startswith("sqlite"):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 pool_kwargs = (
@@ -454,3 +455,34 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def init_db() -> None:
+    """Create tables and run additive migrations once for the configured database."""
+    from app import models  # noqa: F401 - register SQLAlchemy models with Base metadata
+
+    Base.metadata.create_all(bind=engine)
+    _ensure_migrations_table()
+    for name, fn in [
+        ("sqlite_auth_sessions",   _migrate_sqlite),
+        ("postgres_base_columns",  _migrate_postgres),
+        ("webauthn_tables",        _migrate_webauthn_tables),
+        ("blackout_and_rrule",     _migrate_blackout_and_rrule),
+        ("recurrence_extra",       _migrate_recurrence_extra),
+        ("sleep_log_table",        _migrate_sleep_log),
+        ("energy_eod_column",      _migrate_energy_eod),
+        ("task_groups_columns",    _migrate_task_groups),
+        ("recurrence_anchor_ms",   _migrate_recurrence_anchor),
+        ("import_review_pending",  _migrate_import_review_pending),
+        ("energy_manual_override", _migrate_energy_manual_override),
+        ("energy_manual_override_date", _migrate_energy_manual_override_date),
+        ("task_notifications",     _migrate_task_notifications),
+        ("virtual_recurrence",     _migrate_virtual_recurrence_tables),
+    ]:
+        if not _migration_done(name):
+            fn()
+            _mark_done(name)
+
+
+if __name__ == "__main__":
+    init_db()

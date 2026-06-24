@@ -60,7 +60,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 - **ORM:** SQLAlchemy 2.0 with declarative models
 - **Database:** SQLite (dev) / PostgreSQL (prod)
 - **Auth:** JWT sessions + WebAuthn passkey / biometric sign-in
-- **Migrations:** additive `ALTER TABLE` / `CREATE TABLE IF NOT EXISTS` functions called on startup in `app/main.py` → `app/database.py`
+- **Migrations:** additive `ALTER TABLE` / `CREATE TABLE IF NOT EXISTS` functions in `app/database.py`; local startup runs `init_db()` when `INIT_DB_ON_STARTUP=true`, while Vercel production should run `python -m app.database` explicitly with `INIT_DB_ON_STARTUP=false`.
 
 ### Backend routers (`backend/app/routers/`)
 
@@ -115,7 +115,7 @@ Circuit has two separate apps that share the same TypeScript engine layer:
 
 ### Database migration pattern
 
-Schema changes are additive — never destructive. Add a `_migrate_*()` function in `database.py` that uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (Postgres) or inspector-checked `ALTER TABLE` (SQLite), then call it from `on_startup` in `main.py`. Do not use Alembic.
+Schema changes are additive — never destructive. Add a `_migrate_*()` function in `database.py` that uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (Postgres) or inspector-checked `ALTER TABLE` (SQLite), add it to `init_db()`, and run `python -m app.database` against production before deploying code that requires the new schema. Do not use Alembic.
 
 Current migrations in startup order: `_migrate_sqlite`, `_migrate_postgres`, `_migrate_webauthn_tables`, `_migrate_blackout_and_rrule`, `_migrate_recurrence_extra`, `_migrate_sleep_log`, `_migrate_energy_eod` (adds `user_state.energy_eod`), `_migrate_task_groups` (adds `group_id`, `day_time_overrides`, `travel_buffer_before_mins`, `travel_buffer_after_mins`), `_migrate_recurrence_anchor` (adds `circuit_tasks.recurrence_anchor_ms`), `_migrate_energy_manual_override` (adds `user_state.energy_manual_override`).
 
@@ -347,4 +347,4 @@ All UI changes must work correctly across **every** combination of these views b
 - Drag-and-drop reschedule works in day/week views. On mobile, long-press should be the drag trigger — do not use raw mouse-down as a drag start.
 
 ### Config & environment
-- **Never** add `localhost` or `127.0.0.1` to `CORS_ORIGINS`, `render.yaml`, or Pydantic config defaults. Dev origins belong in `.env` only.
+- **Never** add `localhost` or `127.0.0.1` to `CORS_ORIGINS`, Vercel config, or Pydantic config defaults. Dev origins belong in `.env` only.

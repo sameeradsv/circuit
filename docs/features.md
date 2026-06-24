@@ -28,7 +28,7 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 ## Task capture & editing
 
 - Structured dimensions: priority, cognitive load, effort, duration, scheduling, recurrence
-- **Add page** — natural-language capture; backend `POST /api/ai/classify` enriches tag/urgency/effort when available (falls back to regex parse)
+- **Home capture** — natural-language capture with local metric defaults; `/add` redirects to Home
 - **Tasks search** — debounced `GET /api/search` when the search box is active
 - **TaskDetailModal** (`components/task-detail/`) — sectioned editor with hover tooltips on every field
 - **Per-task reminders** — scheduled tasks can enable/disable browser notifications and choose two reminder timings in Time & focus; the global sidebar bell still controls browser permission/overall enablement

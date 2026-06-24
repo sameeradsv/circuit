@@ -48,7 +48,7 @@ These items need third-party APIs, platform access, native shells, or infra that
 | **Combined cross-app energy chart in Circuit** | Circuit | By design — lives on **Canopy → Energy**. |
 | **Vanilla Circuit full Groq agent** | Circuit | By design — use Conduit hub or full-stack `/chat`. |
 | **`AUTH_REQUIRED=true` in production** | Canopy | Implemented; enable per deploy env. |
-| **Ops / config** | All | `GROQ_API_KEY` on Render, shared Cortex URL across apps. |
+| **Ops / config** | All | `GROQ_API_KEY` on the backend host, shared Cortex URL across apps. |
 
 ---
 

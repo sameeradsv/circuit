@@ -29,7 +29,7 @@ Both apps share **TypeScript engines** under `src/*-engine/` (scoring, recurrenc
 | `engines/recurrence.py` | Pattern → next occurrence (shared logic with frontend) |
 | `routers/calendar.py` | ICS parse/import/export, `_expand_rrule`, `_snap_start_to_cutoff`, `_first_future_ms` |
 | `task_event_time.py` | Map task events to scheduled slot for energy timeline (write + read) |
-| `database.py` | Additive migrations on startup (no Alembic) |
+| `database.py` | Additive migrations via `init_db()` / `python -m app.database` (no Alembic) |
 
 Key routers: see `CLAUDE.md` router table.
 
@@ -86,6 +86,23 @@ Key routers: see `CLAUDE.md` router table.
 **Canopy Energy page** (`canopy/frontend/src/app/energy/page.tsx`) renders the merged chart when `NEXT_PUBLIC_CIRCUIT_API_URL` / `CHEF_API_URL` are set; it authenticates sibling calls with Canopy's Cortex JWT (`canopy_auth_token`), not per-app tokens from other origins.
 
 Sleep **work signals** in Circuit (`sleep.py`) still use raw task-event completion timestamps — separate from energy timeline placement.
+
+## Deployment
+
+The backend deploys to Vercel as Python Functions from the `backend/` root:
+
+- Entrypoint: `backend/api/index.py`
+- Vercel config: `backend/vercel.json`
+- Python runtime: `backend/.python-version`
+
+Local development keeps `INIT_DB_ON_STARTUP=true` by default. Vercel production should set `INIT_DB_ON_STARTUP=false` after the production database exists. Run additive schema setup explicitly before deploys that need new schema:
+
+```bash
+cd backend
+DATABASE_URL="postgresql://..." python -m app.database
+```
+
+Keep using PostgreSQL/Neon for production; SQLite is only for local development.
 
 ## Docs
 
