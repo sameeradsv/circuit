@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { useAuth } from "@shared/cortex";
-import { api, ApiTask } from "@/lib/api";
-import { useNotificationScheduler } from "@/lib/use-notifications";
 
 const ICS_EXPIRES_KEY = "circuit-ics-expires";
 const ICS_DISMISSED_KEY = "circuit-ics-expires-dismissed";
@@ -96,9 +94,7 @@ function useIcsRenewalBanner() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, loading } = useAuth();
-  const [notifTasks, setNotifTasks] = useState<ApiTask[]>([]);
   const [navOpen, setNavOpen] = useState(false);
-  useNotificationScheduler(notifTasks);
   const { banner, dismiss } = useIcsRenewalBanner();
 
   useEffect(() => {
@@ -106,12 +102,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     }
   }, [loading, user, router]);
-
-  useEffect(() => {
-    if (!user) return;
-    api.listTasks().then(setNotifTasks).catch(() => {});
-  }, [user]);
-
 
   if (loading || !user) return <AuthBootScreen />;
 

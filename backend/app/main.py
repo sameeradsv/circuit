@@ -23,6 +23,7 @@ from app.routers.energy import router as energy_router
 from app.routers.blackouts import router as blackouts_router
 from app.routers.sleep import router as sleep_router
 from app.routers.agent import router as agent_router
+from app.routers.notifications import router as notifications_router
 
 app = FastAPI(title="Circuit API", version="1.0.0")
 app.state.limiter = limiter
@@ -51,6 +52,7 @@ app.include_router(energy_router)
 app.include_router(blackouts_router)
 app.include_router(sleep_router)
 app.include_router(agent_router)
+app.include_router(notifications_router)
 
 
 @app.middleware("http")

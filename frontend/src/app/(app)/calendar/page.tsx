@@ -9,6 +9,7 @@ import { BlackoutDayOverlay, BlackoutMonthBadge, blackoutCellStyle } from "@/com
 import { useEnergyMode } from "@/lib/use-energy-mode";
 import { updateTaskInCache } from "@/lib/task-cache";
 import { layoutOverlappingTasks, TaskLayoutSlot } from "@/lib/calendar-layout";
+import { findScheduledConflict, suggestSlot, taskConflictWeight } from "@/lib/suggest-slot";
 
 // ── Constants & helpers ───────────────────────────────────────────────────────
 
@@ -963,14 +964,20 @@ export default function CalendarPage() {
 
   if (loading || !user) return null;
 
-  async function applyDrop(taskId: ApiTask["id"], patch: { scheduled_at: number; recurrence_anchor_ms?: number }) {
+  async function applyDrop(taskId: ApiTask["id"], patch: { scheduled_at: number; recurrence_anchor_ms?: number }): Promise<boolean> {
     try {
       const updated = await api.updateTask(taskId, patch);
       updateTaskInCache(updated);
       setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t));
+      return true;
     } catch {
+      return false;
       // silent — task stays in its original position
     }
+  }
+
+  function plannedTasksWith(task: ApiTask, scheduledAt: number): ApiTask[] {
+    return tasks.map((t) => t.id === task.id ? { ...t, scheduled_at: scheduledAt } : t);
   }
 
   function handleDropTask(task: ApiTask, newMs: number) {
@@ -979,7 +986,26 @@ export default function CalendarPage() {
       setPendingDrop({ task, newMs, origMs: task.scheduled_at! });
       return;
     }
-    void applyDrop(task.id, { scheduled_at: newMs });
+    const conflict = findScheduledConflict(task, newMs, tasks);
+    if (!conflict || conflict.recurrence || conflict.rrule || conflict.is_virtual_occurrence) {
+      void applyDrop(task.id, { scheduled_at: newMs });
+      return;
+    }
+
+    const now = Date.now();
+    const taskWins = taskConflictWeight(task, now) > taskConflictWeight(conflict, now);
+    if (!taskWins) {
+      const suggestion = suggestSlot(task, tasks, now);
+      void applyDrop(task.id, { scheduled_at: suggestion.scheduledAt });
+      return;
+    }
+
+    const planned = plannedTasksWith(task, newMs);
+    const movedConflict = suggestSlot(conflict, planned, now);
+    void (async () => {
+      const moved = await applyDrop(task.id, { scheduled_at: newMs });
+      if (moved) await applyDrop(conflict.id, { scheduled_at: movedConflict.scheduledAt });
+    })();
   }
 
   async function handleImport(file: File) {
@@ -1036,29 +1062,17 @@ export default function CalendarPage() {
     const now = Date.now();
     if (now - lastWheelNav.current < 450) return;
 
-    const target = e.target as HTMLElement;
-    const scrollBox = target.closest(".cal-scroll-grid, .cal-week-scroll, .cal-month-scroll") as HTMLElement | null;
     const dominantX = Math.abs(e.deltaX) > Math.abs(e.deltaY);
     const dominantY = Math.abs(e.deltaY) > Math.abs(e.deltaX);
 
-    if (dominantX && Math.abs(e.deltaX) > 40) {
-      if (scrollBox && scrollBox.scrollWidth > scrollBox.clientWidth) {
-        const atStart = scrollBox.scrollLeft <= 1;
-        const atEnd = scrollBox.scrollLeft + scrollBox.clientWidth >= scrollBox.scrollWidth - 1;
-        if ((e.deltaX < 0 && !atStart) || (e.deltaX > 0 && !atEnd)) return;
-      }
+    if ((view === "day" || view === "week") && dominantX && Math.abs(e.deltaX) > 40) {
       e.preventDefault();
       lastWheelNav.current = now;
       navigate(e.deltaX > 0 ? 1 : -1);
       return;
     }
 
-    if (dominantY && Math.abs(e.deltaY) > 60) {
-      if (scrollBox && scrollBox.scrollHeight > scrollBox.clientHeight) {
-        const atTop = scrollBox.scrollTop <= 1;
-        const atBottom = scrollBox.scrollTop + scrollBox.clientHeight >= scrollBox.scrollHeight - 1;
-        if ((e.deltaY < 0 && !atTop) || (e.deltaY > 0 && !atBottom)) return;
-      }
+    if (view === "month" && dominantY && Math.abs(e.deltaY) > 60) {
       e.preventDefault();
       lastWheelNav.current = now;
       navigate(e.deltaY > 0 ? 1 : -1);

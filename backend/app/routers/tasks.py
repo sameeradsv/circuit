@@ -18,6 +18,7 @@ from app.engines.recurrence import is_hourly_recurrence, next_occurrence, skip_o
 from app.services.blackout import adjust_for_blackouts
 from app.services.adaptive_learning import apply_complete_learning, update_delay_pattern_on_skip
 from app.services.suggest_slot import suggest_slot_for_task
+from app.services.reminders import cancel_pending_reminders_for_task, materialize_reminders_for_task, materialize_reminders_for_user
 from app.services.virtual_recurrence import (
     expand_virtual_occurrences,
     is_virtual_id,
@@ -32,6 +33,21 @@ _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+
+def _refresh_task_reminders(db: Session, task: CircuitTask) -> None:
+    try:
+        materialize_reminders_for_task(db, task)
+    except Exception:
+        # Reminder row maintenance must not block task CRUD.
+        pass
+
+
+def _refresh_user_reminders(db: Session, user_id: int) -> None:
+    try:
+        materialize_reminders_for_user(db, user_id)
+    except Exception:
+        pass
 
 
 def _apply_day_time_override(dt: datetime, overrides_json: Optional[str]) -> datetime:
@@ -344,6 +360,7 @@ def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session
     db.add(task)
     db.flush()
     sync_recurring_definition(db, task)
+    _refresh_task_reminders(db, task)
     db.commit()
     db.refresh(task)
     return _task_to_dict(task)
@@ -392,7 +409,11 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
         matches = expand_virtual_occurrences(db, user.id, from_ms, to_ms)
         updated = next((item for item in matches if item.get("id") == task_id), None)
         if updated:
+            _refresh_user_reminders(db, user.id)
+            db.commit()
             return updated
+        _refresh_user_reminders(db, user.id)
+        db.commit()
         return {"id": task_id, "completed": status == "completed", "is_virtual_occurrence": True}
 
     task_int_id = int(task_id)
@@ -606,6 +627,10 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                 pass
 
     sync_recurring_definition(db, task)
+    if task.completed:
+        cancel_pending_reminders_for_task(db, task.id, user.id)
+    else:
+        _refresh_task_reminders(db, task)
     db.commit()
     db.refresh(task)
     return _task_to_dict(task)
@@ -644,6 +669,10 @@ def batch_update_tasks(
         if patch_data.get("completed") is True and not was_completed:
             task.historical_completion_rate = record_completion_rate(task.historical_completion_rate)
         task.updated_at = datetime.utcnow()
+        if task.completed:
+            cancel_pending_reminders_for_task(db, task.id, user.id)
+        else:
+            _refresh_task_reminders(db, task)
     db.commit()
     return {"updated": len(tasks), "ids": [t.id for t in tasks]}
 
@@ -715,6 +744,7 @@ def delete_task(task_id: int, user: User = Depends(require_user), db: Session = 
     task = db.get(CircuitTask, task_id)
     if not task or task.user_id != user.id:
         raise HTTPException(status_code=404, detail="Task not found")
+    cancel_pending_reminders_for_task(db, task.id, user.id)
     db.delete(task)
     db.commit()
 
@@ -750,6 +780,7 @@ def migrate_from_localstorage(
         db.add(task)
         db.flush()
         sync_recurring_definition(db, task)
+        _refresh_task_reminders(db, task)
         created += 1
     db.commit()
     return {"created": created, "skipped": skipped}

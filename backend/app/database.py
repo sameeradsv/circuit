@@ -449,6 +449,83 @@ def _migrate_virtual_recurrence_tables() -> None:
         conn.commit()
 
 
+def _migrate_push_reminders() -> None:
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        if "push_subscriptions" not in existing_tables:
+            if is_sqlite:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS push_subscriptions ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                    "endpoint TEXT NOT NULL, "
+                    "p256dh TEXT NOT NULL, "
+                    "auth TEXT NOT NULL, "
+                    "device_name VARCHAR(120), "
+                    "platform VARCHAR(80), "
+                    "enabled BOOLEAN DEFAULT 1, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "UNIQUE(user_id, endpoint))"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS push_subscriptions ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                    "endpoint TEXT NOT NULL, "
+                    "p256dh TEXT NOT NULL, "
+                    "auth TEXT NOT NULL, "
+                    "device_name VARCHAR(120), "
+                    "platform VARCHAR(80), "
+                    "enabled BOOLEAN DEFAULT TRUE, "
+                    "created_at TIMESTAMP DEFAULT NOW(), "
+                    "updated_at TIMESTAMP DEFAULT NOW(), "
+                    "UNIQUE(user_id, endpoint))"
+                ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_push_subscriptions_user ON push_subscriptions (user_id)"))
+
+        if "reminders" not in existing_tables:
+            if is_sqlite:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS reminders ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                    "task_id INTEGER NOT NULL REFERENCES circuit_tasks(id) ON DELETE CASCADE, "
+                    "remind_at DATETIME NOT NULL, "
+                    "status VARCHAR(20) DEFAULT 'pending', "
+                    "sent_at DATETIME, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "attempts INTEGER DEFAULT 0, "
+                    "last_error TEXT, "
+                    "occurrence_at_ms INTEGER, "
+                    "UNIQUE(user_id, task_id, remind_at))"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS reminders ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                    "task_id INTEGER NOT NULL REFERENCES circuit_tasks(id) ON DELETE CASCADE, "
+                    "remind_at TIMESTAMP NOT NULL, "
+                    "status VARCHAR(20) DEFAULT 'pending', "
+                    "sent_at TIMESTAMP, "
+                    "created_at TIMESTAMP DEFAULT NOW(), "
+                    "updated_at TIMESTAMP DEFAULT NOW(), "
+                    "attempts INTEGER DEFAULT 0, "
+                    "last_error TEXT, "
+                    "occurrence_at_ms BIGINT, "
+                    "UNIQUE(user_id, task_id, remind_at))"
+                ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_user ON reminders (user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_due ON reminders (status, remind_at)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reminders_task ON reminders (task_id)"))
+        conn.commit()
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -478,6 +555,7 @@ def init_db() -> None:
         ("energy_manual_override_date", _migrate_energy_manual_override_date),
         ("task_notifications",     _migrate_task_notifications),
         ("virtual_recurrence",     _migrate_virtual_recurrence_tables),
+        ("push_reminders",         _migrate_push_reminders),
     ]:
         if not _migration_done(name):
             fn()

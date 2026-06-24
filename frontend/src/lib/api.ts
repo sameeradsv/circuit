@@ -239,6 +239,16 @@ export interface ApiTaskEvent {
   metadata: Record<string, unknown>;
 }
 
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  device_name?: string;
+  platform?: string;
+}
+
 export interface ApiTaskPage {
   items: ApiTask[];
   total: number;
@@ -401,4 +411,11 @@ export const api = {
   // history events
   logEvent: (taskId: number, eventType: string, metadata: Record<string, unknown> = {}) =>
     req<ApiTaskEvent>("POST", "/api/history/events", { task_id: taskId, event_type: eventType, metadata }),
+
+  // notifications
+  getVapidPublicKey: () => req<{ public_key: string }>("GET", "/api/notifications/vapid-public-key"),
+  subscribeNotifications: (payload: PushSubscriptionPayload) =>
+    req<{ id: number; enabled: boolean }>("POST", "/api/notifications/subscribe", payload),
+  unsubscribeNotifications: (endpoint: string) =>
+    req<{ status: string }>("POST", "/api/notifications/unsubscribe", { endpoint }),
 };

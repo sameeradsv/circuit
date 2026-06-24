@@ -36,6 +36,7 @@ function isISTWeekday(ms: number): boolean {
 }
 
 const WORKDAY_END_IST = 19; // 7 pm — after this, wrap to next day
+const SOON_MS = 3 * 86_400_000;
 
 type HourBucket = 'morning' | 'afternoon' | 'evening';
 
@@ -79,6 +80,54 @@ function findConflict(proposed: number, durationMs: number, others: ApiTask[]): 
     if (proposed < otherEnd && proposedEnd > other.scheduled_at) return other;
   }
   return null;
+}
+
+function clamp01(n: number | null | undefined, fallback = 0): number {
+  if (typeof n !== 'number' || Number.isNaN(n)) return fallback;
+  return Math.max(0, Math.min(1, n));
+}
+
+function deadlineWeight(task: ApiTask, now: number): number {
+  const scheduled = task.scheduled_at;
+  const type = task.deadline_type ?? 'none';
+  const typeWeight =
+    type === 'hard' ? 0.18 :
+    type === 'soft' ? 0.10 :
+    type === 'today' ? 0.12 :
+    0;
+  if (!scheduled) return typeWeight;
+  if (scheduled < now) return typeWeight + 0.14;
+  if (scheduled - now <= SOON_MS) return typeWeight + 0.08;
+  return typeWeight;
+}
+
+export function taskConflictWeight(task: ApiTask, now = Date.now()): number {
+  const effortWeight =
+    task.effort === 'high' ? 0.08 :
+    task.effort === 'medium' ? 0.04 :
+    0.01;
+
+  return (
+    clamp01(task.importance, 0.5) * 0.28 +
+    clamp01(task.urgency, 0.5) * 0.24 +
+    clamp01(task.consequence_of_delay, 0.3) * 0.18 +
+    clamp01(task.time_sensitivity, 0.5) * 0.10 +
+    clamp01(task.momentum_value, 0.5) * 0.06 +
+    effortWeight +
+    deadlineWeight(task, now)
+  );
+}
+
+export function findScheduledConflict(
+  task: ApiTask,
+  scheduledAt: number,
+  allTasks: ApiTask[],
+): ApiTask | null {
+  return findConflict(
+    scheduledAt,
+    (task.duration ?? 30) * 60_000,
+    allTasks.filter((t) => t.id !== task.id && !t.completed && t.scheduled_at != null),
+  );
 }
 
 export function suggestSlot(
@@ -144,6 +193,10 @@ export function suggestSlot(
   for (let i = 0; i < 8; i++) {
     const conflict = findConflict(candidate, durationMs, others);
     if (!conflict) break;
+    if (taskConflictWeight(task, now) > taskConflictWeight(conflict, now)) {
+      rationale.push(`kept slot over lower-priority conflict: ${conflict.text}`);
+      break;
+    }
     candidate = conflict.scheduled_at! + (conflict.duration ?? 30) * 60_000 + 5 * 60_000;
     if (i === 0) rationale.push('moved past a conflict');
   }

@@ -9,6 +9,7 @@ from app.models import CircuitTask
 _IST = ZoneInfo("Asia/Kolkata")
 _IST_OFFSET = timedelta(hours=5, minutes=30)
 _WORKDAY_END = 19
+_SOON_MS = 3 * 86_400_000
 
 
 def _ist_hour(ms: int) -> int:
@@ -31,6 +32,43 @@ def _next_ist_slot(ist_hour: int, after_ms: int) -> int:
 def _window_start(window: str, now_ms: int) -> int:
     hours = {"morning": 9, "afternoon": 13, "evening": 18}
     return _next_ist_slot(hours.get(window, 9), now_ms)
+
+
+def _clamp01(value: float | None, fallback: float = 0.0) -> float:
+    if value is None:
+        return fallback
+    return max(0.0, min(1.0, float(value)))
+
+
+def _deadline_weight(task: CircuitTask, now_ms: int) -> float:
+    type_weight = {
+        "hard": 0.18,
+        "soft": 0.10,
+        "today": 0.12,
+    }.get(task.deadline_type or "none", 0.0)
+    if not task.scheduled_at:
+        return type_weight
+    if task.scheduled_at < now_ms:
+        return type_weight + 0.14
+    if task.scheduled_at - now_ms <= _SOON_MS:
+        return type_weight + 0.08
+    return type_weight
+
+
+def task_conflict_weight(task: CircuitTask, now_ms: int) -> float:
+    effort_weight = {
+        "high": 0.08,
+        "medium": 0.04,
+    }.get(task.effort or "low", 0.01)
+    return (
+        _clamp01(task.importance, 0.5) * 0.28
+        + _clamp01(task.urgency, 0.5) * 0.24
+        + _clamp01(task.consequence_of_delay, 0.3) * 0.18
+        + _clamp01(task.time_sensitivity, 0.5) * 0.10
+        + _clamp01(task.momentum_value, 0.5) * 0.06
+        + effort_weight
+        + _deadline_weight(task, now_ms)
+    )
 
 
 def suggest_slot_for_task(
@@ -92,6 +130,9 @@ def suggest_slot_for_task(
                 conflict = o
                 break
         if not conflict:
+            break
+        if task_conflict_weight(task, now_ms) > task_conflict_weight(conflict, now_ms):
+            rationale.append(f"kept slot over lower-priority conflict: {conflict.text}")
             break
         candidate = conflict.scheduled_at + (conflict.duration or 30) * 60_000 + 5 * 60_000
         if len(rationale) < 4:
