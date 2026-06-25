@@ -13,6 +13,12 @@ import { discoverVanillaTaskStores, vanillaTasksFromKey } from "@/lib/vanilla-mi
 
 const ENERGY_MODES = ["normal", "deep", "low", "social"] as const;
 
+function addDaysDateStr(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function fmtSleepTime(ms: number | null): string {
   if (ms == null) return "—";
   return new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -261,6 +267,22 @@ export default function AccountPage() {
       setBlackoutErr(e instanceof Error ? e.message : "Failed to add blackout");
     } finally {
       setAddingBlackout(false);
+    }
+  }
+
+  function handleNewBlackoutType(value: string) {
+    setNewBlackoutType(value);
+    setBlackoutMsg(null);
+    if (value === "period" && newBlackoutStart) {
+      setNewBlackoutEnd(addDaysDateStr(newBlackoutStart, 5));
+    }
+  }
+
+  function handleNewBlackoutStart(value: string) {
+    setNewBlackoutStart(value);
+    setBlackoutMsg(null);
+    if (newBlackoutType === "period" && value) {
+      setNewBlackoutEnd(addDaysDateStr(value, 5));
     }
   }
 
@@ -615,7 +637,7 @@ export default function AccountPage() {
               <span className="text-xs text-circuit-muted">Type</span>
               <select
                 value={newBlackoutType}
-                onChange={(e) => setNewBlackoutType(e.target.value)}
+                onChange={(e) => handleNewBlackoutType(e.target.value)}
                 className="input-field"
               >
                 <option value="travelling">Travelling</option>
@@ -630,7 +652,7 @@ export default function AccountPage() {
               <input
                 type="date"
                 value={newBlackoutStart}
-                onChange={(e) => { setNewBlackoutStart(e.target.value); setBlackoutMsg(null); }}
+                onChange={(e) => handleNewBlackoutStart(e.target.value)}
                 className="input-field"
               />
             </label>

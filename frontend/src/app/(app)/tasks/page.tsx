@@ -91,6 +91,7 @@ export default function TasksPage() {
   const [doneLoading, setDoneLoading] = useState(false);
   const [typeFilter, setTypeFilter] = useState("all");
   const [detailTask, setDetailTask] = useState<ApiTask | null>(null);
+  const [deletingTask, setDeletingTask] = useState<ApiTask | null>(null);
   const [reschedulingTask, setReschedulingTask] = useState<ApiTask | null>(null);
   const [completingTask, setCompletingTask] = useState<ApiTask | null>(null);
   const [completingIds, setCompletingIds] = useState<Set<ApiTask["id"]>>(new Set());
@@ -235,13 +236,16 @@ export default function TasksPage() {
     setCompletingTask(null);
   }
 
-  async function deleteTask(id: ApiTask["id"], fromDone = false) {
-    if (typeof id !== "number") return;
-    await api.deleteTask(id);
+  async function deleteTaskInstance(task: ApiTask, fromDone = false) {
+    if (typeof task.id === "number") {
+      await api.deleteTask(task.id);
+    } else {
+      await api.updateTask(task.id, { completed: false });
+    }
     invalidateTaskCache();
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+    setTasks((prev) => prev.filter((t) => t.id !== task.id));
     if (fromDone) {
-      setDoneTasks((prev) => prev.filter((t) => t.id !== id));
+      setDoneTasks((prev) => prev.filter((t) => t.id !== task.id));
       setDoneTotal((n) => Math.max(0, n - 1));
       if (showDone && doneTasks.length <= 1 && donePage > 0) {
         setDonePage((p) => Math.max(0, p - 1));
@@ -264,6 +268,10 @@ export default function TasksPage() {
     }
   }
 
+  function seriesDeleteId(task: ApiTask): ApiTask["id"] {
+    return typeof task.id === "number" ? task.id : task.source_task_id ?? task.id;
+  }
+
   async function skipTask(task: ApiTask) {
     if (typeof task.id !== "number") return;
     const now = Date.now();
@@ -276,7 +284,7 @@ export default function TasksPage() {
         last_skipped_at: now,
         ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
       }),
-      api.logEvent(task.id, "skipped", { rescheduled_to: scheduledAt }).catch(() => {}),
+      api.logEvent(task.id, "skipped", { reason: "manual", rescheduled_to: scheduledAt }).catch(() => {}),
     ]);
     updateTaskInCache(updated);
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
@@ -294,7 +302,7 @@ export default function TasksPage() {
         propagate_group: moveGroup,
         ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
       }),
-      api.logEvent(task.id, "rescheduled", { scheduled_to: scheduledAt, move_group: moveGroup }).catch(() => {}),
+      api.logEvent(task.id, "rescheduled", { reason: "manual", scheduled_to: scheduledAt, move_group: moveGroup }).catch(() => {}),
     ]);
     updateTaskInCache(updated);
     const fresh = await api.listTasks({ completed: false }).catch(() => null);
@@ -432,8 +440,8 @@ export default function TasksPage() {
                 completing={completingIds.has(t.id)}
                 blackedOut={false}
                 onToggle={() => setCompletingTask(t)}
-                onDelete={() => deleteTask(t.id)}
-                onDeleteSeries={() => deleteSeriesTasks(t.id)}
+                onDelete={() => setDeletingTask(t)}
+                onDeleteSeries={() => setDeletingTask(t)}
                 onSkip={() => skipTask(t)}
                 onReschedule={() => setReschedulingTask(t)}
                 onDetail={() => setDetailTask(t)}
@@ -459,8 +467,8 @@ export default function TasksPage() {
                 completing={completingIds.has(t.id)}
                 blackedOut={false}
                 onToggle={() => setCompletingTask(t)}
-                onDelete={() => deleteTask(t.id)}
-                onDeleteSeries={() => deleteSeriesTasks(t.id)}
+                onDelete={() => setDeletingTask(t)}
+                onDeleteSeries={() => setDeletingTask(t)}
                 onSkip={() => skipTask(t)}
                 onReschedule={() => setReschedulingTask(t)}
                 onDetail={() => setDetailTask(t)}
@@ -486,8 +494,8 @@ export default function TasksPage() {
                 completing={completingIds.has(t.id)}
                 blackedOut={false}
                 onToggle={() => setCompletingTask(t)}
-                onDelete={() => deleteTask(t.id)}
-                onDeleteSeries={() => deleteSeriesTasks(t.id)}
+                onDelete={() => setDeletingTask(t)}
+                onDeleteSeries={() => setDeletingTask(t)}
                 onSkip={() => skipTask(t)}
                 onReschedule={() => setReschedulingTask(t)}
                 onDetail={() => setDetailTask(t)}
@@ -542,7 +550,7 @@ export default function TasksPage() {
                   <p className="serif" style={{ padding: 16, margin: 0, color: "var(--ink-3)", fontSize: 14 }}>Loading…</p>
                 ) : (
                   doneTasks.map((t) => (
-                    <DoneRow key={t.id} task={t} onToggle={() => handleToggle(t)} onDelete={() => deleteTask(t.id, true)} />
+                    <DoneRow key={t.id} task={t} onToggle={() => handleToggle(t)} onDelete={() => setDeletingTask(t)} />
                   ))
                 )}
               </div>
@@ -584,6 +592,9 @@ export default function TasksPage() {
             setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
             setDetailTask(updated);
           }}
+          onDelete={async () => {
+            setDeletingTask(detailTask);
+          }}
           onDeleteSeries={async (fromScheduledAt) => {
             await deleteSeriesTasks(detailTask.id, fromScheduledAt);
             setDetailTask(null);
@@ -591,11 +602,103 @@ export default function TasksPage() {
           onClose={() => setDetailTask(null)}
         />
       )}
+      {deletingTask && (
+        <DeleteTaskModal
+          task={deletingTask}
+          onDeleteInstance={async () => {
+            await deleteTaskInstance(deletingTask, deletingTask.completed);
+            setDeletingTask(null);
+            if (detailTask?.id === deletingTask.id) setDetailTask(null);
+          }}
+          onDeleteForward={async () => {
+            await deleteSeriesTasks(seriesDeleteId(deletingTask), deletingTask.scheduled_at ?? undefined);
+            setDeletingTask(null);
+            if (detailTask?.id === deletingTask.id) setDetailTask(null);
+          }}
+          onDeleteSeries={async () => {
+            await deleteSeriesTasks(seriesDeleteId(deletingTask));
+            setDeletingTask(null);
+            if (detailTask?.id === deletingTask.id) setDetailTask(null);
+          }}
+          onClose={() => setDeletingTask(null)}
+        />
+      )}
     </div>
   );
 }
 
 // ── TaskPagination ────────────────────────────────────────────────────────────
+
+function DeleteTaskModal({
+  task,
+  onDeleteInstance,
+  onDeleteForward,
+  onDeleteSeries,
+  onClose,
+}: {
+  task: ApiTask;
+  onDeleteInstance: () => Promise<void>;
+  onDeleteForward: () => Promise<void>;
+  onDeleteSeries: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const isSeries = Boolean(task.recurrence || task.rrule || task.is_virtual_occurrence || /^ics:.+:\d{10,}$/.test(task.client_id ?? ""));
+
+  async function run(kind: string, action: () => Promise<void>) {
+    setDeleting(kind);
+    try {
+      await action();
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  return (
+    <div
+      className="modal-scrim"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="card col gap-4" style={{ maxWidth: 430, width: "100%", margin: "0 16px" }}>
+        <div>
+          <h2 className="display" style={{ fontSize: 22, margin: "0 0 6px" }}>Delete task</h2>
+          <p style={{ fontSize: 14, color: "var(--ink-2)", margin: 0 }}>{task.text}</p>
+        </div>
+        <div className="col gap-2">
+          <button
+            onClick={() => void run("instance", onDeleteInstance)}
+            disabled={!!deleting}
+            className="btn"
+            style={{ justifyContent: "flex-start", borderColor: "var(--terra)", color: "var(--terra)" }}
+          >
+            {deleting === "instance" ? "Deleting..." : isSeries ? "Delete this instance only" : "Delete task"}
+          </button>
+          {isSeries && (
+            <>
+              <button
+                onClick={() => void run("forward", onDeleteForward)}
+                disabled={!!deleting}
+                className="btn"
+                style={{ justifyContent: "flex-start", borderColor: "var(--terra)", color: "var(--terra)" }}
+              >
+                {deleting === "forward" ? "Deleting..." : "Delete this and future instances"}
+              </button>
+              <button
+                onClick={() => void run("series", onDeleteSeries)}
+                disabled={!!deleting}
+                className="btn"
+                style={{ justifyContent: "flex-start", background: "var(--terra)", borderColor: "var(--terra)", color: "var(--paper)" }}
+              >
+                {deleting === "series" ? "Deleting..." : "Delete all instances in series"}
+              </button>
+            </>
+          )}
+        </div>
+        <button onClick={onClose} className="btn" disabled={!!deleting}>Cancel</button>
+      </div>
+    </div>
+  );
+}
 
 function TaskPagination({
   page,

@@ -19,12 +19,14 @@ export function TaskDetailModal({
   task,
   mode,
   onSave,
+  onDelete,
   onDeleteSeries,
   onClose,
 }: {
   task: ApiTask;
   mode: EnergyMode;
   onSave: (updated: ApiTask) => void;
+  onDelete?: () => Promise<void>;
   onDeleteSeries?: (fromScheduledAt?: number) => Promise<void>;
   onClose: () => void;
 }) {
@@ -50,6 +52,7 @@ export function TaskDetailModal({
     forwardOnly: false,
   });
   const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const hasStoredId = typeof task.id === "number";
   const isSeries = hasStoredId && /^ics:.+:\d{10,}$/.test(task.client_id ?? "");
@@ -177,23 +180,44 @@ export function TaskDetailModal({
           )}
 
           <div className="flex gap-3">
+            {onDelete && (
+              <button
+                onClick={async () => {
+                  setDeleting(true);
+                  setSaveError(null);
+                  try {
+                    await onDelete();
+                    onClose();
+                  } catch (e) {
+                    setSaveError(e instanceof Error ? e.message : "Delete failed");
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+                disabled={saving || propagating || deleting}
+                className="flex-1 text-sm text-red-400 hover:text-red-300 transition-colors"
+                title="Delete"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            )}
             {task.import_review_pending && (
               <button
                 onClick={handleMarkImportDone}
-                disabled={saving || propagating}
+                disabled={saving || propagating || deleting}
                 className="btn flex-1"
                 title="Save changes and remove from After import"
               >
                 {saving ? "Saving…" : "Mark setup done"}
               </button>
             )}
-            <button onClick={handleSave} disabled={saving || propagating} className="btn btn-primary flex-1">
+            <button onClick={handleSave} disabled={saving || propagating || deleting} className="btn btn-primary flex-1">
               {saving ? "Saving…" : "Save"}
             </button>
             {isSeries && (
               <button
                 onClick={() => { setShowSeriesPanel((v) => !v); setPropagateMsg(null); }}
-                disabled={saving || propagating}
+                disabled={saving || propagating || deleting}
                 className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors"
                 title="Apply changes to all occurrences in this recurring series"
               >

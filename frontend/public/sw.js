@@ -12,13 +12,20 @@ self.addEventListener("push", (event) => {
   const options = {
     body: payload.body || "A task is coming up.",
     tag: payload.tag || "circuit-reminder",
+    renotify: true,
+    requireInteraction: false,
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
+    timestamp: payload.scheduledAt || Date.now(),
     data: {
       url: payload.url || "/",
       taskId: payload.taskId,
       scheduledAt: payload.scheduledAt,
+      reminderType: payload.reminderType,
     },
+    actions: [
+      { action: "open", title: "Open" },
+    ],
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

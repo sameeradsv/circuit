@@ -30,26 +30,33 @@ def _task_delta(event_type: str, task: CircuitTask, metadata_json: str | None = 
     """
     duration_mins = max(5, task.duration or 30)
     dur_factor = min(8.0, max(0.5, duration_mins / 60))
+    metadata = {}
+    if metadata_json:
+        try:
+            metadata = json.loads(metadata_json)
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
 
     if event_type == "completed":
         reward = task.energy_to_reward_ratio        # 0–1; sense of accomplishment is fixed
         cost   = task.cognitive_load * 0.15 * dur_factor   # effort cost scales with duration
         delay_minutes = 0
-        if metadata_json:
-            try:
-                delay_minutes = max(0, int(json.loads(metadata_json).get("delay_minutes") or 0))
-            except (TypeError, ValueError, json.JSONDecodeError):
-                delay_minutes = 0
+        try:
+            delay_minutes = max(0, int(metadata.get("delay_minutes") or 0))
+        except (TypeError, ValueError):
+            delay_minutes = 0
         delay_penalty = min(0.18, (delay_minutes / 60) * 0.025) if delay_minutes > 30 else 0.0
         delta  = reward * 0.12 - cost - delay_penalty
     elif event_type == "skipped":
-        base  = task.activation_energy * 0.15 + 0.05
-        delta = -min(0.30, base * min(1.5, dur_factor))
+        base  = task.activation_energy * 0.025 + 0.01
+        delta = -min(0.06, base * min(1.2, dur_factor))
+    elif event_type == "rescheduled":
+        delta = 0.0 if metadata.get("reason") in {"blackout", "recurrence", "system"} else -0.01
     elif event_type == "uncompleted":
         base  = task.recovery_cost * 0.20 + 0.05
         delta = -min(0.35, base * min(1.5, dur_factor))
     else:
-        delta = -0.02   # created/rescheduled: tiny planning overhead
+        delta = 0.0
     return round(max(-0.85, min(0.15, delta)), 3)
 
 
@@ -177,19 +184,31 @@ def energy_timeline(
     }
 
 
-def _task_drain(event_type: str, task: CircuitTask) -> float:
+def _event_metadata(metadata_json: str | None) -> dict:
+    if not metadata_json:
+        return {}
+    try:
+        return json.loads(metadata_json)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _task_drain(event_type: str, task: CircuitTask, metadata_json: str | None = None) -> float:
     """Absolute drain cost for sync endpoint — kept for backward compat."""
     duration_mins = max(5, task.duration or 30)
     dur_factor = min(8.0, max(0.5, duration_mins / 60))
+    metadata = _event_metadata(metadata_json)
     if event_type == "completed":
         base = task.cognitive_load * 0.35 * (1.0 - task.energy_to_reward_ratio * 0.5) * dur_factor
     elif event_type == "skipped":
-        base = task.activation_energy * 0.25 * min(2.0, dur_factor)
+        base = task.activation_energy * 0.04 * min(1.2, dur_factor)
+    elif event_type == "rescheduled":
+        return 0.0 if metadata.get("reason") in {"blackout", "recurrence", "system"} else 0.01
     elif event_type == "uncompleted":
         base = task.recovery_cost * 0.30 * min(2.0, dur_factor)
     else:
-        base = 0.08
-    return round(max(0.05, min(0.85, base)), 3)
+        return 0.0
+    return round(max(0.0, min(0.85, base)), 3)
 
 
 def _scheduled_drain(task: CircuitTask) -> float:
@@ -270,7 +289,7 @@ def energy_sync(
     running_energy = round(min(1.0, max(0.0, s_energy + delta_so_far)), 3)
 
     # Also compute legacy drain fields for backward compat
-    drain_so_far = min(1.0, sum(_task_drain(ev.event_type, task) for ev, task in past_rows))
+    drain_so_far = min(1.0, sum(_task_drain(ev.event_type, task, ev.metadata_json) for ev, task in past_rows))
     drain_ahead  = min(1.0, sum(_scheduled_drain(t) for t in future_tasks))
 
     return {

@@ -128,10 +128,13 @@ function defaultCalView(): CalView {
   return window.matchMedia("(orientation: portrait)").matches ? "day" : "month";
 }
 
-interface PendingDrop {
+interface PendingConflictDrop {
   task: ApiTask;
   newMs: number;
-  origMs: number;
+  conflict: ApiTask;
+  movedTask: ApiTask;
+  movedNewMs: number;
+  reason: string;
 }
 
 function weekDates(date: Date): Date[] {
@@ -846,21 +849,19 @@ function MonthView({
 
 // ── Drop confirmation banner ──────────────────────────────────────────────────
 
-function DropConfirmBanner({
-  task,
-  newMs,
-  onOccurrence,
-  onSeries,
+function ConflictConfirmBanner({
+  pending,
+  onApprove,
   onCancel,
 }: {
-  task: ApiTask;
-  newMs: number;
-  onOccurrence: () => void;
-  onSeries: () => void;
+  pending: PendingConflictDrop;
+  onApprove: () => void;
   onCancel: () => void;
 }) {
-  const newTime = fmtTime(newMs);
-  const newDate = new Date(newMs).toLocaleDateString("en-IN", {
+  const targetDate = new Date(pending.newMs).toLocaleDateString("en-IN", {
+    weekday: "short", month: "short", day: "numeric", timeZone: "Asia/Kolkata",
+  });
+  const movedDate = new Date(pending.movedNewMs).toLocaleDateString("en-IN", {
     weekday: "short", month: "short", day: "numeric", timeZone: "Asia/Kolkata",
   });
   return (
@@ -884,12 +885,14 @@ function DropConfirmBanner({
         width: "calc(100vw - 32px)",
       }}
     >
-      <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 500 }}>
-        Move <em style={{ fontStyle: "normal", color: "var(--ink-2)" }}>{task.text}</em> to {newDate} at {newTime}?
+      <div style={{ fontSize: 13, color: "var(--ink)", fontWeight: 600 }}>
+        Conflict found
       </div>
-      <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: -4 }}>
-        This is a recurring task.
+      <div style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.45 }}>
+        Move <strong>{pending.task.text}</strong> to {targetDate} at {fmtTime(pending.newMs)}.
+        {" "}Suggested: move <strong>{pending.movedTask.text}</strong> to {movedDate} at {fmtTime(pending.movedNewMs)}.
       </div>
+      <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: -4 }}>{pending.reason}</div>
       <div className="row gap-2 drop-confirm-actions" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
         <button
           className="btn"
@@ -900,17 +903,10 @@ function DropConfirmBanner({
         </button>
         <button
           className="btn"
-          style={{ fontSize: 12, padding: "5px 12px", background: "var(--paper-2)", color: "var(--ink)" }}
-          onClick={onSeries}
-        >
-          Shift series
-        </button>
-        <button
-          className="btn"
           style={{ fontSize: 12, padding: "5px 12px", background: "var(--ink)", color: "var(--paper)" }}
-          onClick={onOccurrence}
+          onClick={onApprove}
         >
-          This occurrence only
+          Approve moves
         </button>
       </div>
     </div>
@@ -934,7 +930,7 @@ export default function CalendarPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<ApiTask | null>(null);
   const [dragTask, setDragTask] = useState<ApiTask | null>(null);
-  const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
+  const [pendingConflictDrop, setPendingConflictDrop] = useState<PendingConflictDrop | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const gestureStart = useRef<{ x: number; y: number } | null>(null);
   const lastWheelNav = useRef(0);
@@ -983,7 +979,6 @@ export default function CalendarPage() {
       return true;
     } catch {
       return false;
-      // silent — task stays in its original position
     }
   }
 
@@ -991,15 +986,18 @@ export default function CalendarPage() {
     return tasks.map((t) => t.id === task.id ? { ...t, scheduled_at: scheduledAt } : t);
   }
 
+  function movePatch(task: ApiTask, scheduledAt: number): { scheduled_at: number; recurrence_anchor_ms?: number } {
+    if ((task.recurrence || task.rrule) && task.scheduled_at != null) {
+      return { scheduled_at: scheduledAt, recurrence_anchor_ms: task.scheduled_at };
+    }
+    return { scheduled_at: scheduledAt };
+  }
+
   function handleDropTask(task: ApiTask, newMs: number) {
     if (newMs === task.scheduled_at) return;
-    if (task.recurrence || task.rrule) {
-      setPendingDrop({ task, newMs, origMs: task.scheduled_at! });
-      return;
-    }
     const conflict = findScheduledConflict(task, newMs, tasks);
-    if (!conflict || conflict.recurrence || conflict.rrule || conflict.is_virtual_occurrence) {
-      void applyDrop(task.id, { scheduled_at: newMs });
+    if (!conflict) {
+      void applyDrop(task.id, movePatch(task, newMs));
       return;
     }
 
@@ -1007,16 +1005,27 @@ export default function CalendarPage() {
     const taskWins = taskConflictWeight(task, now) > taskConflictWeight(conflict, now);
     if (!taskWins) {
       const suggestion = suggestSlot(task, tasks, now);
-      void applyDrop(task.id, { scheduled_at: suggestion.scheduledAt });
+      setPendingConflictDrop({
+        task,
+        newMs,
+        conflict,
+        movedTask: task,
+        movedNewMs: suggestion.scheduledAt,
+        reason: "The existing event has higher priority, so this event should move instead.",
+      });
       return;
     }
 
     const planned = plannedTasksWith(task, newMs);
     const movedConflict = suggestSlot(conflict, planned, now);
-    void (async () => {
-      const moved = await applyDrop(task.id, { scheduled_at: newMs });
-      if (moved) await applyDrop(conflict.id, { scheduled_at: movedConflict.scheduledAt });
-    })();
+    setPendingConflictDrop({
+      task,
+      newMs,
+      conflict,
+      movedTask: conflict,
+      movedNewMs: movedConflict.scheduledAt,
+      reason: "This event has higher priority, so the conflicting event should move.",
+    });
   }
 
   async function handleImport(file: File) {
@@ -1241,21 +1250,24 @@ export default function CalendarPage() {
         {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
       </div>
 
-      {pendingDrop && (
-        <DropConfirmBanner
-          task={pendingDrop.task}
-          newMs={pendingDrop.newMs}
-          onOccurrence={() => {
-            const { task, newMs, origMs } = pendingDrop;
-            setPendingDrop(null);
-            void applyDrop(task.id, { scheduled_at: newMs, recurrence_anchor_ms: origMs });
+      {pendingConflictDrop && (
+        <ConflictConfirmBanner
+          pending={pendingConflictDrop}
+          onApprove={() => {
+            const pending = pendingConflictDrop;
+            setPendingConflictDrop(null);
+            void (async () => {
+              if (pending.movedTask.id === pending.task.id) {
+                await applyDrop(pending.movedTask.id, movePatch(pending.movedTask, pending.movedNewMs));
+                return;
+              }
+              const movedPrimary = await applyDrop(pending.task.id, movePatch(pending.task, pending.newMs));
+              if (movedPrimary) {
+                await applyDrop(pending.movedTask.id, movePatch(pending.movedTask, pending.movedNewMs));
+              }
+            })();
           }}
-          onSeries={() => {
-            const { task, newMs } = pendingDrop;
-            setPendingDrop(null);
-            void applyDrop(task.id, { scheduled_at: newMs });
-          }}
-          onCancel={() => setPendingDrop(null)}
+          onCancel={() => setPendingConflictDrop(null)}
         />
       )}
 
