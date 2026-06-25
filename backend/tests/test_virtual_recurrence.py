@@ -269,3 +269,23 @@ def test_materialized_completion_keeps_original_weekday_time_after_weekend_overr
     created = [i for i in tasks if i["text"] == "Weekend adjusted daily"]
     next_dt = datetime.fromtimestamp(created[0]["scheduled_at"] / 1000, tz=_IST)
     assert (next_dt.weekday(), next_dt.hour, next_dt.minute) == (0, 8, 0)
+
+
+def test_repeated_virtual_completions_do_not_leave_open_duplicates(client, auth):
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
+    _create_recurring(client, auth, "Daily no dupes", start, "daily")
+
+    for day in range(4):
+        window_start = start + timedelta(days=day)
+        items = _range(client, auth, window_start, window_start, completed=False)
+        matches = [i for i in items if i["text"] == "Daily no dupes"]
+        assert len(matches) == 1
+
+        r = client.patch(f"/api/tasks/{matches[0]['id']}", json={"completed": True}, headers=auth)
+        assert r.status_code == 200
+
+    items = _range(client, auth, start, start + timedelta(days=5), completed=False)
+    starts = [i["scheduled_at"] for i in items if i["text"] == "Daily no dupes"]
+
+    assert len(starts) == len(set(starts))
+    assert starts == [_ms(start + timedelta(days=4)), _ms(start + timedelta(days=5))]

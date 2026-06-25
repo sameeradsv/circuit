@@ -956,7 +956,7 @@ export default function CalendarPage() {
     if (!user) return;
     const { from, to } = visibleRangeMs(view, focusDate);
     setFetching(true);
-    api.listTasks({ scheduled_from_ms: from, scheduled_to_ms: to, include_unscheduled: true })
+    api.listTasks({ completed: false, scheduled_from_ms: from, scheduled_to_ms: to, include_unscheduled: true })
       .then(setTasks)
       .catch(() => {})
       .finally(() => setFetching(false));
@@ -964,11 +964,22 @@ export default function CalendarPage() {
 
   if (loading || !user) return null;
 
+  async function refreshVisibleTasks() {
+    const { from, to } = visibleRangeMs(view, focusDate);
+    const updated = await api.listTasks({
+      completed: false,
+      scheduled_from_ms: from,
+      scheduled_to_ms: to,
+      include_unscheduled: true,
+    });
+    setTasks(updated);
+  }
+
   async function applyDrop(taskId: ApiTask["id"], patch: { scheduled_at: number; recurrence_anchor_ms?: number }): Promise<boolean> {
     try {
       const updated = await api.updateTask(taskId, patch);
       updateTaskInCache(updated);
-      setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t));
+      setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t).filter((t) => !t.completed));
       return true;
     } catch {
       return false;
@@ -1021,7 +1032,7 @@ export default function CalendarPage() {
       }
       setImportMsg(msg);
       const { from, to } = visibleRangeMs(view, focusDate);
-      const updated = await api.listTasks({ scheduled_from_ms: from, scheduled_to_ms: to, include_unscheduled: true });
+      const updated = await api.listTasks({ completed: false, scheduled_from_ms: from, scheduled_to_ms: to, include_unscheduled: true });
       setTasks(updated);
     } catch (e) {
       setImportMsg(`Import failed: ${e instanceof Error ? e.message : "unknown error"}`);
@@ -1253,11 +1264,13 @@ export default function CalendarPage() {
           task={selectedTask}
           mode={energyMode}
           onSave={(updated) => {
-            setTasks((prev) => {
-              const next = prev.map((t) => t.id === updated.id ? updated : t);
-              updateTaskInCache(updated);
-              return next;
-            });
+            updateTaskInCache(updated);
+            if (updated.completed) {
+              setTasks((prev) => prev.filter((t) => t.id !== updated.id && !t.completed));
+              void refreshVisibleTasks();
+              return;
+            }
+            setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t).filter((t) => !t.completed));
           }}
           onClose={() => setSelectedTask(null)}
         />
