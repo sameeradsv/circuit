@@ -3,6 +3,7 @@ import { requireUser } from "@/server/reminders/auth";
 import { sendToUserDevices } from "@/server/reminders/push";
 
 export const runtime = "nodejs";
+export const dynamic = "force-static";
 
 export async function POST(request: NextRequest) {
   const user = await requireUser(request);

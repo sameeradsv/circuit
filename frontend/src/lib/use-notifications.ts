@@ -52,6 +52,9 @@ async function getExistingSubscription() {
 async function subscribeCurrentDevice() {
   const registration = await getRegistration();
   const { public_key } = await api.getVapidPublicKey();
+  if (!public_key) {
+    throw new Error("Push notifications are not configured");
+  }
   const subscription = await registration.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToArrayBuffer(public_key),

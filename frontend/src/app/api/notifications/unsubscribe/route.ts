@@ -4,6 +4,7 @@ import { sql } from "@/server/reminders/db";
 import { parseUnsubscribePayload } from "@/server/reminders/payloads";
 
 export const runtime = "nodejs";
+export const dynamic = "force-static";
 
 export async function POST(request: NextRequest) {
   const user = await requireUser(request);

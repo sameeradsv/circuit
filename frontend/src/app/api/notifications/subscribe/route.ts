@@ -5,6 +5,7 @@ import { parseSubscribePayload } from "@/server/reminders/payloads";
 import { materializeUpcomingReminders } from "@/server/reminders/scheduler";
 
 export const runtime = "nodejs";
+export const dynamic = "force-static";
 
 export async function POST(request: NextRequest) {
   const user = await requireUser(request);

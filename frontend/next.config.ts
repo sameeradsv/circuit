@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const isGithubPages = process.env.GITHUB_PAGES === "true";
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: process.cwd(),
   transpilePackages: ["@shared/cortex"],
   ...(isGithubPages && {
     output: "export",
