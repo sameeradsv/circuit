@@ -34,6 +34,34 @@ def _series_key(task: CircuitTask) -> str:
     ])
 
 
+def _row_series_key(row: RecurringTask) -> str:
+    meta = json.loads(row.metadata_json or "{}")
+    if isinstance(meta.get("series_key"), str):
+        return meta["series_key"]
+    if meta.get("client_id"):
+        return f"client:{meta['client_id']}"
+    anchor_ms = row.rrule_dtstart_ms or row.start_datetime_ms or 0
+    anchor_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
+    clock = f"{anchor_dt.hour:02d}:{anchor_dt.minute:02d}:{anchor_dt.second:02d}"
+    rule = row.rrule or row.recurrence or ""
+    return "|".join([
+        f"user:{row.user_id}",
+        f"title:{row.title.strip().lower()}",
+        f"rule:{rule}",
+        f"duration:{row.duration or 30}",
+        f"clock:{clock}",
+        f"ends:{row.recurrence_ends_at or ''}",
+    ])
+
+
+def _store_row_series_key(row: RecurringTask, key: str) -> None:
+    meta = json.loads(row.metadata_json or "{}")
+    if meta.get("series_key") == key:
+        return
+    meta["series_key"] = key
+    row.metadata_json = json.dumps(meta)
+
+
 def is_virtual_id(value: str) -> bool:
     return value.startswith("r_")
 
@@ -130,11 +158,20 @@ def sync_recurring_definition(db: Session, task: CircuitTask) -> Optional[Recurr
         row = db.query(RecurringTask).filter(RecurringTask.source_task_id == task.id).first()
     if row is None:
         for candidate in db.query(RecurringTask).filter(RecurringTask.user_id == task.user_id, RecurringTask.active == True).all():  # noqa: E712
-            candidate_meta = json.loads(candidate.metadata_json or "{}")
-            if candidate_meta.get("series_key") == key:
-                return candidate
+            if _row_series_key(candidate) == key:
+                row = candidate
+                break
+    if row is None:
         row = RecurringTask(user_id=task.user_id, source_task_id=task.id)
         db.add(row)
+    else:
+        row.source_task_id = task.id
+    for candidate in db.query(RecurringTask).filter(RecurringTask.user_id == task.user_id, RecurringTask.active == True).all():  # noqa: E712
+        if candidate is row or candidate.id == row.id:
+            continue
+        if _row_series_key(candidate) == key:
+            candidate.active = False
+            candidate.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     row.title = task.text
     row.start_datetime_ms = task.rrule_dtstart_ms or task.scheduled_at
     row.duration = task.duration or 30
@@ -156,7 +193,7 @@ def ensure_recurring_definitions(db: Session, user_id: int) -> None:
             CircuitTask.scheduled_at.isnot(None),
             or_(CircuitTask.recurrence.isnot(None), CircuitTask.rrule.isnot(None)),
         )
-        .order_by(CircuitTask.scheduled_at.asc(), CircuitTask.id.asc())
+        .order_by(CircuitTask.completed.asc(), CircuitTask.scheduled_at.asc(), CircuitTask.id.asc())
         .all()
     )
     seen: set[str] = set()
@@ -171,17 +208,15 @@ def ensure_recurring_definitions(db: Session, user_id: int) -> None:
         seen.add(key)
         sync_recurring_definition(db, task)
     active_defs = db.query(RecurringTask).filter(RecurringTask.user_id == user_id, RecurringTask.active == True).all()  # noqa: E712
-    active_seen: set[str] = set()
-    for row in sorted(active_defs, key=lambda r: (r.start_datetime_ms, r.id)):
-        meta = json.loads(row.metadata_json or "{}")
-        key = meta.get("series_key")
-        if not key:
-            continue
+    active_seen: dict[str, RecurringTask] = {}
+    for row in sorted(active_defs, key=lambda r: (r.source_task_id is None, r.start_datetime_ms, r.id)):
+        key = _row_series_key(row)
+        _store_row_series_key(row, key)
         if key in active_seen:
             row.active = False
             row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         else:
-            active_seen.add(key)
+            active_seen[key] = row
     db.flush()
 
 

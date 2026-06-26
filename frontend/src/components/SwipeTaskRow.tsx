@@ -76,9 +76,11 @@ export function SwipeTaskRow({
 
   const showComplete = offset > THRESHOLD * 0.6;
   const showSkip = onSkip && offset < -THRESHOLD * 0.6;
+  const revealingComplete = offset > 4;
+  const revealingSkip = onSkip && offset < -4;
 
   return (
-    <div style={{ position: "relative", overflow: "hidden", touchAction: "pan-y" }}>
+    <div style={{ position: "relative", overflow: "hidden", touchAction: "pan-y", borderRadius: 12 }}>
       <div
         aria-hidden
         style={{
@@ -89,7 +91,8 @@ export function SwipeTaskRow({
           alignItems: "center",
           justifyContent: "center",
           background: showComplete ? "var(--sage, #4a7c5f)" : "var(--line, #e8e4dc)",
-          transition: "background 0.15s",
+          opacity: revealingComplete ? 1 : 0,
+          transition: "background 0.15s, opacity 0.12s",
           fontSize: 11,
           fontFamily: "var(--font-mono)",
           color: showComplete ? "var(--bg, #fff)" : "var(--ink-3, #999)",
@@ -109,7 +112,8 @@ export function SwipeTaskRow({
             alignItems: "center",
             justifyContent: "center",
             background: showSkip ? "var(--mustard, #c9a227)" : "var(--line, #e8e4dc)",
-            transition: "background 0.15s",
+            opacity: revealingSkip ? 1 : 0,
+            transition: "background 0.15s, opacity 0.12s",
             fontSize: 11,
             fontFamily: "var(--font-mono)",
             color: showSkip ? "var(--bg, #fff)" : "var(--ink-3, #999)",
@@ -123,6 +127,8 @@ export function SwipeTaskRow({
         style={{
           transform: `translateX(${offset}px)`,
           transition: dragging.current ? "none" : "transform 0.2s ease",
+          background: "var(--paper)",
+          borderRadius: 12,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

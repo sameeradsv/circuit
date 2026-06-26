@@ -216,24 +216,27 @@ export default function TasksPage() {
       setDoneTotal((n) => Math.max(0, n - 1));
       return;
     }
-    setCompletingIds((prev) => new Set([...prev, t.id]));
-    await new Promise((r) => setTimeout(r, 360));
-    const updated = await api.updateTask(t.id, {
-      completed: true,
-      ...(completedAt != null ? { completion_occurred_at: completedAt } : {}),
-    });
-    updateTaskInCache(updated);
-    setTasks((prev) => prev.filter((x) => x.id !== updated.id));
-    setDoneTotal((n) => n + 1);
-    if (showDone) {
-      if (donePage === 0) {
-        setDoneTasks((prev) => [updated, ...prev].slice(0, DONE_PAGE_SIZE));
-      } else {
-        await loadDonePage(donePage);
-      }
-    }
-    setCompletingIds((prev) => { const s = new Set(prev); s.delete(t.id); return s; });
     setCompletingTask(null);
+    setCompletingIds((prev) => new Set([...prev, t.id]));
+    try {
+      await new Promise((r) => setTimeout(r, 360));
+      const updated = await api.updateTask(t.id, {
+        completed: true,
+        ...(completedAt != null ? { completion_occurred_at: completedAt } : {}),
+      });
+      updateTaskInCache(updated);
+      setTasks((prev) => prev.filter((x) => x.id !== updated.id));
+      setDoneTotal((n) => n + 1);
+      if (showDone) {
+        if (donePage === 0) {
+          setDoneTasks((prev) => [updated, ...prev].slice(0, DONE_PAGE_SIZE));
+        } else {
+          await loadDonePage(donePage);
+        }
+      }
+    } finally {
+      setCompletingIds((prev) => { const s = new Set(prev); s.delete(t.id); return s; });
+    }
   }
 
   async function deleteTaskInstance(task: ApiTask, fromDone = false) {
@@ -1125,7 +1128,7 @@ function CompleteModal({
   task, onConfirm, onClose,
 }: {
   task: ApiTask;
-  onConfirm: (completedAt?: number) => void;
+  onConfirm: (completedAt?: number) => Promise<void>;
   onClose: () => void;
 }) {
   const [completedAt, setCompletedAt] = useState(Date.now());

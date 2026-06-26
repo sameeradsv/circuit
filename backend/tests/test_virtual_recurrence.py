@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.limiter import limiter
 from app.main import app
+from app.models import RecurringTask
 
 _IST = ZoneInfo("Asia/Kolkata")
 
@@ -84,6 +85,13 @@ def _range(client, auth, start: datetime, end: datetime, completed: bool | None 
     r = client.get("/api/tasks", params=params, headers=auth)
     assert r.status_code == 200
     return r.json()
+
+
+def _db_session():
+    override = app.dependency_overrides[get_db]
+    gen = override()
+    db = next(gen)
+    return db, gen
 
 
 def test_daily_recurrence_expands_in_visible_range(client, auth):
@@ -193,6 +201,40 @@ def test_existing_materialized_recurrence_rows_do_not_double_expand(client, auth
     legacy = [i for i in items if i["text"] == "Legacy daily"]
 
     assert [i["scheduled_at"] for i in legacy] == [
+        _ms(start),
+        _ms(start + timedelta(days=1)),
+        _ms(start + timedelta(days=2)),
+    ]
+
+
+def test_stale_recurring_definition_without_series_key_is_deduped(client, auth):
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
+    _create_recurring(client, auth, "Stale daily", start, "daily")
+
+    db, gen = _db_session()
+    try:
+        db.add(RecurringTask(
+            user_id=1,
+            source_task_id=None,
+            title="Stale daily",
+            start_datetime_ms=_ms(start),
+            duration=30,
+            recurrence="daily",
+            metadata_json="{}",
+            active=True,
+        ))
+        db.commit()
+    finally:
+        db.close()
+        try:
+            next(gen)
+        except StopIteration:
+            pass
+
+    items = _range(client, auth, start, start + timedelta(days=2))
+    starts = [i["scheduled_at"] for i in items if i["text"] == "Stale daily"]
+
+    assert starts == [
         _ms(start),
         _ms(start + timedelta(days=1)),
         _ms(start + timedelta(days=2)),
