@@ -5,9 +5,30 @@ import { parseSubscribePayload } from "@/server/reminders/payloads";
 import { materializeUpcomingReminders } from "@/server/reminders/scheduler";
 
 export const runtime = "nodejs";
-export const dynamic = "force-static";
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+  if (apiBase) {
+    const response = await fetch(`${apiBase}/api/notifications/subscribe`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(request.headers.get("authorization")
+          ? { Authorization: request.headers.get("authorization") as string }
+          : {}),
+      },
+      body: await request.text(),
+    });
+    const body = await response.text();
+    return new NextResponse(body, {
+      status: response.status,
+      headers: {
+        "Content-Type": response.headers.get("Content-Type") ?? "application/json",
+      },
+    });
+  }
+
   const user = await requireUser(request);
   if (user instanceof NextResponse) return user;
 

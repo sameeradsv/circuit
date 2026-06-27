@@ -231,6 +231,37 @@ export interface ApiAiClassify {
   reasoning: string;
 }
 
+export interface ApiTaskDefaults extends ApiAiClassify {
+  duration: number;
+  deadline_type: string;
+  time_sensitivity: number;
+  scheduled_at: number | null;
+  recurrence: string | null;
+  recurrence_ends_at: number | null;
+  post_blackout_behavior: ApiTask["post_blackout_behavior"];
+  emotional_resistance: number;
+  activation_energy: number;
+  recovery_cost: number;
+  focus_type: string;
+  consequence_of_delay: number;
+  momentum_value: number;
+  compound_benefit: number;
+  identity_alignment: number;
+  energy_to_reward_ratio: number;
+  task_decomposition_potential: number;
+  tiny_step: string;
+  preferred_execution_window: string | null;
+  location_dependency: string | null;
+  required_resources: string[];
+  dependencies: string[];
+  blackout_skip_flags: string[];
+  travel_buffer_before_mins: number | null;
+  travel_buffer_after_mins: number | null;
+  notifications_enabled: boolean;
+  notification_offset_1_mins: number | null;
+  notification_offset_2_mins: number | null;
+}
+
 export interface ApiTaskEvent {
   id: number;
   task_id: number;
@@ -355,6 +386,8 @@ export const api = {
   // AI classify
   classifyTask: (text: string, context?: string) =>
     req<ApiAiClassify>("POST", "/api/ai/classify", { text, context }),
+  suggestTaskDefaults: (text: string, context?: string) =>
+    req<ApiTaskDefaults>("POST", "/api/ai/suggest-task", { text, context }),
 
   // calendar
   deleteSeries: (taskId: number, fromScheduledAt?: number) =>

@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import User
-from app.schemas import AiClassifyRequest, AiClassifyResponse
-from app.services.ai import classify_task
+from app.schemas import AiClassifyRequest, AiClassifyResponse, AiTaskDefaultsResponse
+from app.services.ai import classify_task, suggest_task_defaults
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -20,3 +20,13 @@ def classify(
 ):
     result = classify_task(payload.text, payload.context)
     return AiClassifyResponse(**result)
+
+
+@router.post("/suggest-task", response_model=AiTaskDefaultsResponse)
+def suggest_task(
+    payload: AiClassifyRequest,
+    _user: User = Depends(require_user),
+    _db: Session = Depends(get_db),
+):
+    result = suggest_task_defaults(payload.text, payload.context)
+    return AiTaskDefaultsResponse(**result)

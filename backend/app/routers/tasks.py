@@ -17,11 +17,14 @@ from app.behavioral import record_completion_rate
 from app.engines.recurrence import is_hourly_recurrence, next_occurrence, skip_occurrences_too_close_after_catchup
 from app.services.blackout import adjust_for_blackouts
 from app.services.adaptive_learning import apply_complete_learning, update_delay_pattern_on_skip
+from app.services.ai import suggest_task_defaults
 from app.services.suggest_slot import suggest_slot_for_task
 from app.services.reminders import cancel_pending_reminders_for_task, materialize_reminders_for_task, materialize_reminders_for_user
 from app.services.virtual_recurrence import (
     expand_virtual_occurrences,
     is_virtual_id,
+    materialization_window_ms,
+    materialized_occurrences,
     parse_virtual_id,
     sync_recurring_definition,
     upsert_occurrence_override,
@@ -189,6 +192,59 @@ class TaskPatch(BaseModel):
     completion_occurred_at: Optional[int] = None
 
 
+_AI_DEFAULT_FIELDS = {
+    "tag",
+    "urgency",
+    "importance",
+    "cognitive_load",
+    "effort",
+    "duration",
+    "deadline_type",
+    "time_sensitivity",
+    "scheduled_at",
+    "recurrence",
+    "recurrence_ends_at",
+    "post_blackout_behavior",
+    "emotional_resistance",
+    "activation_energy",
+    "recovery_cost",
+    "focus_type",
+    "consequence_of_delay",
+    "momentum_value",
+    "compound_benefit",
+    "identity_alignment",
+    "energy_to_reward_ratio",
+    "task_decomposition_potential",
+    "tiny_step",
+    "preferred_execution_window",
+    "location_dependency",
+    "required_resources",
+    "dependencies",
+    "blackout_skip_flags",
+    "travel_buffer_before_mins",
+    "travel_buffer_after_mins",
+    "notifications_enabled",
+    "notification_offset_1_mins",
+    "notification_offset_2_mins",
+}
+
+
+def _apply_ai_defaults(payload: TaskIn) -> TaskIn:
+    if payload.rrule or payload.is_recurring_template:
+        return payload
+    provided = payload.model_fields_set
+    missing = _AI_DEFAULT_FIELDS - provided
+    if not missing:
+        return payload
+    suggested = suggest_task_defaults(payload.text, payload.metadata.get("context") if isinstance(payload.metadata, dict) else None)
+    updates = {field: suggested[field] for field in missing if field in suggested}
+    metadata = dict(payload.metadata or {})
+    if suggested.get("reasoning") and "ai_default_reasoning" not in metadata:
+        metadata["ai_default_reasoning"] = suggested["reasoning"]
+        updates["metadata"] = metadata
+    return payload.model_copy(update=updates)
+
+
 def _task_to_dict(t: CircuitTask) -> dict:
     return {
         "id": t.id,
@@ -339,13 +395,48 @@ def list_tasks(
     if scheduled_from_ms is not None or scheduled_to_ms is not None:
         from_ms = scheduled_from_ms if scheduled_from_ms is not None else 0
         to_ms = scheduled_to_ms if scheduled_to_ms is not None else 2**62
-        items.extend(expand_virtual_occurrences(db, user.id, from_ms, to_ms, completed=completed))
+        materialized_from, materialized_to = materialization_window_ms()
+        if to_ms >= materialized_from and from_ms <= materialized_to:
+            segment_from = max(from_ms, materialized_from)
+            segment_to = min(to_ms, materialized_to)
+            materialized_items = materialized_occurrences(
+                db,
+                user.id,
+                segment_from,
+                segment_to,
+                completed=completed,
+            )
+            if materialized_items:
+                items.extend(materialized_items)
+            else:
+                items.extend(expand_virtual_occurrences(db, user.id, segment_from, segment_to, completed=completed))
+        if from_ms < materialized_from:
+            items.extend(
+                expand_virtual_occurrences(
+                    db,
+                    user.id,
+                    from_ms,
+                    min(to_ms, materialized_from - 1),
+                    completed=completed,
+                )
+            )
+        if to_ms > materialized_to:
+            items.extend(
+                expand_virtual_occurrences(
+                    db,
+                    user.id,
+                    max(from_ms, materialized_to + 1),
+                    to_ms,
+                    completed=completed,
+                )
+            )
         items.sort(key=lambda t: (t.get("completed", False), t.get("scheduled_at") is None, t.get("scheduled_at") or 0, str(t.get("id"))))
     return items
 
 
 @router.post("", status_code=201)
 def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session = Depends(get_db)):
+    payload = _apply_ai_defaults(payload)
     _exclude = {"metadata", "required_resources", "dependencies", "blackout_skip_flags", "day_time_overrides"}
     task = CircuitTask(
         user_id=user.id,

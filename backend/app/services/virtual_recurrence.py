@@ -9,7 +9,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.engines.recurrence import next_occurrence
-from app.models import CircuitTask, OccurrenceOverride, RecurringTask
+from app.models import CircuitTask, MaterializedOccurrence, OccurrenceOverride, RecurringTask
 
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
@@ -351,6 +351,166 @@ def _base_virtual_dict(row: RecurringTask, start_ms: int) -> dict[str, Any]:
         "occurrence_start_ms": start_ms,
         "source_task_id": meta.get("source_task_id"),
     }
+
+
+def occurrence_key_for(start_ms: int) -> str:
+    return str(start_ms)
+
+
+def materialization_window_ms(now: Optional[datetime] = None) -> tuple[int, int]:
+    today = (now or datetime.now(_IST)).astimezone(_IST).replace(hour=0, minute=0, second=0, microsecond=0)
+    if today.month == 12:
+        next_month = today.replace(year=today.year + 1, month=1, day=1)
+    else:
+        next_month = today.replace(month=today.month + 1, day=1)
+    end_of_month = next_month - timedelta(milliseconds=1)
+    seven_day_end = today + timedelta(days=8) - timedelta(milliseconds=1)
+    return int(today.timestamp() * 1000), int(max(end_of_month, seven_day_end).timestamp() * 1000)
+
+
+def _materialized_to_virtual_dict(row: MaterializedOccurrence, recurring: RecurringTask) -> dict[str, Any]:
+    item = _base_virtual_dict(recurring, row.occurrence_start_ms)
+    item["id"] = f"r_{row.recurring_task_id}_{row.occurrence_start_ms}"
+    item["scheduled_at"] = row.scheduled_start_ms
+    item["duration"] = max(1, round((row.occurrence_end_ms - row.scheduled_start_ms) / 60_000))
+    item["is_materialized_occurrence"] = True
+    item["materialized_occurrence_id"] = row.id
+    item["occurrence_key"] = row.occurrence_key
+    return item
+
+
+def materialized_occurrences(
+    db: Session,
+    user_id: int,
+    from_ms: int,
+    to_ms: int,
+    *,
+    completed: Optional[bool] = None,
+) -> list[dict[str, Any]]:
+    if completed is True:
+        return []
+    rows = (
+        db.query(MaterializedOccurrence, RecurringTask)
+        .join(RecurringTask, MaterializedOccurrence.recurring_task_id == RecurringTask.id)
+        .filter(
+            MaterializedOccurrence.user_id == user_id,
+            MaterializedOccurrence.status == "pending",
+            MaterializedOccurrence.scheduled_start_ms <= to_ms,
+            MaterializedOccurrence.occurrence_end_ms > from_ms,
+            RecurringTask.active == True,  # noqa: E712
+        )
+        .all()
+    )
+    out = [_materialized_to_virtual_dict(row, recurring) for row, recurring in rows]
+    out.sort(key=lambda t: (t.get("scheduled_at") or 0, str(t.get("id"))))
+    return out
+
+
+def materialize_occurrences_for_user(
+    db: Session,
+    user_id: int,
+    *,
+    now: Optional[datetime] = None,
+) -> dict[str, int]:
+    from_ms, to_ms = materialization_window_ms(now)
+    ensure_recurring_definitions(db, user_id)
+    desired: dict[tuple[int, int], dict[str, Any]] = {}
+    created = updated = skipped = 0
+
+    for item in expand_virtual_occurrences(db, user_id, from_ms, to_ms, completed=False):
+        recurring_id = item.get("recurring_task_id")
+        occurrence_start = item.get("occurrence_start_ms") or item.get("scheduled_at")
+        scheduled_at = item.get("scheduled_at")
+        source_task_id = item.get("source_task_id")
+        duration = item.get("duration") or 30
+        if not all(isinstance(v, int) for v in [recurring_id, occurrence_start, scheduled_at, source_task_id]):
+            skipped += 1
+            continue
+        desired[(int(recurring_id), int(occurrence_start))] = {
+            "source_task_id": int(source_task_id),
+            "start": int(scheduled_at),
+            "end": int(scheduled_at) + int(duration) * 60_000,
+            "occurrence_key": occurrence_key_for(int(occurrence_start)),
+        }
+
+    existing = (
+        db.query(MaterializedOccurrence)
+        .filter(
+            MaterializedOccurrence.user_id == user_id,
+            MaterializedOccurrence.occurrence_start_ms >= from_ms,
+            MaterializedOccurrence.occurrence_start_ms <= to_ms,
+        )
+        .all()
+    )
+    existing_map = {(row.recurring_task_id, row.occurrence_start_ms): row for row in existing}
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for key, payload in desired.items():
+        row = existing_map.get(key)
+        if row is None:
+            db.add(MaterializedOccurrence(
+                user_id=user_id,
+                recurring_task_id=key[0],
+                source_task_id=payload["source_task_id"],
+                occurrence_key=payload["occurrence_key"],
+                occurrence_start_ms=key[1],
+                scheduled_start_ms=payload["start"],
+                occurrence_end_ms=payload["end"],
+                status="pending",
+                generated=True,
+            ))
+            created += 1
+            continue
+        changed = (
+            row.source_task_id != payload["source_task_id"]
+            or row.occurrence_key != payload["occurrence_key"]
+            or row.scheduled_start_ms != payload["start"]
+            or row.occurrence_end_ms != payload["end"]
+            or row.status != "pending"
+        )
+        if changed:
+            row.source_task_id = payload["source_task_id"]
+            row.occurrence_key = payload["occurrence_key"]
+            row.occurrence_start_ms = key[1]
+            row.scheduled_start_ms = payload["start"]
+            row.occurrence_end_ms = payload["end"]
+            row.status = "pending"
+            row.updated_at = now_utc
+            updated += 1
+
+    deleted = 0
+    for key, row in existing_map.items():
+        if key in desired:
+            continue
+        if row.status == "pending" and row.generated and row.occurrence_start_ms >= from_ms:
+            db.delete(row)
+            deleted += 1
+
+    db.flush()
+    return {
+        "materialized": created + updated,
+        "created": created,
+        "updated": updated,
+        "deleted": deleted,
+        "skipped": skipped,
+        "failed": 0,
+        "from_ms": from_ms,
+        "to_ms": to_ms,
+    }
+
+
+def materialize_occurrences_for_all_users(db: Session, *, now: Optional[datetime] = None) -> dict[str, int]:
+    user_ids = [row[0] for row in db.query(CircuitTask.user_id).distinct().all()]
+    totals = {"materialized": 0, "created": 0, "updated": 0, "deleted": 0, "skipped": 0, "failed": 0}
+    for user_id in user_ids:
+        try:
+            stats = materialize_occurrences_for_user(db, int(user_id), now=now)
+            for key in totals:
+                totals[key] += int(stats.get(key, 0))
+        except Exception:
+            totals["failed"] += 1
+    db.flush()
+    return totals
 
 
 def expand_virtual_occurrences(

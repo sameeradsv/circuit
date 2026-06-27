@@ -108,3 +108,40 @@ class AiClassifyResponse(BaseModel):
     effort: str
     tag: str
     reasoning: str
+
+
+class AiTaskDefaultsResponse(BaseModel):
+    tag: str
+    urgency: float
+    importance: float
+    cognitive_load: float
+    effort: str
+    duration: int
+    deadline_type: str
+    time_sensitivity: float
+    scheduled_at: Optional[int] = None
+    recurrence: Optional[str] = None
+    recurrence_ends_at: Optional[int] = None
+    post_blackout_behavior: str
+    emotional_resistance: float
+    activation_energy: float
+    recovery_cost: float
+    focus_type: str
+    consequence_of_delay: float
+    momentum_value: float
+    compound_benefit: float
+    identity_alignment: float
+    energy_to_reward_ratio: float
+    task_decomposition_potential: float
+    tiny_step: str
+    preferred_execution_window: Optional[str] = None
+    location_dependency: Optional[str] = None
+    required_resources: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    blackout_skip_flags: list[str] = Field(default_factory=list)
+    travel_buffer_before_mins: Optional[int] = None
+    travel_buffer_after_mins: Optional[int] = None
+    notifications_enabled: bool = True
+    notification_offset_1_mins: Optional[int] = 10
+    notification_offset_2_mins: Optional[int] = None
+    reasoning: str

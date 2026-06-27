@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiTask, ApiBlackout } from "@/lib/api";
+import { api, ApiTask, ApiBlackout, TaskIn } from "@/lib/api";
 import { getTaskCache, updateTaskInCache, invalidateTaskCache } from "@/lib/task-cache";
 import { useAuth } from "@shared/cortex";
 import { useEffectiveEnergy } from "@/lib/use-effective-energy";
-import { parseUtterance, taskInputFromUtterance } from "@/lib/parse-utterance";
+import { parseUtterance, taskInputFromUtterance, taskInputWithAiDefaults } from "@/lib/parse-utterance";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { EnergyModeSwitcher } from "@/components/EnergyModeSwitcher";
 import { SwipeTaskRow } from "@/components/SwipeTaskRow";
@@ -357,7 +357,12 @@ export default function TasksPage() {
             </svg>
             Search
           </button>
-          <QuickAddRow onCreated={(t) => setTasks((prev) => [t, ...prev])} />
+          <QuickAddRow
+            onCreated={(t, review) => {
+              setTasks((prev) => [t, ...prev]);
+              if (review) setDetailTask(t);
+            }}
+          />
         </div>
       </header>
 
@@ -1025,9 +1030,10 @@ function DoneRow({ task, onToggle, onDelete }: { task: ApiTask; onToggle: () => 
 
 // ── QuickAddRow ───────────────────────────────────────────────────────────────
 
-function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
+function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask, review: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
+  const [reviewAfterAdd, setReviewAfterAdd] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   const voice = useVoiceInput();
@@ -1041,14 +1047,15 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
     if (!utterance?.text.trim()) return;
     setSubmitting(true);
     try {
-      const created = await api.createTask({
-        ...taskInputFromUtterance(value),
-        text: utterance.text,
-        ...(utterance.scheduledAt ? { scheduled_at: utterance.scheduledAt } : {}),
-        ...(utterance.duration ? { duration: utterance.duration } : {}),
-      });
-      onCreated(created);
+      let payload: TaskIn = taskInputFromUtterance(value);
+      try {
+        const suggested = await api.suggestTaskDefaults(utterance.text);
+        payload = taskInputWithAiDefaults(value, suggested);
+      } catch {}
+      const created = await api.createTask(payload);
+      onCreated(created, reviewAfterAdd);
       setValue("");
+      setReviewAfterAdd(false);
       setOpen(false);
     } finally {
       setSubmitting(false);
@@ -1095,6 +1102,14 @@ function QuickAddRow({ onCreated }: { onCreated: (t: ApiTask) => void }) {
           {voice.error && <span className="mono" style={{ fontSize: 10, color: "var(--terra)" }}>{voice.error}</span>}
         </div>
         <div className="row gap-2 aic">
+          <label className="row gap-2 aic" style={{ fontSize: 12, color: "var(--ink-2)", minHeight: 44 }}>
+            <input
+              type="checkbox"
+              checked={reviewAfterAdd}
+              onChange={(e) => setReviewAfterAdd(e.target.checked)}
+            />
+            Review
+          </label>
           {voice.supported && (
             <button
               type="button"

@@ -26,7 +26,7 @@ flowchart LR
 
 `reminders` stores a finite send queue. Task and recurrence rules decide what should exist; reminder rows decide when delivery should be attempted. The queue gives the processor a durable source of truth, so delivery does not rely on browser timers or the app staying open.
 
-`circuit_tasks` keeps recurrence rules. The system does not generate infinite task rows. UI can expand occurrences virtually, while the reminder processor only materializes rows within `REMINDER_MATERIALIZE_DAYS`.
+`circuit_tasks` keeps recurrence rules. The system does not generate infinite task rows. UI can expand occurrences virtually, while the reminder processor only materializes rows within `REMINDER_MATERIALIZE_DAYS`. The default reminder window is 7 days.
 
 ## API
 
@@ -108,7 +108,7 @@ VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:you@example.com
 REMINDER_CRON_SECRET=<long random token>
-REMINDER_MATERIALIZE_DAYS=14
+REMINDER_MATERIALIZE_DAYS=7
 REMINDER_BATCH_SIZE=100
 REMINDER_MAX_ATTEMPTS=5
 ```
@@ -151,4 +151,4 @@ Those endpoints reuse `push_subscriptions` and do not require a `reminders` tabl
 - Invalid subscriptions are disabled, not deleted, preserving auditability and avoiding repeated failed sends.
 - Transient provider failures remain retryable until `REMINDER_MAX_ATTEMPTS`.
 - `REMINDER_BATCH_SIZE` keeps each Vercel invocation bounded.
-- `REMINDER_MATERIALIZE_DAYS` controls database footprint. Fourteen days is a pragmatic default: enough for near-term reliability, small enough to avoid queue bloat.
+- `REMINDER_MATERIALIZE_DAYS` controls database footprint. Seven days matches the rolling reminder window used by calendar sync.

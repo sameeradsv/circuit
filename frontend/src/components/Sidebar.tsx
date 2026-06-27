@@ -69,7 +69,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const { user } = useAuth();
   const { value: energy, source, loading: energyLoading } = useEffectiveEnergy();
   const { theme, setTheme } = useTheme();
-  const { permission, enabled, supported, busy, toggle } = useNotificationToggle();
+  const { permission, enabled, supported, busy, error, toggle } = useNotificationToggle();
   const [moreOpen, setMoreOpen] = useState(MORE_NAV.some((n) => pathname.startsWith(n.href)));
   const desc = energyDescriptor(energy);
 
@@ -166,7 +166,9 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
               disabled={!supported || permission === "denied" || busy}
               style={{ cursor: !supported || permission === "denied" || busy ? "not-allowed" : "pointer", background: "none", border: "none", padding: 0, opacity: !supported || permission === "denied" ? 0.4 : 1 }}
               title={
-                !supported
+                error
+                  ? error
+                  : !supported
                   ? "Push notifications are not supported in this browser"
                   : permission === "denied"
                   ? "Notifications blocked — allow in browser settings"

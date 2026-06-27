@@ -1,4 +1,5 @@
 import { parseTaskText, type ParsePreview } from "./parse-task";
+import type { ApiTaskDefaults, TaskIn } from "./api";
 
 export interface ParseChip {
   k: string;
@@ -203,5 +204,46 @@ export function taskInputFromUtterance(input: string) {
     task_decomposition_potential: u.task_decomposition_potential ?? 0.3,
     focus_type: u.focus_type ?? "shallow",
     ...(u.scheduledAt ? { scheduled_at: u.scheduledAt } : {}),
+  };
+}
+
+export function taskInputWithAiDefaults(input: string, suggested: ApiTaskDefaults): TaskIn {
+  const u = parseUtterance(input);
+  return {
+    text: u.text,
+    tag: u.preview.tag ? (u.tag ?? suggested.tag) : suggested.tag,
+    urgency: u.preview.priority ? (u.urgency ?? suggested.urgency) : suggested.urgency,
+    importance: suggested.importance,
+    tiny_step: suggested.tiny_step,
+    effort: suggested.effort,
+    duration: u.duration ?? suggested.duration,
+    deadline_type: suggested.deadline_type,
+    time_sensitivity: suggested.time_sensitivity,
+    scheduled_at: u.scheduledAt ?? suggested.scheduled_at ?? undefined,
+    recurrence: suggested.recurrence,
+    recurrence_ends_at: suggested.recurrence_ends_at,
+    post_blackout_behavior: suggested.post_blackout_behavior,
+    cognitive_load: suggested.cognitive_load,
+    emotional_resistance: suggested.emotional_resistance,
+    activation_energy: suggested.activation_energy,
+    recovery_cost: suggested.recovery_cost,
+    focus_type: suggested.focus_type,
+    consequence_of_delay: suggested.consequence_of_delay,
+    momentum_value: suggested.momentum_value,
+    compound_benefit: suggested.compound_benefit,
+    identity_alignment: suggested.identity_alignment,
+    energy_to_reward_ratio: suggested.energy_to_reward_ratio,
+    task_decomposition_potential: suggested.task_decomposition_potential,
+    preferred_execution_window: suggested.preferred_execution_window,
+    location_dependency: suggested.location_dependency,
+    required_resources: suggested.required_resources,
+    dependencies: suggested.dependencies,
+    blackout_skip_flags: suggested.blackout_skip_flags,
+    travel_buffer_before_mins: suggested.travel_buffer_before_mins,
+    travel_buffer_after_mins: suggested.travel_buffer_after_mins,
+    notifications_enabled: suggested.notifications_enabled,
+    notification_offset_1_mins: suggested.notification_offset_1_mins,
+    notification_offset_2_mins: suggested.notification_offset_2_mins,
+    metadata: { ai_default_reasoning: suggested.reasoning },
   };
 }

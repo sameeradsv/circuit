@@ -68,6 +68,7 @@ export function useNotificationToggle() {
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [supported, setSupported] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const canPush =
@@ -89,6 +90,7 @@ export function useNotificationToggle() {
   async function enable() {
     if (!supported || busy) return;
     setBusy(true);
+    setError(null);
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
@@ -101,6 +103,8 @@ export function useNotificationToggle() {
       }
       localStorage.setItem(STORAGE_KEY, "true");
       setEnabled(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to enable notifications");
     } finally {
       setBusy(false);
     }
@@ -109,6 +113,7 @@ export function useNotificationToggle() {
   async function disable() {
     if (!supported || busy) return;
     setBusy(true);
+    setError(null);
     try {
       const existing = await getExistingSubscription();
       if (existing) {
@@ -117,6 +122,8 @@ export function useNotificationToggle() {
       }
       localStorage.setItem(STORAGE_KEY, "false");
       setEnabled(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to disable notifications");
     } finally {
       setBusy(false);
     }
@@ -130,5 +137,5 @@ export function useNotificationToggle() {
     }
   }
 
-  return { permission, enabled, supported, busy, toggle };
+  return { permission, enabled, supported, busy, error, toggle };
 }

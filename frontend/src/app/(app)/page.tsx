@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, ApiTask } from "@/lib/api";
+import { api, ApiTask, TaskIn } from "@/lib/api";
 import { TaskDetailModal } from "@/components/TaskDetailModal";
 import { useEnergyMode } from "@/lib/use-energy-mode";
 import { useAuth } from "@shared/cortex";
 import { energyDescriptor } from "@/lib/use-energy-level";
 import { energySourceLabel, useEffectiveEnergy } from "@/lib/use-effective-energy";
-import { parseUtterance, taskInputFromUtterance } from "@/lib/parse-utterance";
+import { parseUtterance, taskInputFromUtterance, taskInputWithAiDefaults } from "@/lib/parse-utterance";
 import { useVoiceInput } from "@/lib/use-voice-input";
 import { fitPercent } from "@/lib/task-ranking";
 
@@ -281,7 +281,12 @@ function HomeQuickCapture({ onCreated }: { onCreated: (task: ApiTask, review: bo
     if (!utterance?.text.trim()) return;
     setSubmitting(true);
     try {
-      const created = await api.createTask(taskInputFromUtterance(text));
+      let payload: TaskIn = taskInputFromUtterance(text);
+      try {
+        const suggested = await api.suggestTaskDefaults(utterance.text);
+        payload = taskInputWithAiDefaults(text, suggested);
+      } catch {}
+      const created = await api.createTask(payload);
       onCreated(created, reviewAfterAdd);
       setText("");
       setReviewAfterAdd(false);
@@ -305,7 +310,7 @@ function HomeQuickCapture({ onCreated }: { onCreated: (task: ApiTask, review: bo
             checked={reviewAfterAdd}
             onChange={(e) => setReviewAfterAdd(e.target.checked)}
           />
-          Review after add
+          Review suggested values
         </label>
       </div>
       <textarea
@@ -354,7 +359,7 @@ function HomeQuickCapture({ onCreated }: { onCreated: (task: ApiTask, review: bo
           disabled={submitting || !utterance?.text.trim()}
           onClick={submit}
         >
-          {submitting ? "Adding..." : "Add task"}
+          {submitting ? "Thinking..." : "Add task"}
         </button>
       </div>
     </div>

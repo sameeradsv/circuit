@@ -526,6 +526,113 @@ def _migrate_push_reminders() -> None:
         conn.commit()
 
 
+def _migrate_materialized_occurrences_and_calendar_ledger() -> None:
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    with engine.connect() as conn:
+        if "materialized_occurrences" not in existing_tables:
+            if is_sqlite:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS materialized_occurrences ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "recurring_task_id INTEGER NOT NULL REFERENCES recurring_tasks(id) ON DELETE CASCADE, "
+                    "source_task_id INTEGER REFERENCES circuit_tasks(id) ON DELETE SET NULL, "
+                    "occurrence_key VARCHAR(120) NOT NULL, "
+                    "occurrence_start_ms INTEGER NOT NULL, "
+                    "scheduled_start_ms INTEGER NOT NULL, "
+                    "occurrence_end_ms INTEGER NOT NULL, "
+                    "status VARCHAR(20) DEFAULT 'pending', "
+                    "generated BOOLEAN DEFAULT 1, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "UNIQUE(recurring_task_id, occurrence_start_ms))"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS materialized_occurrences ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "recurring_task_id INTEGER NOT NULL REFERENCES recurring_tasks(id) ON DELETE CASCADE, "
+                    "source_task_id INTEGER REFERENCES circuit_tasks(id) ON DELETE SET NULL, "
+                    "occurrence_key VARCHAR(120) NOT NULL, "
+                    "occurrence_start_ms BIGINT NOT NULL, "
+                    "scheduled_start_ms BIGINT NOT NULL, "
+                    "occurrence_end_ms BIGINT NOT NULL, "
+                    "status VARCHAR(20) DEFAULT 'pending', "
+                    "generated BOOLEAN DEFAULT TRUE, "
+                    "created_at TIMESTAMP DEFAULT NOW(), "
+                    "updated_at TIMESTAMP DEFAULT NOW(), "
+                    "UNIQUE(recurring_task_id, occurrence_start_ms))"
+                ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_materialized_occurrences_user ON materialized_occurrences (user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_materialized_occurrences_start ON materialized_occurrences (occurrence_start_ms)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_materialized_occurrences_source_task ON materialized_occurrences (source_task_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_materialized_occurrences_key ON materialized_occurrences (occurrence_key)"))
+        else:
+            existing_cols = {c["name"] for c in inspector.get_columns("materialized_occurrences")}
+            if "scheduled_start_ms" not in existing_cols:
+                col_def = "INTEGER" if is_sqlite else "BIGINT"
+                if is_sqlite:
+                    conn.execute(text(f"ALTER TABLE materialized_occurrences ADD COLUMN scheduled_start_ms {col_def}"))
+                    conn.execute(text("UPDATE materialized_occurrences SET scheduled_start_ms = occurrence_start_ms WHERE scheduled_start_ms IS NULL"))
+                else:
+                    conn.execute(text(f"ALTER TABLE materialized_occurrences ADD COLUMN IF NOT EXISTS scheduled_start_ms {col_def}"))
+                    conn.execute(text("UPDATE materialized_occurrences SET scheduled_start_ms = occurrence_start_ms WHERE scheduled_start_ms IS NULL"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_materialized_occurrences_scheduled_start ON materialized_occurrences (scheduled_start_ms)"))
+
+        if "calendar_sync_ledger" not in existing_tables:
+            if is_sqlite:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS calendar_sync_ledger ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "task_id INTEGER NOT NULL REFERENCES circuit_tasks(id) ON DELETE CASCADE, "
+                    "occurrence_id INTEGER, "
+                    "occurrence_key VARCHAR(120), "
+                    "calendar_provider VARCHAR(40) NOT NULL DEFAULT 'icloud', "
+                    "calendar_event_uid VARCHAR(220) NOT NULL, "
+                    "calendar_href TEXT, "
+                    "calendar_etag VARCHAR(220), "
+                    "occurrence_start_ms INTEGER NOT NULL, "
+                    "occurrence_end_ms INTEGER NOT NULL, "
+                    "last_calendar_synced_at DATETIME, "
+                    "calendar_sync_status VARCHAR(30) DEFAULT 'pending', "
+                    "calendar_sync_error TEXT, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "UNIQUE(calendar_provider, calendar_event_uid))"
+                ))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS calendar_sync_ledger ("
+                    "id SERIAL PRIMARY KEY, "
+                    "user_id INTEGER NOT NULL REFERENCES users(id), "
+                    "task_id INTEGER NOT NULL REFERENCES circuit_tasks(id) ON DELETE CASCADE, "
+                    "occurrence_id INTEGER, "
+                    "occurrence_key VARCHAR(120), "
+                    "calendar_provider VARCHAR(40) NOT NULL DEFAULT 'icloud', "
+                    "calendar_event_uid VARCHAR(220) NOT NULL, "
+                    "calendar_href TEXT, "
+                    "calendar_etag VARCHAR(220), "
+                    "occurrence_start_ms BIGINT NOT NULL, "
+                    "occurrence_end_ms BIGINT NOT NULL, "
+                    "last_calendar_synced_at TIMESTAMP, "
+                    "calendar_sync_status VARCHAR(30) DEFAULT 'pending', "
+                    "calendar_sync_error TEXT, "
+                    "created_at TIMESTAMP DEFAULT NOW(), "
+                    "updated_at TIMESTAMP DEFAULT NOW(), "
+                    "UNIQUE(calendar_provider, calendar_event_uid))"
+                ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_calendar_sync_ledger_user ON calendar_sync_ledger (user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_calendar_sync_ledger_task ON calendar_sync_ledger (task_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_calendar_sync_ledger_uid ON calendar_sync_ledger (calendar_event_uid)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_calendar_sync_ledger_start ON calendar_sync_ledger (occurrence_start_ms)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_calendar_sync_ledger_key ON calendar_sync_ledger (occurrence_key)"))
+        conn.commit()
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -556,6 +663,7 @@ def init_db() -> None:
         ("task_notifications",     _migrate_task_notifications),
         ("virtual_recurrence",     _migrate_virtual_recurrence_tables),
         ("push_reminders",         _migrate_push_reminders),
+        ("materialized_occurrences_calendar_ledger", _migrate_materialized_occurrences_and_calendar_ledger),
     ]:
         if not _migration_done(name):
             fn()

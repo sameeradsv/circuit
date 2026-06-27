@@ -164,6 +164,54 @@ class OccurrenceOverride(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
+class MaterializedOccurrence(Base):
+    __tablename__ = "materialized_occurrences"
+    __table_args__ = (
+        UniqueConstraint("recurring_task_id", "occurrence_start_ms", name="uq_materialized_occurrence_start"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    recurring_task_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("recurring_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_task_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("circuit_tasks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    occurrence_key: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    occurrence_start_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    scheduled_start_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    occurrence_end_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    generated: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class CalendarSyncLedger(Base):
+    __tablename__ = "calendar_sync_ledger"
+    __table_args__ = (
+        UniqueConstraint("calendar_provider", "calendar_event_uid", name="uq_calendar_ledger_provider_uid"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    task_id: Mapped[int] = mapped_column(Integer, ForeignKey("circuit_tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    occurrence_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    occurrence_key: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    calendar_provider: Mapped[str] = mapped_column(String(40), nullable=False, default="icloud")
+    calendar_event_uid: Mapped[str] = mapped_column(String(220), nullable=False, index=True)
+    calendar_href: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    calendar_etag: Mapped[Optional[str]] = mapped_column(String(220), nullable=True)
+    occurrence_start_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    occurrence_end_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_calendar_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    calendar_sync_status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    calendar_sync_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
 class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
     __table_args__ = (UniqueConstraint("user_id", "endpoint", name="uq_push_subscription_user_endpoint"),)

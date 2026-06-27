@@ -16,10 +16,15 @@ class Settings(BaseSettings):
     vapid_public_key: str = Field(default="", validation_alias="VAPID_PUBLIC_KEY")
     vapid_private_key: str = Field(default="", validation_alias="VAPID_PRIVATE_KEY")
     vapid_subject: str = Field(default="mailto:admin@example.com", validation_alias="VAPID_SUBJECT")
+    cron_secret: str = Field(default="", validation_alias="CRON_SECRET")
     reminder_cron_secret: str = Field(default="", validation_alias="REMINDER_CRON_SECRET")
-    reminder_materialize_days: int = Field(default=14, validation_alias="REMINDER_MATERIALIZE_DAYS")
+    reminder_materialize_days: int = Field(default=7, validation_alias="REMINDER_MATERIALIZE_DAYS")
     reminder_batch_size: int = Field(default=100, validation_alias="REMINDER_BATCH_SIZE")
     reminder_max_attempts: int = Field(default=3, validation_alias="REMINDER_MAX_ATTEMPTS")
+    icloud_apple_id: str = Field(default="", validation_alias="ICLOUD_APPLE_ID")
+    icloud_app_specific_password: str = Field(default="", validation_alias="ICLOUD_APP_SPECIFIC_PASSWORD")
+    icloud_caldav_base_url: str = Field(default="", validation_alias="ICLOUD_CALDAV_BASE_URL")
+    icloud_calendar_name: str = Field(default="Circuit", validation_alias="ICLOUD_CALENDAR_NAME")
 
     @property
     def cors_origins_list(self) -> list[str]:
