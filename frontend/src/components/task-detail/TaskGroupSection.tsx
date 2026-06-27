@@ -1,6 +1,6 @@
 "use client";
 
-import { FieldHint } from "./fields";
+import { FieldHint, TASK_ENTRY_CLASS } from "./fields";
 import type { TaskSectionProps } from "./types";
 
 export function TaskGroupSection({ merged, set }: TaskSectionProps) {
@@ -17,7 +17,7 @@ export function TaskGroupSection({ merged, set }: TaskSectionProps) {
           placeholder="e.g. laundry, morning-routine"
           value={merged.group_id ?? ""}
           onChange={(e) => set("group_id", (e.target.value || null) as unknown as string)}
-          className="input-field flex-1 py-1 text-xs"
+          className={TASK_ENTRY_CLASS}
           maxLength={50}
         />
       </label>

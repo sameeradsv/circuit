@@ -17,6 +17,8 @@ export function FieldHint({ text }: { text: string }) {
   );
 }
 
+export const TASK_ENTRY_CLASS = "input-field h-11 w-full flex-1 px-3 py-2 text-sm sm:h-auto sm:py-1 sm:text-xs";
+
 export function Slider({
   label, value, onChange, hint,
 }: { label: string; value: number; onChange: (v: number) => void; hint?: string }) {
@@ -50,7 +52,7 @@ export function Select({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="input-field flex-1 py-1 text-xs"
+        className={TASK_ENTRY_CLASS}
       >
         {options.map((o) => (
           <option key={o} value={o} className="bg-circuit-bg capitalize">{o || "any"}</option>

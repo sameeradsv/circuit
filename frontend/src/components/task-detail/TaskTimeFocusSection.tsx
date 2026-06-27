@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { ApiTask } from "@/lib/api";
-import { FieldHint, Select, toDatetimeLocal } from "./fields";
+import { FieldHint, Select, TASK_ENTRY_CLASS, toDatetimeLocal } from "./fields";
 import type { TaskSectionProps } from "./types";
 
 interface TaskTimeFocusSectionProps extends TaskSectionProps {
@@ -46,7 +46,7 @@ export function TaskTimeFocusSection({
           type="datetime-local"
           value={merged.scheduled_at ? toDatetimeLocal(merged.scheduled_at) : ""}
           onChange={(e) => set("scheduled_at", e.target.value ? new Date(e.target.value).getTime() : null as unknown as number)}
-          className="input-field flex-1 py-1 text-xs"
+          className={TASK_ENTRY_CLASS}
         />
       </label>
 
@@ -59,7 +59,7 @@ export function TaskTimeFocusSection({
           type="number" min={5} max={480} step={5}
           value={merged.duration ?? 30}
           onChange={(e) => set("duration", Number(e.target.value))}
-          className="input-field flex-1 py-1 text-xs"
+          className={TASK_ENTRY_CLASS}
         />
       </label>
 
@@ -88,7 +88,7 @@ export function TaskTimeFocusSection({
             <select
               value={merged.notification_offset_1_mins ?? ""}
               onChange={(e) => set("notification_offset_1_mins", e.target.value === "" ? null as unknown as number : Number(e.target.value))}
-              className="input-field flex-1 py-1 text-xs"
+              className={TASK_ENTRY_CLASS}
             >
               {REMINDER_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -104,7 +104,7 @@ export function TaskTimeFocusSection({
             <select
               value={merged.notification_offset_2_mins ?? ""}
               onChange={(e) => set("notification_offset_2_mins", e.target.value === "" ? null as unknown as number : Number(e.target.value))}
-              className="input-field flex-1 py-1 text-xs"
+              className={TASK_ENTRY_CLASS}
             >
               {REMINDER_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -124,7 +124,7 @@ export function TaskTimeFocusSection({
           value={merged.travel_buffer_before_mins ?? ""}
           placeholder="0"
           onChange={(e) => set("travel_buffer_before_mins", e.target.value ? Number(e.target.value) : null as unknown as number)}
-          className="input-field flex-1 py-1 text-xs"
+          className={TASK_ENTRY_CLASS}
         />
       </label>
 
@@ -138,7 +138,7 @@ export function TaskTimeFocusSection({
           value={merged.travel_buffer_after_mins ?? ""}
           placeholder="0"
           onChange={(e) => set("travel_buffer_after_mins", e.target.value ? Number(e.target.value) : null as unknown as number)}
-          className="input-field flex-1 py-1 text-xs"
+          className={TASK_ENTRY_CLASS}
         />
       </label>
 
@@ -164,20 +164,20 @@ export function TaskTimeFocusSection({
               Recurrence
               <FieldHint text="How often this repeats. e.g. daily, every:4d, every:2w, every:4h, weekday, weekly:MO,WE,FR, monthly:1MO, monthly:LFR (last Friday), monthly:LWD (last working day)." />
             </span>
-            <div className="flex items-center gap-1 flex-1">
+            <div className="relative flex-1 w-full">
               <input
                 type="text"
                 value={merged.recurrence ?? ""}
                 placeholder="daily, weekly, monthly…"
                 onChange={(e) => set("recurrence", e.target.value || null as unknown as string)}
-                className="input-field flex-1 py-1 text-xs"
+                className={`${TASK_ENTRY_CLASS} ${!merged.rrule ? "pr-11" : ""}`}
               />
               {/* Only allow collapsing for user-set recurrence, not rrule (calendar import) */}
               {!merged.rrule && (
                 <button
                   type="button"
                   onClick={clearRecurrence}
-                  className="shrink-0 text-circuit-muted hover:text-circuit-text transition-colors text-xs ml-1"
+                  className="absolute right-0 top-0 h-11 w-11 text-circuit-muted hover:text-circuit-text transition-colors text-xs sm:h-full"
                   title="Remove recurrence"
                 >
                   ✕
@@ -195,7 +195,7 @@ export function TaskTimeFocusSection({
               type="date"
               value={merged.recurrence_ends_at ? new Date(merged.recurrence_ends_at).toISOString().slice(0, 10) : ""}
               onChange={(e) => set("recurrence_ends_at", e.target.value ? new Date(e.target.value).getTime() : null as unknown as number)}
-              className="input-field flex-1 py-1 text-xs"
+              className={TASK_ENTRY_CLASS}
             />
           </label>
 
@@ -207,7 +207,7 @@ export function TaskTimeFocusSection({
             <select
               value={merged.post_blackout_behavior ?? "resume"}
               onChange={(e) => set("post_blackout_behavior", e.target.value as "resume" | "catch_up" | "catch_up_once" | "catch_up_immediate" | "catch_up_imm_shift")}
-              className="input-field flex-1 py-1 text-xs"
+              className={TASK_ENTRY_CLASS}
             >
               <option value="resume">Resume on next schedule</option>
               <option value="catch_up">Catch up next slot, shift series</option>
@@ -226,7 +226,7 @@ export function TaskTimeFocusSection({
               type="time"
               value={weekendTime}
               onChange={(e) => onWeekendTimeChange(e.target.value)}
-              className="input-field flex-1 py-1 text-xs"
+              className={TASK_ENTRY_CLASS}
             />
           </label>
         </>
