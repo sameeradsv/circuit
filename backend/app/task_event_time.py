@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -30,7 +31,13 @@ def task_event_occurred_at(
 
 
 def effective_event_time(event: TaskEvent, task: CircuitTask) -> datetime:
-    """Read-side mapping: scheduled slot when present, else stored occurred_at."""
-    if task.scheduled_at is not None:
-        return ms_to_utc_naive(task.scheduled_at)
+    """Read-side mapping: original scheduled slot when captured, else stored event time."""
+    try:
+        metadata = json.loads(event.metadata_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+
+    scheduled_at_ms = metadata.get("scheduled_at_ms")
+    if isinstance(scheduled_at_ms, int):
+        return ms_to_utc_naive(scheduled_at_ms)
     return event.occurred_at

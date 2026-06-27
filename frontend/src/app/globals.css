@@ -361,6 +361,14 @@ body {
 }
 
 /* Calendar grid fills whatever height is left after the page header */
+.calendar-page,
+.cal-view-area {
+  min-height: 0;
+}
+.cal-view-area {
+  display: flex;
+  flex-direction: column;
+}
 .cal-scroll-grid {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -381,9 +389,6 @@ body {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   min-width: 0;
-}
-.cal-view-pan {
-  touch-action: pan-y;
 }
 .cal-datebar {
   display: grid;
@@ -433,8 +438,33 @@ body {
 .cal-ics-footer { display: none; }
 
 @media (max-width: 768px) {
-  .cal-scroll-grid { height: calc(100dvh - 220px - var(--content-bottom-inset)); }
-  .cal-month-scroll { max-height: calc(100dvh - 220px - var(--content-bottom-inset)); }
+  .calendar-page {
+    height: calc(100dvh - 104px - var(--content-bottom-inset));
+    overflow: hidden;
+  }
+  .cal-view-area {
+    flex: 1;
+    overflow: hidden;
+  }
+  .cal-view-area > .col {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  .calendar-page .cal-scroll-grid {
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .calendar-page .cal-month-scroll {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+  .calendar-page .cal-week-scroll {
+    flex: 1;
+    min-height: 0;
+  }
   .cal-datebar {
     grid-template-columns: repeat(7, 64px);
   }

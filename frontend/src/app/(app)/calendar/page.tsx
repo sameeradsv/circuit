@@ -932,8 +932,6 @@ export default function CalendarPage() {
   const [dragTask, setDragTask] = useState<ApiTask | null>(null);
   const [pendingConflictDrop, setPendingConflictDrop] = useState<PendingConflictDrop | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const gestureStart = useRef<{ x: number; y: number } | null>(null);
-  const lastWheelNav = useRef(0);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -1077,46 +1075,6 @@ export default function CalendarPage() {
 
   function goToday() { setFocusDate(startOfDay(new Date())); }
 
-  function maybeNavigateFromWheel(e: React.WheelEvent<HTMLDivElement>) {
-    if (dragTask) return;
-    const now = Date.now();
-    if (now - lastWheelNav.current < 450) return;
-
-    const dominantX = Math.abs(e.deltaX) > Math.abs(e.deltaY);
-    const dominantY = Math.abs(e.deltaY) > Math.abs(e.deltaX);
-
-    if ((view === "day" || view === "week") && dominantX && Math.abs(e.deltaX) > 40) {
-      e.preventDefault();
-      lastWheelNav.current = now;
-      navigate(e.deltaX > 0 ? 1 : -1);
-      return;
-    }
-
-    if (view === "month" && dominantY && Math.abs(e.deltaY) > 60) {
-      e.preventDefault();
-      lastWheelNav.current = now;
-      navigate(e.deltaY > 0 ? 1 : -1);
-    }
-  }
-
-  function onGestureStart(e: React.PointerEvent<HTMLDivElement>) {
-    if (dragTask) return;
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest("button, a, input, select, textarea, [draggable='true']")) return;
-    gestureStart.current = { x: e.clientX, y: e.clientY };
-  }
-
-  function onGestureEnd(e: React.PointerEvent<HTMLDivElement>) {
-    if (!gestureStart.current || dragTask) return;
-    const dx = e.clientX - gestureStart.current.x;
-    const dy = e.clientY - gestureStart.current.y;
-    gestureStart.current = null;
-    if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-      navigate(dx < 0 ? 1 : -1);
-    }
-  }
-
   const year    = focusDate.getFullYear();
   const month   = focusDate.getMonth();
   const wkStart = startOfWeek(focusDate);
@@ -1147,7 +1105,7 @@ export default function CalendarPage() {
   };
 
   return (
-    <div className="col gap-5">
+    <div className="calendar-page col gap-5">
       {/* Header */}
       <header className="between" style={{ alignItems: "flex-end", flexWrap: "wrap", gap: 12 }}>
         <div>
@@ -1238,13 +1196,7 @@ export default function CalendarPage() {
       {view === "day" && <CalendarDateBar focusDate={focusDate} today={today} onSelect={setFocusDate} />}
 
       {/* View content */}
-      <div
-        className="cal-view-pan"
-        onWheel={maybeNavigateFromWheel}
-        onPointerDown={onGestureStart}
-        onPointerUp={onGestureEnd}
-        onPointerCancel={() => { gestureStart.current = null; }}
-      >
+      <div className="cal-view-area">
         {view === "day"   && <DayView   date={focusDate} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} {...dragHandlers} />}
         {view === "week"  && <WeekView  weekStart={wkStart} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
         {view === "month" && <MonthView year={year} month={month} tasks={tasks} today={today} blackouts={blackouts} onTaskClick={setSelectedTask} onDayClick={(d) => { setFocusDate(d); setView("day"); }} {...dragHandlers} />}
