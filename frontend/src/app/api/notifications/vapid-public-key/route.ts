@@ -4,6 +4,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-static";
 
 export async function GET() {
+  if (process.env.GITHUB_PAGES === "true") {
+    return NextResponse.json({ public_key: "" });
+  }
+
   const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
   if (apiBase) {
     const response = await fetch(`${apiBase}/api/notifications/vapid-public-key`, {
