@@ -23,8 +23,12 @@ class Settings(BaseSettings):
     reminder_max_attempts: int = Field(default=3, validation_alias="REMINDER_MAX_ATTEMPTS")
     icloud_apple_id: str = Field(default="", validation_alias="ICLOUD_APPLE_ID")
     icloud_app_specific_password: str = Field(default="", validation_alias="ICLOUD_APP_SPECIFIC_PASSWORD")
-    icloud_caldav_base_url: str = Field(default="", validation_alias="ICLOUD_CALDAV_BASE_URL")
+    icloud_caldav_base_url: str = Field(default="https://caldav.icloud.com", validation_alias="ICLOUD_CALDAV_BASE_URL")
     icloud_calendar_name: str = Field(default="Circuit", validation_alias="ICLOUD_CALENDAR_NAME")
+    app_base_url: str = Field(default="", validation_alias="APP_BASE_URL")
+    icloud_sync_enabled: bool = Field(default=False, validation_alias="ICLOUD_SYNC_ENABLED")
+    icloud_sync_window_days: int = Field(default=7, validation_alias="ICLOUD_SYNC_WINDOW_DAYS")
+    icloud_timezone: str = Field(default="Asia/Kolkata", validation_alias="ICLOUD_TIMEZONE")
 
     @property
     def cors_origins_list(self) -> list[str]:

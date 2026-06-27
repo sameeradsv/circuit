@@ -9,7 +9,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.engines.recurrence import next_occurrence
-from app.models import CircuitTask, MaterializedOccurrence, OccurrenceOverride, RecurringTask
+from app.models import CircuitTask, MaterializedOccurrence, OccurrenceOverride, RecurringTask, Reminder
 
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
@@ -32,6 +32,10 @@ def _series_key(task: CircuitTask) -> str:
         f"clock:{clock}",
         f"ends:{task.recurrence_ends_at or ''}",
     ])
+
+
+def series_key_for_task(task: CircuitTask) -> str:
+    return _series_key(task)
 
 
 def _row_series_key(row: RecurringTask) -> str:
@@ -183,6 +187,184 @@ def sync_recurring_definition(db: Session, task: CircuitTask) -> Optional[Recurr
     row.active = True
     row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     return row
+
+
+def recurring_definition_for_task(db: Session, user_id: int, task: CircuitTask) -> Optional[RecurringTask]:
+    row = db.query(RecurringTask).filter(
+        RecurringTask.user_id == user_id,
+        RecurringTask.source_task_id == task.id,
+    ).first()
+    if row:
+        return row
+    if task.scheduled_at and (task.recurrence or task.rrule):
+        return sync_recurring_definition(db, task)
+    if task.client_id:
+        client_key = f"client:{task.client_id}"
+        rows = db.query(RecurringTask).filter(RecurringTask.user_id == user_id).all()
+        for candidate in rows:
+            if _row_series_key(candidate) == client_key:
+                return candidate
+    return None
+
+
+def _ics_series_uid(client_id: Optional[str]) -> Optional[str]:
+    if not client_id or not client_id.startswith("ics:"):
+        return None
+    inner = client_id[4:]
+    last_colon = inner.rfind(":")
+    if last_colon >= 0:
+        suffix = inner[last_colon + 1:]
+        if suffix.isdigit() and len(suffix) >= 10:
+            return inner[:last_colon]
+    return inner or None
+
+
+def _has_ics_occurrence_suffix(client_id: Optional[str]) -> bool:
+    if not client_id or not client_id.startswith("ics:"):
+        return False
+    inner = client_id[4:]
+    last_colon = inner.rfind(":")
+    if last_colon < 0:
+        return False
+    suffix = inner[last_colon + 1:]
+    return suffix.isdigit() and len(suffix) >= 10
+
+
+def _same_series_tasks(db: Session, user_id: int, source: CircuitTask) -> list[CircuitTask]:
+    tasks: list[CircuitTask] = []
+    seen: set[int] = set()
+
+    def add(rows: list[CircuitTask]) -> None:
+        for row in rows:
+            if row.id not in seen:
+                seen.add(row.id)
+                tasks.append(row)
+
+    add([source])
+
+    uid = _ics_series_uid(source.client_id)
+    if uid:
+        pattern = f"ics:{uid}:%"
+        add(db.query(CircuitTask).filter(
+            CircuitTask.user_id == user_id,
+            or_(CircuitTask.client_id == f"ics:{uid}", CircuitTask.client_id.like(pattern)),
+        ).all())
+
+    key = _series_key(source) if (source.recurrence or source.rrule or source.client_id) else None
+    if key:
+        candidates = db.query(CircuitTask).filter(
+            CircuitTask.user_id == user_id,
+            or_(CircuitTask.recurrence.isnot(None), CircuitTask.rrule.isnot(None), CircuitTask.client_id.isnot(None)),
+        ).all()
+        add([candidate for candidate in candidates if _series_key(candidate) == key])
+
+    return tasks
+
+
+def delete_recurring_series(
+    db: Session,
+    user_id: int,
+    source: CircuitTask,
+    from_scheduled_at: Optional[int] = None,
+) -> int:
+    recurring = recurring_definition_for_task(db, user_id, source)
+    if not recurring and not source.recurrence and not source.rrule and not _has_ics_occurrence_suffix(source.client_id):
+        return 0
+    affected = 0
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if recurring:
+        row_filters = [
+            MaterializedOccurrence.user_id == user_id,
+            MaterializedOccurrence.recurring_task_id == recurring.id,
+        ]
+        override_filters = [
+            OccurrenceOverride.user_id == user_id,
+            OccurrenceOverride.recurring_task_id == recurring.id,
+        ]
+        if from_scheduled_at is not None:
+            row_filters.append(or_(
+                MaterializedOccurrence.occurrence_start_ms >= from_scheduled_at,
+                MaterializedOccurrence.scheduled_start_ms >= from_scheduled_at,
+            ))
+            override_filters.append(or_(
+                OccurrenceOverride.occurrence_start_ms >= from_scheduled_at,
+                OccurrenceOverride.modified_start_ms >= from_scheduled_at,
+            ))
+
+        affected += db.query(MaterializedOccurrence).filter(*row_filters).delete(synchronize_session=False)
+        affected += db.query(OccurrenceOverride).filter(*override_filters).delete(synchronize_session=False)
+
+        if from_scheduled_at is None or from_scheduled_at <= recurring.start_datetime_ms:
+            if recurring.active:
+                affected += 1
+            recurring.active = False
+        else:
+            new_end = from_scheduled_at - 1
+            if recurring.recurrence_ends_at is None or recurring.recurrence_ends_at > new_end:
+                recurring.recurrence_ends_at = new_end
+                affected += 1
+        recurring.updated_at = now_utc
+
+    tasks = _same_series_tasks(db, user_id, source)
+    for task in tasks:
+        if from_scheduled_at is not None and (task.scheduled_at is None or task.scheduled_at < from_scheduled_at):
+            if task.recurrence or task.rrule:
+                new_end = from_scheduled_at - 1
+                if task.recurrence_ends_at is None or task.recurrence_ends_at > new_end:
+                    task.recurrence_ends_at = new_end
+                    task.updated_at = now_utc
+                    affected += 1
+                    sync_recurring_definition(db, task)
+            continue
+        db.query(Reminder).filter(Reminder.user_id == user_id, Reminder.task_id == task.id).delete(synchronize_session=False)
+        db.delete(task)
+        affected += 1
+
+    return affected
+
+
+def propagate_recurring_series_fields(
+    db: Session,
+    user_id: int,
+    source: CircuitTask,
+    *,
+    include_classification: bool,
+    include_text: bool,
+    classification_fields: tuple[str, ...],
+    from_scheduled_at: Optional[int] = None,
+) -> int:
+    recurring = recurring_definition_for_task(db, user_id, source)
+    affected = 0
+
+    if recurring:
+        meta = json.loads(recurring.metadata_json or "{}")
+        if include_classification:
+            for field in classification_fields:
+                meta[field] = getattr(source, field)
+        if include_text:
+            recurring.title = source.text
+            meta["tiny_step"] = source.tiny_step
+        recurring.metadata_json = json.dumps(meta)
+        recurring.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        affected += 1
+
+    for sibling in _same_series_tasks(db, user_id, source):
+        if sibling.id == source.id:
+            continue
+        if from_scheduled_at is not None and (sibling.scheduled_at is None or sibling.scheduled_at < from_scheduled_at):
+            continue
+        if include_classification:
+            for field in classification_fields:
+                setattr(sibling, field, getattr(source, field))
+        if include_text:
+            sibling.text = source.text
+            sibling.tiny_step = source.tiny_step
+        sibling.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        sync_recurring_definition(db, sibling)
+        affected += 1
+
+    return affected
 
 
 def ensure_recurring_definitions(db: Session, user_id: int) -> None:

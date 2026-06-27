@@ -16,7 +16,11 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, User
-from app.services.virtual_recurrence import sync_recurring_definition
+from app.services.virtual_recurrence import (
+    delete_recurring_series,
+    propagate_recurring_series_fields,
+    sync_recurring_definition,
+)
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
@@ -1016,6 +1020,23 @@ def propagate_classification(
     if not source:
         raise HTTPException(404, "Task not found")
 
+    if not body.include_classification and not body.include_text:
+        raise HTTPException(400, "Nothing to propagate - select at least one option")
+
+    updated = propagate_recurring_series_fields(
+        db,
+        user.id,
+        source,
+        include_classification=body.include_classification,
+        include_text=body.include_text,
+        classification_fields=_CLASSIFICATION_FIELDS,
+        from_scheduled_at=body.from_scheduled_at,
+    )
+    if updated == 0:
+        raise HTTPException(400, "Task is not part of a recurring series")
+    db.commit()
+    return {"updated": updated}
+
     uid = _extract_series_uid(source.client_id or "")
     if not uid:
         raise HTTPException(400, "Task is not part of a recurring series")
@@ -1055,6 +1076,12 @@ def delete_series(
     source = db.query(CircuitTask).filter_by(id=task_id, user_id=user.id).first()
     if not source:
         raise HTTPException(404, "Task not found")
+
+    count = delete_recurring_series(db, user.id, source, from_scheduled_at)
+    if count == 0:
+        raise HTTPException(400, "Task is not part of a recurring series")
+    db.commit()
+    return {"deleted": count}
 
     uid = _extract_series_uid(source.client_id or "")
     if not uid:

@@ -25,6 +25,7 @@ from app.routers.sleep import router as sleep_router
 from app.routers.agent import router as agent_router
 from app.routers.notifications import router as notifications_router
 from app.routers.cron import router as cron_router
+from app.routers.admin import router as admin_router
 
 app = FastAPI(title="Circuit API", version="1.0.0")
 app.state.limiter = limiter
@@ -55,6 +56,7 @@ app.include_router(sleep_router)
 app.include_router(agent_router)
 app.include_router(notifications_router)
 app.include_router(cron_router)
+app.include_router(admin_router)
 
 
 @app.middleware("http")

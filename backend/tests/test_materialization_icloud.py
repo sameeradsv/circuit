@@ -15,7 +15,7 @@ from app.limiter import limiter
 from app.main import app
 from app.models import CalendarSyncLedger, CircuitTask, MaterializedOccurrence, OccurrenceOverride
 from app.services import icloud_calendar
-from app.services.icloud_calendar import CalendarEvent, DesiredEvent, _vevent, sync_icloud_calendar
+from app.services.icloud_calendar import CalendarEvent, DesiredEvent, _vevent, icloud_setup_check, sync_icloud_calendar
 from app.services.virtual_recurrence import materialize_occurrences_for_user, sync_recurring_definition
 
 _IST = ZoneInfo("Asia/Kolkata")
@@ -152,6 +152,12 @@ class FakeCalDAVClient:
     def read_events(self, _calendar_url, _from_ms, _to_ms):
         return list(self.events.values())
 
+    def discover_calendars(self):
+        return [{"display_name": "Circuit", "url": "https://cal.example/Circuit/", "is_calendar": True}]
+
+    def read_calendar_metadata(self, _calendar_url):
+        return {"display_name": "Circuit", "supports_vevent": True, "writable": True}
+
     def put_event(self, calendar_url, event, href=None, etag=None):
         data = _vevent(event)
         target = href or f"{calendar_url}{event.uid}.ics"
@@ -164,10 +170,47 @@ class FakeCalDAVClient:
         self.events.pop(href, None)
 
 
-def test_icloud_sync_is_idempotent_and_recovers_ledger_by_uid(client, auth, monkeypatch):
+class MissingCircuitCalDAVClient(FakeCalDAVClient):
+    def discover_calendars(self):
+        return [{"display_name": "Personal", "url": "https://cal.example/Personal/", "is_calendar": True}]
+
+
+def _set_icloud_env(monkeypatch):
     monkeypatch.setattr(settings, "icloud_apple_id", "apple@example.com")
     monkeypatch.setattr(settings, "icloud_app_specific_password", "pw")
     monkeypatch.setattr(settings, "icloud_caldav_base_url", "https://cal.example/")
+    monkeypatch.setattr(settings, "icloud_calendar_name", "Circuit")
+    monkeypatch.setattr(settings, "icloud_sync_enabled", True)
+    monkeypatch.setattr(settings, "cron_secret", "secret")
+
+
+def test_setup_check_reports_success_without_destructive_operations(monkeypatch):
+    _set_icloud_env(monkeypatch)
+    monkeypatch.setattr(icloud_calendar, "CalDAVClient", FakeCalDAVClient)
+
+    result = icloud_setup_check()
+
+    assert result["syncEnabled"] is True
+    assert all(result["envVarsPresent"].values())
+    assert result["caldavReachable"] is True
+    assert result["circuitCalendarFound"] is True
+    assert result["circuitCalendarWritable"] is True
+    assert result["errors"] == []
+
+
+def test_setup_check_returns_clear_missing_circuit_error(monkeypatch):
+    _set_icloud_env(monkeypatch)
+    monkeypatch.setattr(icloud_calendar, "CalDAVClient", MissingCircuitCalDAVClient)
+
+    result = icloud_setup_check()
+
+    assert result["caldavReachable"] is True
+    assert result["circuitCalendarFound"] is False
+    assert "iCloud calendar 'Circuit' was not found. Please create it manually in Apple Calendar and retry sync." in result["errors"]
+
+
+def test_icloud_sync_is_idempotent_and_recovers_ledger_by_uid(client, auth, monkeypatch):
+    _set_icloud_env(monkeypatch)
     monkeypatch.setattr(icloud_calendar, "CalDAVClient", FakeCalDAVClient)
     FakeCalDAVClient.events = {}
     FakeCalDAVClient.puts = []
@@ -190,9 +233,7 @@ def test_icloud_sync_is_idempotent_and_recovers_ledger_by_uid(client, auth, monk
 
 
 def test_calendar_cleanup_only_deletes_app_owned_window_events(client, auth, monkeypatch):
-    monkeypatch.setattr(settings, "icloud_apple_id", "apple@example.com")
-    monkeypatch.setattr(settings, "icloud_app_specific_password", "pw")
-    monkeypatch.setattr(settings, "icloud_caldav_base_url", "https://cal.example/")
+    _set_icloud_env(monkeypatch)
     monkeypatch.setattr(icloud_calendar, "CalDAVClient", FakeCalDAVClient)
     FakeCalDAVClient.events = {
         "https://cal.example/Circuit/orphan.ics": CalendarEvent(
@@ -214,9 +255,7 @@ def test_calendar_cleanup_only_deletes_app_owned_window_events(client, auth, mon
 
 
 def test_past_completed_calendar_events_are_never_deleted(client, auth, monkeypatch):
-    monkeypatch.setattr(settings, "icloud_apple_id", "apple@example.com")
-    monkeypatch.setattr(settings, "icloud_app_specific_password", "pw")
-    monkeypatch.setattr(settings, "icloud_caldav_base_url", "https://cal.example/")
+    _set_icloud_env(monkeypatch)
     monkeypatch.setattr(icloud_calendar, "CalDAVClient", FakeCalDAVClient)
     FakeCalDAVClient.events = {
         "https://cal.example/Circuit/past.ics": CalendarEvent(

@@ -6,26 +6,79 @@ Circuit does not use Apple Reminders, does not use iOS Shortcuts, and does not c
 
 ## Apple Setup
 
-1. In Apple Calendar, manually create an iCloud calendar named `Circuit`.
-2. Create an app-specific password at appleid.apple.com:
-   - Sign in with the Apple ID that owns the calendar.
-   - Open Sign-In and Security.
-   - Create an app-specific password for Circuit.
-3. Configure the backend environment:
+1. Create the dedicated iCloud calendar manually:
+   - Open Apple Calendar.
+   - Create a new iCloud calendar.
+   - Name it exactly `Circuit`.
+2. Enable an Apple app-specific password:
+   - The Apple ID must have two-factor authentication enabled.
+   - Open Apple Account settings.
+   - Generate an app-specific password.
+   - Use this password only for Circuit CalDAV sync.
+3. Configure the backend environment.
+
+Required:
 
 ```bash
 ICLOUD_APPLE_ID=you@example.com
 ICLOUD_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
-ICLOUD_CALDAV_BASE_URL=https://caldav.icloud.com/
+ICLOUD_CALDAV_BASE_URL=https://caldav.icloud.com
 ICLOUD_CALENDAR_NAME=Circuit
 CRON_SECRET=<long random token>
 ```
 
+Optional:
+
+```bash
+APP_BASE_URL=https://<your-app>
+ICLOUD_SYNC_ENABLED=false
+ICLOUD_SYNC_WINDOW_DAYS=7
+ICLOUD_TIMEZONE=Asia/Kolkata
+```
+
+`ICLOUD_APP_SPECIFIC_PASSWORD` is only read by backend cron/service code. Never log it, expose it to the frontend, or reuse it for anything except CalDAV sync.
+
 `Circuit` must already exist. The sync job discovers calendars through CalDAV and fails with a setup error if it cannot find a calendar with that exact display name. It never creates calendars and never modifies events outside that calendar.
+
+If the calendar is missing, sync returns:
+
+```text
+iCloud calendar 'Circuit' was not found. Please create it manually in Apple Calendar and retry sync.
+```
+
+## Setup Check
+
+Run a non-destructive setup check:
+
+```bash
+curl "https://<api-host>/api/admin/icloud-calendar/setup-check" \
+  -H "Authorization: Bearer <CRON_SECRET>"
+```
+
+Response shape:
+
+```json
+{
+  "syncEnabled": false,
+  "envVarsPresent": {
+    "ICLOUD_APPLE_ID": true,
+    "ICLOUD_APP_SPECIFIC_PASSWORD": true,
+    "ICLOUD_CALDAV_BASE_URL": true,
+    "ICLOUD_CALENDAR_NAME": true,
+    "CRON_SECRET": true
+  },
+  "caldavReachable": true,
+  "circuitCalendarFound": true,
+  "circuitCalendarWritable": true,
+  "errors": []
+}
+```
+
+Setup-check validates env presence, connects to CalDAV, discovers calendars, finds `Circuit`, and reads calendar metadata to infer write access when CalDAV reports privileges. It does not create, update, or delete calendar objects.
 
 ## Cron Endpoints
 
-Both endpoints require:
+Cron endpoints require:
 
 ```http
 Authorization: Bearer <CRON_SECRET>
@@ -43,7 +96,7 @@ It also generates reminder rows for the next 7 days. Future generated occurrence
 
 ### `POST /api/cron/sync-icloud-calendar`
 
-Runs materialization, discovers the `Circuit` iCloud calendar, reads current events for today through today + 7 days, diffs against Circuit occurrences, then creates, updates, or deletes mirror events.
+Runs materialization, validates iCloud setup, discovers the `Circuit` iCloud calendar, reads current events for today through `ICLOUD_SYNC_WINDOW_DAYS`, diffs against Circuit occurrences, then creates, updates, or deletes mirror events. Set `ICLOUD_SYNC_ENABLED=true` to allow calendar writes.
 
 Each event is a one-off `VEVENT` with no `RRULE`. The UID is deterministic:
 
@@ -51,7 +104,16 @@ Each event is a one-off `VEVENT` with no `RRULE`. The UID is deterministic:
 circuit-<taskId>-<occurrenceKey>
 ```
 
-The description contains `Managed by Circuit`, `taskId`, `occurrenceKey`, optional `occurrenceId`, and an app link hint. Completed events may be prefixed with `✅`.
+The description contains `Managed by Circuit`, `taskId`, `occurrenceKey`, optional `occurrenceId`, and an app link. If `APP_BASE_URL` is configured, the link points to that app host. Completed events may be prefixed with a completed marker.
+
+## Security
+
+- Never log the Apple ID app-specific password.
+- Never expose iCloud credentials to frontend code.
+- Only backend cron/service code accesses CalDAV credentials.
+- Cron/admin routes require `Authorization: Bearer <CRON_SECRET>`.
+- Sync only touches the manually discovered `Circuit` calendar.
+- Sync only deletes app-owned events marked `Managed by Circuit`.
 
 ## Deletion Safety
 
@@ -60,6 +122,7 @@ Calendar deletion only happens when all of these are true:
 - The event is inside the manually discovered `Circuit` calendar.
 - The event description contains `Managed by Circuit`.
 - The event is in the current sync window.
+- The event has a parseable `DTSTART` inside the current/future window.
 - The event no longer exists in Circuit's desired occurrence set.
 
 Past events are not queried or deleted by the sync job. Manual events in the `Circuit` calendar that do not contain `Managed by Circuit` are skipped.
@@ -98,4 +161,4 @@ curl -X POST "https://<api-host>/api/cron/cleanup-icloud-calendar?confirm=true" 
   -H "Authorization: Bearer <CRON_SECRET>"
 ```
 
-This endpoint still only touches events in the manually discovered `Circuit` calendar that contain `Managed by Circuit`.
+This endpoint still only touches events in the manually discovered `Circuit` calendar that contain `Managed by Circuit` and have a future/current-window `DTSTART`.

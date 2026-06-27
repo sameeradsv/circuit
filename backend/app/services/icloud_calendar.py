@@ -24,6 +24,7 @@ _IST = ZoneInfo("Asia/Kolkata")
 _UID_RE = re.compile(r"^UID:(.+)$", re.MULTILINE)
 _DTSTART_RE = re.compile(r"^DTSTART(?:;[^:]*)?:(.+)$", re.MULTILINE)
 _MARKER = "Managed by Circuit"
+_MISSING_CALENDAR_ERROR = "iCloud calendar 'Circuit' was not found. Please create it manually in Apple Calendar and retry sync."
 
 
 @dataclass
@@ -54,9 +55,17 @@ class ICloudCalendarSetupError(RuntimeError):
     pass
 
 
+def _app_tz() -> ZoneInfo:
+    try:
+        return ZoneInfo(settings.icloud_timezone or "Asia/Kolkata")
+    except Exception:
+        return _IST
+
+
 def sync_window_ms(now: Optional[datetime] = None) -> tuple[int, int]:
-    today = (now or datetime.now(_IST)).astimezone(_IST).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = today + timedelta(days=8) - timedelta(milliseconds=1)
+    tz = _app_tz()
+    today = (now or datetime.now(tz)).astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    end = today + timedelta(days=max(0, settings.icloud_sync_window_days) + 1) - timedelta(milliseconds=1)
     return int(today.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
@@ -95,9 +104,9 @@ def _extract_dtstart_ms(data: str) -> Optional[int]:
         if value.endswith("Z"):
             dt = datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
         elif "T" in value:
-            dt = datetime.strptime(value, "%Y%m%dT%H%M%S").replace(tzinfo=_IST)
+            dt = datetime.strptime(value, "%Y%m%dT%H%M%S").replace(tzinfo=_app_tz())
         else:
-            dt = datetime.strptime(value, "%Y%m%d").replace(tzinfo=_IST)
+            dt = datetime.strptime(value, "%Y%m%d").replace(tzinfo=_app_tz())
         return int(dt.timestamp() * 1000)
     except ValueError:
         return None
@@ -110,12 +119,13 @@ def _normalize_ics_for_compare(data: str) -> str:
 
 def _vevent(event: DesiredEvent) -> str:
     title = f"\u2705 {event.title}" if event.completed else event.title
+    app_link = f"{settings.app_base_url.rstrip('/')}/calendar" if settings.app_base_url else "/calendar"
     description = "\n".join([
         _MARKER,
         f"taskId: {event.task_id}",
         f"occurrenceKey: {event.occurrence_key}",
         f"occurrenceId: {event.occurrence_id}" if event.occurrence_id is not None else "occurrenceId: none",
-        "app: /calendar",
+        f"app: {app_link}",
     ])
     now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return "\r\n".join([
@@ -215,17 +225,23 @@ def desired_events_for_user(db: Session, user_id: int, from_ms: int, to_ms: int)
 
 
 class CalDAVClient:
+    REQUIRED_ENV = {
+        "ICLOUD_APPLE_ID": "icloud_apple_id",
+        "ICLOUD_APP_SPECIFIC_PASSWORD": "icloud_app_specific_password",
+        "ICLOUD_CALDAV_BASE_URL": "icloud_caldav_base_url",
+        "ICLOUD_CALENDAR_NAME": "icloud_calendar_name",
+        "CRON_SECRET": "cron_secret",
+    }
+
     def __init__(self) -> None:
         missing = [
-            name for name, value in [
-                ("ICLOUD_APPLE_ID", settings.icloud_apple_id),
-                ("ICLOUD_APP_SPECIFIC_PASSWORD", settings.icloud_app_specific_password),
-                ("ICLOUD_CALDAV_BASE_URL", settings.icloud_caldav_base_url),
-            ]
-            if not value
+            name for name, attr in self.REQUIRED_ENV.items()
+            if not getattr(settings, attr, "")
         ]
         if missing:
             raise ICloudCalendarSetupError(f"Missing iCloud CalDAV env vars: {', '.join(missing)}")
+        if settings.icloud_calendar_name != "Circuit":
+            raise ICloudCalendarSetupError("ICLOUD_CALENDAR_NAME must be exactly 'Circuit'.")
         self.base_url = settings.icloud_caldav_base_url.rstrip("/") + "/"
         self.client = httpx.Client(
             auth=(settings.icloud_apple_id, settings.icloud_app_specific_password),
@@ -242,6 +258,13 @@ class CalDAVClient:
         return response
 
     def discover_circuit_calendar(self) -> str:
+        calendars = self.discover_calendars()
+        for item in calendars:
+            if item["display_name"] == settings.icloud_calendar_name and item["is_calendar"]:
+                return item["url"]
+        raise ICloudCalendarSetupError(_MISSING_CALENDAR_ERROR)
+
+    def discover_calendars(self) -> list[dict[str, object]]:
         body = """<?xml version="1.0" encoding="utf-8" ?>
 <d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
   <d:prop><d:displayname/><d:resourcetype/></d:prop>
@@ -249,16 +272,47 @@ class CalDAVClient:
         response = self._request("PROPFIND", self.base_url, headers={"Depth": "1"}, content=body)
         root = ET.fromstring(response.text)
         ns = {"d": "DAV:", "cal": "urn:ietf:params:xml:ns:caldav"}
+        calendars: list[dict[str, object]] = []
         for resp in root.findall("d:response", ns):
             href = resp.findtext("d:href", default="", namespaces=ns)
             display = resp.findtext(".//d:displayname", default="", namespaces=ns)
             resourcetype = resp.find(".//d:resourcetype", ns)
             is_calendar = resourcetype is not None and resourcetype.find("cal:calendar", ns) is not None
-            if display == settings.icloud_calendar_name and is_calendar:
-                return urljoin(self.base_url, href).rstrip("/") + "/"
-        raise ICloudCalendarSetupError(
-            f'iCloud calendar "{settings.icloud_calendar_name}" was not found. Create it manually in Apple Calendar, then rerun sync.'
-        )
+            calendars.append({
+                "display_name": display,
+                "url": urljoin(self.base_url, href).rstrip("/") + "/",
+                "is_calendar": is_calendar,
+            })
+        return calendars
+
+    def read_calendar_metadata(self, calendar_url: str) -> dict[str, object]:
+        body = """<?xml version="1.0" encoding="utf-8" ?>
+<d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:displayname/>
+    <d:current-user-privilege-set/>
+    <cal:supported-calendar-component-set/>
+  </d:prop>
+</d:propfind>"""
+        response = self._request("PROPFIND", calendar_url, headers={"Depth": "0"}, content=body)
+        root = ET.fromstring(response.text)
+        ns = {"d": "DAV:", "cal": "urn:ietf:params:xml:ns:caldav"}
+        display = root.findtext(".//d:displayname", default="", namespaces=ns)
+        privileges = {
+            elem.tag.split("}", 1)[-1]
+            for elem in root.findall(".//d:current-user-privilege-set/d:privilege/*", ns)
+        }
+        components = {
+            elem.attrib.get("name", "")
+            for elem in root.findall(".//cal:supported-calendar-component-set/cal:comp", ns)
+        }
+        writable = bool({"write", "write-content", "bind"}.intersection(privileges))
+        return {
+            "display_name": display,
+            "privileges": sorted(privileges),
+            "supports_vevent": "VEVENT" in components or not components,
+            "writable": writable,
+        }
 
     def read_events(self, calendar_url: str, from_ms: int, to_ms: int) -> list[CalendarEvent]:
         body = f"""<?xml version="1.0" encoding="utf-8" ?>
@@ -336,6 +390,64 @@ def _upsert_ledger(
     return row
 
 
+def icloud_setup_check() -> dict[str, object]:
+    env_vars_present = {
+        name: bool(getattr(settings, attr, ""))
+        for name, attr in CalDAVClient.REQUIRED_ENV.items()
+    }
+    result: dict[str, object] = {
+        "syncEnabled": bool(settings.icloud_sync_enabled),
+        "envVarsPresent": env_vars_present,
+        "caldavReachable": False,
+        "circuitCalendarFound": False,
+        "circuitCalendarWritable": False,
+        "errors": [],
+    }
+    errors: list[str] = []
+    missing = [name for name, present in env_vars_present.items() if not present]
+    if missing:
+        errors.append(f"Missing required environment variables: {', '.join(missing)}")
+        result["errors"] = errors
+        return result
+    if settings.icloud_calendar_name != "Circuit":
+        errors.append("ICLOUD_CALENDAR_NAME must be exactly 'Circuit'.")
+        result["errors"] = errors
+        return result
+
+    client: Optional[CalDAVClient] = None
+    try:
+        client = CalDAVClient()
+        calendars = client.discover_calendars()
+        result["caldavReachable"] = True
+        circuit = next(
+            (
+                item for item in calendars
+                if item.get("display_name") == settings.icloud_calendar_name and item.get("is_calendar") is True
+            ),
+            None,
+        )
+        if circuit is None:
+            errors.append(_MISSING_CALENDAR_ERROR)
+            result["errors"] = errors
+            return result
+        result["circuitCalendarFound"] = True
+        metadata = client.read_calendar_metadata(str(circuit["url"]))
+        result["circuitCalendarWritable"] = bool(metadata.get("writable")) and bool(metadata.get("supports_vevent"))
+        if not result["circuitCalendarWritable"]:
+            errors.append("iCloud calendar 'Circuit' was found, but write access could not be confirmed.")
+    except ICloudCalendarSetupError as exc:
+        errors.append(str(exc))
+    except httpx.HTTPError as exc:
+        errors.append(f"Unable to reach iCloud CalDAV: {exc.__class__.__name__}")
+    except ET.ParseError:
+        errors.append("iCloud CalDAV returned an unreadable XML response.")
+    finally:
+        if client:
+            client.close()
+    result["errors"] = errors
+    return result
+
+
 def sync_icloud_calendar(db: Session, *, now: Optional[datetime] = None) -> dict[str, int | str | None]:
     from_ms, to_ms = sync_window_ms(now)
     stats: dict[str, int | str | None] = {
@@ -348,10 +460,16 @@ def sync_icloud_calendar(db: Session, *, now: Optional[datetime] = None) -> dict
         "failed_count": 0,
         "error": None,
     }
+    if not settings.icloud_sync_enabled:
+        stats["error"] = "iCloud sync is disabled. Set ICLOUD_SYNC_ENABLED=true to enable it."
+        return stats
     user_ids = [row[0] for row in db.query(User.id).all()]
     client = CalDAVClient()
     try:
         calendar_url = client.discover_circuit_calendar()
+        metadata = client.read_calendar_metadata(calendar_url)
+        if not (metadata.get("writable") and metadata.get("supports_vevent")):
+            raise ICloudCalendarSetupError("iCloud calendar 'Circuit' was found, but write access could not be confirmed.")
         current_events = client.read_events(calendar_url, from_ms, to_ms)
         current_by_uid = {event.uid: event for event in current_events if event.uid}
         current_by_href = {event.href: event for event in current_events}
@@ -427,6 +545,9 @@ def cleanup_icloud_calendar(*, confirm: bool = False, now: Optional[datetime] = 
     client = CalDAVClient()
     try:
         calendar_url = client.discover_circuit_calendar()
+        metadata = client.read_calendar_metadata(calendar_url)
+        if confirm and not (metadata.get("writable") and metadata.get("supports_vevent")):
+            raise ICloudCalendarSetupError("iCloud calendar 'Circuit' was found, but write access could not be confirmed.")
         events = client.read_events(calendar_url, from_ms, to_ms)
         candidates = []
         for event in events:

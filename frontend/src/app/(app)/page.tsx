@@ -391,6 +391,24 @@ export default function HomePage() {
     ]).finally(() => setFetching(false));
   }, [user]);
 
+  async function refreshTasks() {
+    const list = await api.listTasks();
+    setTasks(list);
+    setNextMeeting(pickNextScheduledTask(list));
+    setCurrentMeeting(pickCurrentScheduledTask(list));
+  }
+
+  function seriesDeleteId(task: ApiTask): ApiTask["id"] {
+    return typeof task.id === "number" ? task.id : task.source_task_id ?? task.id;
+  }
+
+  async function deleteSeriesTasks(task: ApiTask, fromScheduledAt?: number) {
+    const id = seriesDeleteId(task);
+    if (typeof id !== "number") return;
+    await api.deleteSeries(id, fromScheduledAt);
+    await refreshTasks();
+  }
+
   useEffect(() => {
     const tick = () => {
       setCurrentMeeting(pickCurrentScheduledTask(tasks));
@@ -637,6 +655,10 @@ export default function HomePage() {
           onSave={(updated) => {
             setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
             setDetailTask(updated);
+          }}
+          onDeleteSeries={async (fromScheduledAt) => {
+            await deleteSeriesTasks(detailTask, fromScheduledAt);
+            setDetailTask(null);
           }}
           onClose={() => setDetailTask(null)}
         />

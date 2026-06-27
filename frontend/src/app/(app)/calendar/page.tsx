@@ -991,6 +991,17 @@ export default function CalendarPage() {
     return { scheduled_at: scheduledAt };
   }
 
+  function seriesDeleteId(task: ApiTask): ApiTask["id"] {
+    return typeof task.id === "number" ? task.id : task.source_task_id ?? task.id;
+  }
+
+  async function deleteSeriesTasks(task: ApiTask, fromScheduledAt?: number) {
+    const id = seriesDeleteId(task);
+    if (typeof id !== "number") return;
+    await api.deleteSeries(id, fromScheduledAt);
+    await refreshVisibleTasks();
+  }
+
   function handleDropTask(task: ApiTask, newMs: number) {
     if (newMs === task.scheduled_at) return;
     const conflict = findScheduledConflict(task, newMs, tasks);
@@ -1235,6 +1246,10 @@ export default function CalendarPage() {
               return;
             }
             setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t).filter((t) => !t.completed));
+          }}
+          onDeleteSeries={async (fromScheduledAt) => {
+            await deleteSeriesTasks(selectedTask, fromScheduledAt);
+            setSelectedTask(null);
           }}
           onClose={() => setSelectedTask(null)}
         />

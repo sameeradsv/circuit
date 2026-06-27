@@ -54,8 +54,15 @@ export function TaskDetailModal({
   const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const hasStoredId = typeof task.id === "number";
-  const isSeries = hasStoredId && /^ics:.+:\d{10,}$/.test(task.client_id ?? "");
+  const seriesTaskId = typeof task.source_task_id === "number"
+    ? task.source_task_id
+    : typeof task.id === "number"
+      ? task.id
+      : null;
+  const isSeries = Boolean(
+    seriesTaskId != null
+    && (task.recurrence || task.rrule || task.is_recurring_template || task.is_virtual_occurrence || /^ics:.+:\d{10,}$/.test(task.client_id ?? ""))
+  );
   const merged: MergedTask = { ...task, ...patch };
 
   const scored = scoreTask(apiTaskToTask({ ...task, ...patch } as ApiTask), {
@@ -70,13 +77,13 @@ export function TaskDetailModal({
   }
 
   async function handleApplyToSeries() {
-    if (typeof task.id !== "number") return;
+    if (seriesTaskId == null) return;
     setPropagating(true);
     setSaveError(null);
     setPropagateMsg(null);
     try {
-      if (Object.keys(patch).length > 0) await api.updateTask(task.id, patch);
-      const { updated } = await api.propagateClassification(task.id, {
+      if (Object.keys(patch).length > 0) await api.updateTask(seriesTaskId, patch);
+      const { updated } = await api.propagateClassification(seriesTaskId, {
         include_classification: seriesOpts.classification,
         include_text: seriesOpts.name,
         from_scheduled_at: seriesOpts.forwardOnly ? (task.scheduled_at ?? Date.now()) : undefined,

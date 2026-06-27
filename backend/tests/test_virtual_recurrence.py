@@ -331,3 +331,70 @@ def test_repeated_virtual_completions_do_not_leave_open_duplicates(client, auth)
 
     assert len(starts) == len(set(starts))
     assert starts == [_ms(start + timedelta(days=4)), _ms(start + timedelta(days=5))]
+
+
+def test_delete_series_removes_virtual_recurring_definition(client, auth):
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
+    task = _create_recurring(client, auth, "Daily delete me", start, "daily")
+
+    r = client.delete(f"/api/calendar/series/{task['id']}", headers=auth)
+    assert r.status_code == 200
+    assert r.json()["deleted"] >= 1
+
+    items = _range(client, auth, start, start + timedelta(days=3))
+    assert [i for i in items if i["text"] == "Daily delete me"] == []
+
+
+def test_delete_series_from_here_keeps_earlier_virtual_occurrences(client, auth):
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
+    task = _create_recurring(client, auth, "Daily trim me", start, "daily")
+    cutoff = _ms(start + timedelta(days=2))
+
+    r = client.delete(f"/api/calendar/series/{task['id']}", params={"from_scheduled_at": cutoff}, headers=auth)
+    assert r.status_code == 200
+
+    items = _range(client, auth, start, start + timedelta(days=4))
+    starts = [i["scheduled_at"] for i in items if i["text"] == "Daily trim me"]
+    assert starts == [_ms(start), _ms(start + timedelta(days=1))]
+
+
+def test_delete_series_handles_lazy_rrule_calendar_template(client, auth):
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
+    task = _create_recurring_with_payload(
+        client,
+        auth,
+        {
+            "text": "RRULE delete me",
+            "client_id": "ics:test-rrule-delete",
+            "scheduled_at": _ms(start),
+            "duration": 30,
+            "recurrence": "weekly:MO",
+            "rrule": "FREQ=WEEKLY;BYDAY=MO",
+            "rrule_dtstart_ms": _ms(start),
+            "is_recurring_template": True,
+        },
+    )
+
+    r = client.delete(f"/api/calendar/series/{task['id']}", headers=auth)
+    assert r.status_code == 200
+
+    items = _range(client, auth, start, start + timedelta(days=14))
+    assert [i for i in items if i["text"] == "RRULE delete me"] == []
+
+
+def test_propagate_series_updates_virtual_occurrence_metadata(client, auth):
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
+    task = _create_recurring(client, auth, "Daily classify me", start, "daily")
+
+    r = client.patch(f"/api/tasks/{task['id']}", json={"tag": "work", "focus_type": "deep"}, headers=auth)
+    assert r.status_code == 200
+    r = client.post(
+        f"/api/calendar/propagate-classification/{task['id']}",
+        json={"include_classification": True, "include_text": False},
+        headers=auth,
+    )
+    assert r.status_code == 200
+
+    item = [i for i in _range(client, auth, start + timedelta(days=1), start + timedelta(days=1)) if i["text"] == "Daily classify me"][0]
+    assert item["tag"] == "work"
+    assert item["focus_type"] == "deep"

@@ -604,7 +604,7 @@ export default function TasksPage() {
             setDeletingTask(detailTask);
           }}
           onDeleteSeries={async (fromScheduledAt) => {
-            await deleteSeriesTasks(detailTask.id, fromScheduledAt);
+            await deleteSeriesTasks(seriesDeleteId(detailTask), fromScheduledAt);
             setDetailTask(null);
           }}
           onClose={() => setDetailTask(null)}
