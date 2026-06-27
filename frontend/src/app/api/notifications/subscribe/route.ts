@@ -5,7 +5,6 @@ import { parseSubscribePayload } from "@/server/reminders/payloads";
 import { materializeUpcomingReminders } from "@/server/reminders/scheduler";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");

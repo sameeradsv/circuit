@@ -4,7 +4,6 @@ import { sql } from "@/server/reminders/db";
 import { parseUnsubscribePayload } from "@/server/reminders/payloads";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
