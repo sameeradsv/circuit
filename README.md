@@ -52,7 +52,7 @@ The FastAPI backend is configured for Vercel Python Functions:
 - Install command: `pip install -r requirements.txt`
 - Entrypoint: `api/index.py`
 - Required production env: `DATABASE_URL`, `CORS_ORIGINS`, `CORTEX_AUTH_URL`, `INIT_DB_ON_STARTUP=false`
-- Optional env: `GROQ_API_KEY`
+- Optional env: `GROQ_API_KEY` for `/chat`, `/api/ai/classify`, and Groq-backed task default suggestions; `CIRCUIT_TASK_SUGGEST_MODEL` can override the suggestion model.
 
 For a new database, or before deploying schema changes while startup DB init is disabled:
 
@@ -85,6 +85,7 @@ Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed fr
 | **Canopy-default energy** | Home/Tasks/Sidebar use Canopy `energy_so_far` by default; optional same-day manual override in Account → Today's context |
 | **Calendar navigation + layout** | Day/week/month support arrows and swipe/trackpad navigation; day view has the date strip; day/week overlaps account for travel buffers, virtual recurring slots, and minimum rendered event height; month view scrolls horizontally and vertically |
 | **Home focus window** | Read-only countdown to next scheduled event; shows busy/blocked when the current time is inside a calendar task |
+| **Groq task defaults** | Home/Tasks quick-add call `POST /api/ai/suggest-task` so new tasks infer duration, effort, focus type, priority, cognitive/energy fields, reminders, and a tiny step from the event name; review opens TaskDetailModal for overrides |
 | **Account preferences fix** | Form waits for API load before render; default bedtime and wake time on shared row |
 | **Manual datetime picker** | Set exact scheduled date + time when adding or editing a task |
 | **Voice input** | Dictate tasks on the Add page and quick-add row (Web Speech API) |

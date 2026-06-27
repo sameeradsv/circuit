@@ -41,6 +41,12 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `focus_type` (`shallow` / `deep` / `admin` / `creative`)
 - `energy_to_reward_ratio` — shown in the UI as **Feels good after**; high when finishing feels satisfying, relieving, energizing, or worth it.
 
+## AI defaults on task creation
+
+New full-stack task additions call Groq through `POST /api/ai/suggest-task` to infer task parameters from the event name before `POST /api/tasks`. The suggestion covers scheduling/scoring fields such as `duration`, `effort`, `focus_type`, `importance`, `urgency`, cognitive/energy dimensions, `tiny_step`, reminder offsets, dependencies/resources, blackout skip flags, and travel buffers.
+
+Explicit capture syntax still wins: parsed tags, priority markers, duration, and schedule hints are preserved over AI output. The task create endpoint applies the same suggestion service only to omitted fields, so direct API clients that send just `text` still get intelligent defaults while explicit payload values remain authoritative. The suggestion reasoning is stored in `metadata_json.ai_default_reasoning` when available.
+
 ## Priority / value
 
 - `importance`, `urgency`, `consequence_of_delay`, `momentum_value`

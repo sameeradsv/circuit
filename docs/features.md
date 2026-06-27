@@ -28,7 +28,9 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 ## Task capture & editing
 
 - Structured dimensions: priority, cognitive load, effort, duration, scheduling, recurrence
-- **Home capture** — natural-language capture with local metric defaults; `/add` redirects to Home
+- **Home capture** — natural-language capture with Groq-backed task defaults; `/add` redirects to Home
+- **AI task defaults** — `POST /api/ai/suggest-task` infers duration, effort, focus type, cognitive/priority/energy fields, reminders, schedule hints, and a tiny step from the event name. Explicit user hints such as `#work`, `30m`, or a parsed date/time override the suggestion. `POST /api/tasks` also fills any omitted fields as a server-side safety net.
+- **Review suggested values** — Home and Tasks quick-add can open the new task directly in `TaskDetailModal` so generated parameters can be overridden before the user continues.
 - **Tasks search** — debounced `GET /api/search` when the search box is active
 - **TaskDetailModal** (`components/task-detail/`) — sectioned editor with hover tooltips on every field
 - **Per-task reminders** — scheduled tasks can enable/disable browser notifications and choose two reminder timings in Time & focus; the global sidebar bell still controls browser permission/overall enablement

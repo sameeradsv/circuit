@@ -10,7 +10,7 @@ Records intentional choices from the 2026 stub cleanup and restore-and-rewire pa
 
 **Reason:** User feedback favored fast input on Home and kept ranked decision support on Tasks. Energy mode (`focus_mode`) affects rank consistently with TaskDetailModal preview.
 
-**Implication:** Fit % and rationale live on Tasks. Home task creation auto-fills scoring metrics from the task description, with overrides available through TaskDetailModal.
+**Implication:** Fit % and rationale live on Tasks. Home task creation auto-fills scoring metrics from the task description using Groq-backed defaults, with overrides available through TaskDetailModal.
 
 ---
 
@@ -97,17 +97,17 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 ## Groq-only AI (2026-06-17)
 
-**Decision:** All LLM calls use **Groq** (`GROQ_API_KEY`). No Anthropic/OpenAI fallbacks in Circuit agent or classify paths.
+**Decision:** All LLM calls use **Groq** (`GROQ_API_KEY`). No Anthropic/OpenAI fallbacks in Circuit agent, classify, or task-default suggestion paths.
 
 ---
 
 ## Polish pass: local utterance parser (2026-06-17)
 
-**Decision:** Task capture uses sync `parseUtterance()` (`frontend/src/lib/parse-utterance.ts`) — merges `parseTaskText`, energy hints, and a port of `backend/app/services/ai.py` heuristics. **No `POST /api/ai/classify` on Add/Tasks submit** (removes capture latency and backend load).
+**Decision:** Task capture uses sync `parseUtterance()` (`frontend/src/lib/parse-utterance.ts`) for explicit syntax (`#tag`, duration, priority, schedule text) and sends full-stack additions through `POST /api/ai/suggest-task` for Groq-backed defaults across scheduling, cognitive, priority, energy, reminder, and tiny-step fields. **No `POST /api/ai/classify` on Add/Tasks submit**; classify remains a lightweight standalone endpoint.
 
 **Vanilla PWA:** Same parser in `src/ai-assistance/parse-utterance.ts`; `#analytics` and `#energy` render on hash navigation only (no extra startup fetch). Voice mic injected on add form when supported. Full cumulative energy timeline and Groq agent remain full-stack / Conduit only.
 
-**Do not** re-add classify-on-capture without measuring latency impact.
+**Do not** re-add classify-on-capture. If capture latency becomes a problem, tune or defer `suggest-task` rather than routing through the narrower classify endpoint.
 
 ---
 
