@@ -3,7 +3,7 @@
 **Last updated:** 2026-06-17  
 **Scope:** Circuit, Chef, Canopy, Conduit ecosystem
 
-This file is the **canonical inventory** of work intentionally not shipped yet. Each app repo carries a copy (keep in sync when editing). See also per-app [DECISIONS.md](./DECISIONS.md), [roadmap.md](./roadmap.md), [BACKLOG.md](./BACKLOG.md).
+This file is the **canonical inventory** of work intentionally not shipped yet. Each app repo carries a copy (keep in sync when editing). See also per-app [DECISIONS.md](./DECISIONS.md).
 
 ---
 

@@ -31,7 +31,7 @@ Both apps share **TypeScript engines** under `src/*-engine/` (scoring, recurrenc
 | `task_event_time.py` | Map task events to scheduled slot for energy timeline (write + read) |
 | `database.py` | Additive migrations via `init_db()` / `python -m app.database` (no Alembic) |
 
-Key routers: see `CLAUDE.md` router table.
+Key routers: see `AGENTS.md` / the repository instructions router table.
 
 ## Frontend (`frontend/src/`)
 
@@ -65,7 +65,7 @@ Key routers: see `CLAUDE.md` router table.
 
 **Full-stack**: PostgreSQL (prod) or SQLite (`backend/data/circuit.db` dev). All user data keyed by `user_id`.
 
-**Recurring commitments**: `CircuitTask` remains the current/actionable task record, while `recurring_tasks` stores the durable recurrence definition (`start_datetime_ms`, `duration`, `recurrence` / `rrule`, metadata). `occurrence_overrides` stores only per-instance state: completed, skipped, or rescheduled with modified start/duration. Ranged task reads expand only the requested window, and scheduler availability expands a bounded planning horizon so future recurring slots are busy without materializing unlimited rows.
+**Recurring commitments**: `CircuitTask` remains the current/actionable task record, while `recurring_tasks` stores the durable recurrence definition (`start_datetime_ms`, `duration`, `recurrence` / `rrule`, metadata). The app uses a hybrid read model: the rolling current window can be stored in `materialized_occurrences`; outside that window, ranged reads expand virtual occurrences on demand. `occurrence_overrides` is authoritative for per-instance state across both paths: completed, skipped, or rescheduled with modified start/duration.
 
 **Vanilla PWA**: `localStorage` `circuit_tasks_v1[_username]`, account hashes in `circuit_auth_users_v1`.
 
@@ -106,4 +106,4 @@ Keep using PostgreSQL/Neon for production; SQLite is only for local development.
 
 ## Docs
 
-Product reference: `CLAUDE.md` (agent/developer guide). Decisions: [DECISIONS.md](./DECISIONS.md). User-facing feature list: [features.md](./features.md). Task fields: [task-model.md](./task-model.md).
+Product reference: repository instructions (`AGENTS.md`). Decisions: [DECISIONS.md](./DECISIONS.md). User-facing feature list: [features.md](./features.md). Task fields: [task-model.md](./task-model.md). Deferred work and roadmap: [DEFERRED.md](./DEFERRED.md).

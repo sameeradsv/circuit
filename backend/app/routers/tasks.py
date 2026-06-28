@@ -746,8 +746,11 @@ def batch_update_tasks(
     )
     _JSON_FIELDS = {"required_resources", "dependencies"}
     patch_data = payload.patch.model_dump(exclude_unset=True, exclude={"propagate_group", "completion_occurred_at"})
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     for task in tasks:
         was_completed = task.completed
+        old_scheduled_at = task.scheduled_at
+        old_skipped = task.skipped_count or 0
         for field, value in patch_data.items():
             if field == "metadata":
                 task.metadata_json = json.dumps(value)
@@ -755,11 +758,68 @@ def batch_update_tasks(
                 setattr(task, field, json.dumps(value))
             elif field == "blackout_skip_flags":
                 task.blackout_skip_flags = json.dumps(value) if value is not None else None
+            elif field == "day_time_overrides":
+                task.day_time_overrides = json.dumps(value) if value else None
             else:
                 setattr(task, field, value)
+
+        if payload.patch.skipped_count is not None and payload.patch.skipped_count > old_skipped:
+            skip_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            task.last_skipped_at = skip_ms
+            task.delay_pattern = update_delay_pattern_on_skip(task, skip_ms)
+            db.add(TaskEvent(
+                user_id=user.id,
+                task_id=task.id,
+                event_type="skipped",
+                occurred_at=now_utc,
+                metadata_json=json.dumps({
+                    "reason": "batch",
+                    "from_ms": old_scheduled_at,
+                    "to_ms": task.scheduled_at,
+                }),
+            ))
+
+        if task.scheduled_at != old_scheduled_at and payload.patch.skipped_count is None:
+            db.add(TaskEvent(
+                user_id=user.id,
+                task_id=task.id,
+                event_type="rescheduled",
+                occurred_at=now_utc,
+                metadata_json=json.dumps({
+                    "reason": "batch",
+                    "from_ms": old_scheduled_at,
+                    "to_ms": task.scheduled_at,
+                }),
+            ))
+
+        if task.completed != was_completed:
+            event_type = "completed" if task.completed else "uncompleted"
+            db.add(TaskEvent(
+                user_id=user.id,
+                task_id=task.id,
+                event_type=event_type,
+                occurred_at=task_event_occurred_at(
+                    task,
+                    explicit_ms=payload.patch.completion_occurred_at if task.completed else None,
+                ),
+                metadata_json=json.dumps({"reason": "batch"}),
+            ))
+
         if patch_data.get("completed") is True and not was_completed:
             task.historical_completion_rate = record_completion_rate(task.historical_completion_rate)
-        task.updated_at = datetime.utcnow()
+            apply_complete_learning(task)
+            if task.scheduled_at and (task.recurrence or task.rrule):
+                recurring_def = sync_recurring_definition(db, task)
+                if recurring_def:
+                    upsert_occurrence_override(
+                        db,
+                        user.id,
+                        recurring_def.id,
+                        task.scheduled_at,
+                        status="completed",
+                    )
+        task.updated_at = now_utc
+        sync_recurring_definition(db, task)
         if task.completed:
             cancel_pending_reminders_for_task(db, task.id, user.id)
         else:

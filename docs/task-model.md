@@ -25,9 +25,9 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 
 - `recurring_tasks` stores recurring definitions instead of materializing every future slot: source task id, title, start datetime, duration, simple `recurrence` or imported `rrule`, optional end date, and metadata copied from the source task.
 - `occurrence_overrides` stores only per-occurrence changes: `completed`, `skipped`, or `rescheduled`, plus modified start/duration when needed.
-- Ranged task reads return materialized one-off tasks plus virtual occurrences with stable ids like `r_<recurringTaskId>_<occurrenceStart>`.
+- Ranged task reads return ordinary one-off tasks plus recurring occurrences with stable ids like `r_<recurringTaskId>_<occurrenceStart>`. The current rolling window may come from `materialized_occurrences`; farther ranges are expanded virtually on demand.
 - Completing/skipping/rescheduling a virtual occurrence writes an override row; future occurrences remain virtual and bounded to the requested calendar/scheduler window.
-- Completing a materialized recurring task also records the completed slot in `occurrence_overrides`, preventing ranged calendar reads from re-expanding the same slot as an open virtual duplicate.
+- `occurrence_overrides` is applied to both materialized and virtual reads, so completed/skipped/rescheduled instances behave the same regardless of how the occurrence was generated.
 
 ## Blackouts
 
@@ -87,7 +87,7 @@ Optional per-day rows keyed by IST wake-up date: `quality`, `disturbed`, `notes`
 
 ## Task events (`TaskEvent` table)
 
-Logged on complete/uncomplete/skip/reschedule. Fields: `event_type`, `occurred_at`, `metadata_json`.
+Logged on complete/uncomplete/skip/reschedule. Fields: `event_type`, `occurred_at`, `metadata_json`. Single-task PATCH logs completion/uncompletion; batch command updates now log completion, uncompletion, skip, and reschedule. Manual skip/reschedule UI actions still call `POST /api/history/events` for richer action metadata.
 
 - **Energy timeline** (`/api/energy/timeline`): effective time = `scheduled_at` of the linked task when set, else stored `occurred_at`. Logic in `app/task_event_time.py`.
 - **Sleep work signals**: always raw `occurred_at` (when you actually worked).

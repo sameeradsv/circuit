@@ -13,7 +13,7 @@ Authenticated routes under `frontend/src/app/(app)/`:
 
 | Page | Route | Purpose |
 |------|-------|---------|
-| Home | `/` | Capture-first dashboard — add tasks with auto-filled metrics, Canopy energy (read-only), focus window |
+| Home | `/` | Capture-first dashboard with ranked top picks, task capture with auto-filled metrics, Canopy energy (read-only), focus window |
 | Tasks | `/tasks` | Ranked list, type filters, direct done/skip/reschedule actions, **server search** (`GET /api/search`), energy mode switcher, **On hold** during blackouts |
 | Calendar | `/calendar` | Day / week / month views, day-view date strip, swipe/trackpad navigation, drag-and-drop, blackout shading, ICS import |
 | Add | `/add` | Redirects to Home; quick capture now lives on `/` |
@@ -75,7 +75,7 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 - **Task-event duration scaling:** energy cost uses `duration_minutes / 60`, clamped from 0.5× to 8.0×, so long 6–8h tasks have proportionally larger impact than short tasks.
 - **Time window for ranking:** `UserState.time_available_minutes` (Account) on Tasks.
 - **Energy mode:** `UserState.focus_mode` synced via `use-energy-mode.ts`; switchable on Tasks header.
-- **Task ranking:** Tasks uses shared `lib/task-ranking.ts` → engine `scoreTasks` (energy mode + available minutes aware). Home is capture-first and no longer shows suggested next/after-that recommendations.
+- **Task ranking:** Home and Tasks use shared `lib/task-ranking.ts` → engine `scoreTasks` (energy mode + available minutes aware). Home limits ranked picks to unscheduled tasks or tasks due within the next 3 days so suggestions stay actionable.
 - **Circuit task energy on the timeline** is anchored to each task's **scheduled time** (when the work was planned), not when you tapped complete — matches Canopy (`occurred_at`) and Chef (meal `timestamp`). Recurring and virtual recurring completions create `TaskEvent` rows and therefore cost/restore energy like one-off tasks. Optional completion time stores actual completion metadata and delay minutes; delayed completions apply a small capped extra drain and feed scheduling insights.
 
 ## Account and sync

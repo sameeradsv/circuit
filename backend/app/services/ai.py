@@ -190,7 +190,7 @@ def _normalize_suggestion(raw: dict[str, Any], text: str, context: str | None) -
     def string_list(name: str) -> list[str]:
         value = raw.get(name)
         return [str(v) for v in value if isinstance(v, str)] if isinstance(value, list) else []
-    return {
+    normalized = {
         "tag": tag,
         "urgency": _clamp01(raw.get("urgency"), fallback["urgency"]),
         "importance": _clamp01(raw.get("importance"), fallback["importance"]),
@@ -226,6 +226,47 @@ def _normalize_suggestion(raw: dict[str, Any], text: str, context: str | None) -
         "notification_offset_2_mins": raw.get("notification_offset_2_mins") if isinstance(raw.get("notification_offset_2_mins"), int) else None,
         "reasoning": str(raw.get("reasoning") or fallback["reasoning"])[:1000],
     }
+    return _apply_contextual_floors(normalized, text, context)
+
+
+def _apply_contextual_floors(data: dict[str, Any], text: str, context: str | None) -> dict[str, Any]:
+    full = f"{text} {context or ''}".lower()
+    # The model may legally return 0 for 0-1 fields. For planner defaults,
+    # zero usually means "this dimension does not exist", which is too
+    # destructive for generic calendar blocks like "Work".
+    floor_by_field = {
+        "importance": 0.2,
+        "urgency": 0.2,
+        "cognitive_load": 0.2,
+        "emotional_resistance": 0.1,
+        "activation_energy": 0.1,
+        "recovery_cost": 0.1,
+        "time_sensitivity": 0.2,
+        "consequence_of_delay": 0.15,
+        "momentum_value": 0.2,
+        "compound_benefit": 0.1,
+        "identity_alignment": 0.1,
+        "energy_to_reward_ratio": 0.1,
+    }
+    if any(token in full for token in ("work", "office", "deep work", "focus", "project", "client", "meeting", "review", "deadline")):
+        floor_by_field.update({
+            "importance": 0.65,
+            "cognitive_load": 0.45,
+            "activation_energy": 0.4,
+            "recovery_cost": 0.25,
+            "consequence_of_delay": 0.45,
+            "momentum_value": 0.45,
+            "time_sensitivity": 0.4,
+        })
+        if data.get("focus_type") in (None, "shallow") and any(token in full for token in ("deep work", "focus", "project")):
+            data["focus_type"] = "deep"
+        if data.get("tag") == "general":
+            data["tag"] = "work"
+    for field, minimum in floor_by_field.items():
+        data[field] = _clamp01(data.get(field), minimum)
+        if data[field] < minimum:
+            data[field] = minimum
+    return data
 
 
 def _classify_with_groq(text: str, context: str | None, api_key: str) -> dict:
@@ -281,6 +322,8 @@ def _suggest_with_groq(text: str, context: str | None, api_key: str) -> dict:
         + "\nInfer practical defaults for a new Circuit task. "
         "Use null when a date/time is not clearly implied. "
         "scheduled_at and recurrence_ends_at must be Unix epoch milliseconds or null. "
+        "Do not use 0 unless the dimension is truly absent. "
+        "Generic work blocks are important by default and should carry meaningful mental load, activation energy, and cost of delay. "
         "Respond with JSON only using these exact keys:\n"
         '{"tag":"general|work|social|later|errand|shopping|travel",'
         '"urgency":0-1,"importance":0-1,"cognitive_load":0-1,'

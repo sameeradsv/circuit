@@ -42,6 +42,7 @@ function BatteryGauge({
 }) {
   const level = clamp01(value);
   const tone = energyTone(level);
+  const percent = `${Math.round(level * 100)}%`;
   const height = size === "lg" ? "h-12" : "h-7";
   const width = size === "lg" ? "w-full max-w-[15rem]" : "w-20";
   const capHeight = size === "lg" ? "h-5" : "h-3";
@@ -49,17 +50,17 @@ function BatteryGauge({
   return (
     <div className={size === "lg" ? "space-y-2" : "flex items-center justify-end gap-2"}>
       {label && <p className="text-xs text-circuit-muted">{label}</p>}
-      <div className={`flex items-center gap-1.5 ${size === "lg" ? "" : "shrink-0"}`} aria-label={`${Math.round(level * 100)}% energy`}>
+      <div className={`flex items-center gap-2 ${size === "lg" ? "" : "shrink-0"}`} aria-label={`${percent} energy`}>
         <div className={`relative ${height} ${width} rounded-md border border-circuit-border bg-paper overflow-hidden`}>
           <div
             className="absolute inset-y-0 left-0 rounded-[5px] transition-[width]"
             style={{ width: `${level * 100}%`, backgroundColor: tone.fill }}
           />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className={`mono text-sm font-semibold ${tone.text}`}>{Math.round(level * 100)}%</span>
-          </div>
         </div>
         <div className={`${capHeight} w-1.5 rounded-r-sm border border-l-0 border-circuit-border bg-paper-2`} />
+        <span className={`mono font-semibold ${tone.text} ${size === "lg" ? "text-2xl" : "text-xs"}`}>
+          {percent}
+        </span>
       </div>
       {size === "lg" && <p className={`text-xs font-medium ${tone.text}`}>{tone.label}</p>}
     </div>

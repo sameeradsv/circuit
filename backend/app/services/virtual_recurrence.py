@@ -569,21 +569,57 @@ def materialized_occurrences(
     *,
     completed: Optional[bool] = None,
 ) -> list[dict[str, Any]]:
-    if completed is True:
-        return []
     rows = (
         db.query(MaterializedOccurrence, RecurringTask)
         .join(RecurringTask, MaterializedOccurrence.recurring_task_id == RecurringTask.id)
         .filter(
             MaterializedOccurrence.user_id == user_id,
             MaterializedOccurrence.status == "pending",
-            MaterializedOccurrence.scheduled_start_ms <= to_ms,
-            MaterializedOccurrence.occurrence_end_ms > from_ms,
             RecurringTask.active == True,  # noqa: E712
         )
         .all()
     )
-    out = [_materialized_to_virtual_dict(row, recurring) for row, recurring in rows]
+    overrides = (
+        db.query(OccurrenceOverride)
+        .filter(
+            OccurrenceOverride.user_id == user_id,
+            or_(
+                and_(
+                    OccurrenceOverride.occurrence_start_ms >= from_ms,
+                    OccurrenceOverride.occurrence_start_ms <= to_ms,
+                ),
+                and_(
+                    OccurrenceOverride.modified_start_ms.isnot(None),
+                    OccurrenceOverride.modified_start_ms >= from_ms,
+                    OccurrenceOverride.modified_start_ms <= to_ms,
+                ),
+            ),
+        )
+        .all()
+    )
+    override_map = {(o.recurring_task_id, o.occurrence_start_ms): o for o in overrides}
+
+    out: list[dict[str, Any]] = []
+    for row, recurring in rows:
+        override = override_map.get((row.recurring_task_id, row.occurrence_start_ms))
+        if override and override.status == "skipped":
+            continue
+        item = _materialized_to_virtual_dict(row, recurring)
+        if override:
+            if override.status == "completed":
+                item["completed"] = True
+            elif override.status == "rescheduled":
+                item["scheduled_at"] = override.modified_start_ms
+                item["duration"] = override.modified_duration or item["duration"]
+            item["occurrence_override_status"] = override.status
+        if completed is not None and bool(item["completed"]) != completed:
+            continue
+        scheduled_at = item.get("scheduled_at")
+        duration = item.get("duration") or 30
+        if scheduled_at is None:
+            continue
+        if scheduled_at <= to_ms and scheduled_at + duration * 60_000 > from_ms:
+            out.append(item)
     out.sort(key=lambda t: (t.get("scheduled_at") or 0, str(t.get("id"))))
     return out
 

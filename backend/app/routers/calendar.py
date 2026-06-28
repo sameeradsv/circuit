@@ -63,7 +63,7 @@ def _rrule_to_recurrence(rrule_str: str) -> Optional[str]:
             if days == {"SA", "SU"}:
                 return "weekend"
             return f"weekly:{','.join(days_sorted)}"
-        return "weekly:MO"
+        return "weekly"
 
     if freq == "MONTHLY":
         if byday:
@@ -74,7 +74,13 @@ def _rrule_to_recurrence(rrule_str: str) -> Optional[str]:
                 if n == "-1":
                     n = "L"
                 return f"monthly:{n}{wd}"
-        return "monthly:1"
+        monthday = parts.get("BYMONTHDAY", "").split(",")[0].strip()
+        if monthday:
+            if monthday == "-1":
+                return "monthly:L"
+            if re.match(r"^\d+$", monthday):
+                return f"monthly:{monthday}"
+        return None
 
     return None
 
@@ -130,7 +136,7 @@ def _detect_recurrence(title: str, description: str) -> Optional[str]:
         return f"weekly:{','.join(found_sorted)}"
 
     if any(k in text for k in ("weekly", "every week", "each week")):
-        return "weekly:MO"
+        return "weekly"
 
     return None
 

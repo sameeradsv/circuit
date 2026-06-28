@@ -112,8 +112,6 @@ Auth supports **passkey / biometric sign-in** via WebAuthn. Enable or check stat
 
 - [Architecture](docs/architecture.md)
 - [Decisions](docs/DECISIONS.md)
-- [Deferred & future work](docs/DEFERRED.md) — canonical ecosystem backlog
+- [Deferred & future work](docs/DEFERRED.md) — canonical backlog / roadmap
 - [Task model](docs/task-model.md)
 - [App features](docs/features.md)
-- [Backlog](docs/BACKLOG.md)
-- [Roadmap](docs/roadmap.md)

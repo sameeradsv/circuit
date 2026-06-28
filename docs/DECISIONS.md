@@ -1,6 +1,6 @@
 # Architecture & product decisions
 
-Records intentional choices from the 2026 stub cleanup and restore-and-rewire pass. See also [architecture.md](./architecture.md), [roadmap.md](./roadmap.md).
+Records intentional choices from the 2026 stub cleanup and restore-and-rewire pass. See also [architecture.md](./architecture.md) and [DEFERRED.md](./DEFERRED.md).
 
 ---
 
@@ -83,7 +83,7 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 | pgvector / semantic search | Deferred — Groq rerank/FTS substitutes |
 | Encrypted auto cross-device sync | Export/import only |
 | Production Cortex sibling-auth | Known gap ([Conduit](../../conduit/CLAUDE.md)) |
-| Siri shortcuts / Capacitor | [BACKLOG.md](./BACKLOG.md) |
+| Siri shortcuts / Capacitor | [DEFERRED.md](./DEFERRED.md) |
 
 ---
 
