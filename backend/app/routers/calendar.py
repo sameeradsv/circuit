@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, User
+from app.services.ai import suggest_task_defaults
 from app.services.virtual_recurrence import (
     delete_recurring_series,
     propagate_recurring_series_fields,
@@ -302,11 +303,24 @@ def _first_future_ms(dtstart_ms: int, rrule_str: str, exdate_set: set) -> Option
 def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
     importance, urgency = _calname_to_priority(ev.get("cal_name", ""))
     # Priority: emoji circle in title > event color property > keyword default
-    effort = (
-        _emoji_to_effort(ev.get("summary", ""))
-        or _color_to_effort(ev.get("color", ""))
-    )
+    explicit_effort = _emoji_to_effort(ev.get("summary", ""))
+    color_effort = _color_to_effort(ev.get("color", ""))
     tag, focus_type = _classify_event(ev.get("summary", ""), ev.get("description", ""))
+    ai_context = "\n".join(
+        part for part in (
+            f"Calendar: {ev.get('cal_name', '')}" if ev.get("cal_name") else "",
+            f"Description: {ev.get('description', '')}" if ev.get("description") else "",
+            f"Location: {ev.get('location', '')}" if ev.get("location") else "",
+            "This is an imported calendar event. Preserve the calendar start time, duration, and recurrence.",
+        )
+        if part
+    )
+    suggested = suggest_task_defaults(ev.get("summary", ""), ai_context)
+    suggested_tag = suggested.get("tag") or tag
+    if suggested_tag == "general" and tag != "general":
+        suggested_tag = tag
+    effort = explicit_effort or suggested.get("effort") or color_effort
+    tiny_step = suggested.get("tiny_step") or ev.get("description", "")
     rrule = ev.get("rrule")
     recurrence = (
         (_rrule_to_recurrence(rrule) if rrule else None)
@@ -319,36 +333,47 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         user_id=user_id,
         client_id=client_id,
         text=ev["summary"],
-        tag=tag,
+        tag=suggested_tag,
         scheduled_at=ev["scheduled_at"],
         duration=ev["duration_min"],
-        tiny_step=ev["description"],
+        tiny_step=tiny_step,
         location_dependency=ev["location"] or None,
         effort=effort,
-        urgency=urgency,
-        importance=importance,
-        cognitive_load=0.5,
-        emotional_resistance=0.5,
-        activation_energy=0.5,
-        recovery_cost=0.3,
-        focus_type=focus_type,
-        deadline_type="none",
-        time_sensitivity=0.5,
-        consequence_of_delay=0.3,
-        momentum_value=0.5,
-        compound_benefit=0.3,
-        identity_alignment=0.3,
+        urgency=max(urgency, float(suggested.get("urgency", 0.5))),
+        importance=max(importance, float(suggested.get("importance", 0.5))),
+        cognitive_load=suggested.get("cognitive_load", 0.5),
+        emotional_resistance=suggested.get("emotional_resistance", 0.5),
+        activation_energy=suggested.get("activation_energy", 0.5),
+        recovery_cost=suggested.get("recovery_cost", 0.3),
+        focus_type=suggested.get("focus_type") or focus_type,
+        deadline_type=suggested.get("deadline_type", "none"),
+        time_sensitivity=suggested.get("time_sensitivity", 0.5),
+        consequence_of_delay=suggested.get("consequence_of_delay", 0.3),
+        momentum_value=suggested.get("momentum_value", 0.5),
+        compound_benefit=suggested.get("compound_benefit", 0.3),
+        identity_alignment=suggested.get("identity_alignment", 0.3),
         historical_completion_rate=0.7,
-        energy_to_reward_ratio=0.5,
-        task_decomposition_potential=0.3,
+        energy_to_reward_ratio=suggested.get("energy_to_reward_ratio", 0.5),
+        task_decomposition_potential=suggested.get("task_decomposition_potential", 0.3),
         skipped_count=0,
-        required_resources=json.dumps([]),
-        dependencies=json.dumps([]),
-        metadata_json=json.dumps({}),
+        required_resources=json.dumps(suggested.get("required_resources", [])),
+        dependencies=json.dumps(suggested.get("dependencies", [])),
+        metadata_json=json.dumps({
+            "ai_default_reasoning": suggested.get("reasoning", ""),
+            "calendar_description": ev.get("description", ""),
+            "calendar_name": ev.get("cal_name", ""),
+            "calendar_color": ev.get("color", ""),
+        }),
+        blackout_skip_flags=json.dumps(suggested.get("blackout_skip_flags", [])) if suggested.get("blackout_skip_flags") else None,
         recurrence=recurrence,
         rrule=rrule,
         rrule_dtstart_ms=rrule_dtstart,
         is_recurring_template=bool(rrule),
+        travel_buffer_before_mins=suggested.get("travel_buffer_before_mins"),
+        travel_buffer_after_mins=suggested.get("travel_buffer_after_mins"),
+        notifications_enabled=bool(suggested.get("notifications_enabled", True)),
+        notification_offset_1_mins=suggested.get("notification_offset_1_mins", 10),
+        notification_offset_2_mins=suggested.get("notification_offset_2_mins"),
         import_review_pending=True,
     )
 

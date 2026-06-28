@@ -30,6 +30,7 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 - Structured dimensions: priority, cognitive load, effort, duration, scheduling, recurrence
 - **Home capture** — natural-language capture with Groq-backed task defaults; `/add` redirects to Home
 - **AI task defaults** — `POST /api/ai/suggest-task` infers duration, effort, focus type, cognitive/priority/energy fields, reminders, schedule hints, and a tiny step from the event name. Explicit user hints such as `#work`, `30m`, or a parsed date/time override the suggestion. `POST /api/tasks` also fills any omitted fields as a server-side safety net.
+- **Calendar import defaults** — imported `.ics` events also use Groq-backed defaults for Circuit planning/scoring fields. Calendar-owned facts (`scheduled_at`, duration, UID, RRULE, recurrence start, location) remain authoritative.
 - **Review suggested values** — Home and Tasks quick-add can open the new task directly in `TaskDetailModal` so generated parameters can be overridden before the user continues.
 - **Tasks search** — debounced `GET /api/search` when the search box is active
 - **TaskDetailModal** (`components/task-detail/`) — sectioned editor with hover tooltips on every field
@@ -45,7 +46,7 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 - **Month view** scrolls vertically when the grid exceeds viewport height, horizontally when narrow, and moves to the next/previous month when scrolling past the vertical edge
 - **Drag-and-drop** to reschedule; recurring tasks ask *this occurrence* vs *shift series*
 - **Blackout shading** — unavailable date ranges tinted on all views
-- **ICS import/export** — recurring events stored as one RRULE template per series; `scheduled_at` = first occurrence on or after today (original DTSTART kept in `rrule_dtstart_ms`). Supports iCloud-style `FREQ=WEEKLY` without `BYDAY`, explicit `BYDAY`, monthly patterns, and detached `RECURRENCE-ID` instances as one-offs. Re-import to refresh dates after importer fixes.
+- **ICS import/export** — recurring events stored as one RRULE template per series; `scheduled_at` = first occurrence on or after today (original DTSTART kept in `rrule_dtstart_ms`). Supports iCloud-style `FREQ=WEEKLY` without `BYDAY`, explicit `BYDAY`, monthly patterns, and detached `RECURRENCE-ID` instances as one-offs. Imported events are marked review-pending so Groq-filled values can be checked. Re-import to refresh dates after importer fixes.
 - Travel buffers shown as hatched blocks before/after tasks
 
 ## Mobile navigation

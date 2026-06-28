@@ -85,12 +85,12 @@ Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed fr
 | **Canopy-default energy** | Home/Tasks/Sidebar use Canopy `energy_so_far` by default; optional same-day manual override in Account → Today's context |
 | **Calendar navigation + layout** | Day/week/month support arrows and swipe/trackpad navigation; day view has the date strip; day/week overlaps account for travel buffers, virtual recurring slots, and minimum rendered event height; month view scrolls horizontally and vertically |
 | **Home focus window** | Read-only countdown to next scheduled event; shows busy/blocked when the current time is inside a calendar task |
-| **Groq task defaults** | Home/Tasks quick-add call `POST /api/ai/suggest-task` so new tasks infer duration, effort, focus type, priority, cognitive/energy fields, reminders, and a tiny step from the event name; review opens TaskDetailModal for overrides |
+| **Groq task defaults** | Home/Tasks quick-add and calendar imports call `POST /api/ai/suggest-task` so new tasks infer effort, focus type, priority, cognitive/energy fields, reminders, and a tiny step from the event name; review opens TaskDetailModal for overrides |
 | **Account preferences fix** | Form waits for API load before render; default bedtime and wake time on shared row |
 | **Manual datetime picker** | Set exact scheduled date + time when adding or editing a task |
 | **Voice input** | Dictate tasks on the Add page and quick-add row (Web Speech API) |
 | **Virtual recurrence** | Recurring commitments are stored once in `recurring_tasks`, expanded only for visible/planning windows, customized through `occurrence_overrides`, and support stable weekend time overrides |
-| **ICS import** | Upload `.ics` from iCloud or any calendar; recurring series → one template at **next occurrence on or after today** plus a virtual recurrence definition |
+| **ICS import** | Upload `.ics` from iCloud or any calendar; recurring series → one template at **next occurrence on or after today** plus a virtual recurrence definition. Calendar start/end time, duration, UID, and RRULE stay authoritative while Groq fills Circuit planning fields around the event. |
 | **Hideable mobile nav** | Mobile uses a slide-in vertical sidebar with a menu button instead of bottom tabs |
 | **Selected-day analytics load** | Analytics workload can be switched by date and totals scheduled minutes overlapping the selected IST day, including Sleep blocks |
 | **Per-task reminders** | Task detail supports two browser notification timings per scheduled task, gated by the global sidebar bell |

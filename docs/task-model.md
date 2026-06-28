@@ -47,6 +47,8 @@ New full-stack task additions call Groq through `POST /api/ai/suggest-task` to i
 
 Explicit capture syntax still wins: parsed tags, priority markers, duration, and schedule hints are preserved over AI output. The task create endpoint applies the same suggestion service only to omitted fields, so direct API clients that send just `text` still get intelligent defaults while explicit payload values remain authoritative. The suggestion reasoning is stored in `metadata_json.ai_default_reasoning` when available.
 
+Calendar imports also call the suggestion service inside `routers/calendar.py::_make_task()`. For imported events, ICS-owned fields remain authoritative: `text`, `scheduled_at`, `duration`, `client_id`, `location_dependency`, `recurrence`, `rrule`, `rrule_dtstart_ms`, and `is_recurring_template`. Groq fills the surrounding Circuit fields (`effort`, tag/focus, cognitive/energy, priority/value, reminders, resources/dependencies, blackout skip flags, travel buffers, and `tiny_step`). Event description, calendar name, color, and AI reasoning are kept in `metadata_json`.
+
 ## Priority / value
 
 - `importance`, `urgency`, `consequence_of_delay`, `momentum_value`

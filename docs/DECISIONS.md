@@ -103,7 +103,7 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 ## Polish pass: local utterance parser (2026-06-17)
 
-**Decision:** Task capture uses sync `parseUtterance()` (`frontend/src/lib/parse-utterance.ts`) for explicit syntax (`#tag`, duration, priority, schedule text) and sends full-stack additions through `POST /api/ai/suggest-task` for Groq-backed defaults across scheduling, cognitive, priority, energy, reminder, and tiny-step fields. **No `POST /api/ai/classify` on Add/Tasks submit**; classify remains a lightweight standalone endpoint.
+**Decision:** Task capture uses sync `parseUtterance()` (`frontend/src/lib/parse-utterance.ts`) for explicit syntax (`#tag`, duration, priority, schedule text) and sends full-stack additions through `POST /api/ai/suggest-task` for Groq-backed defaults across scheduling, cognitive, priority, energy, reminder, and tiny-step fields. Calendar imports also use `suggest-task` for Circuit planning fields, but preserve ICS-owned time, duration, UID, RRULE, recurrence anchor, and location. **No `POST /api/ai/classify` on Add/Tasks submit**; classify remains a lightweight standalone endpoint.
 
 **Vanilla PWA:** Same parser in `src/ai-assistance/parse-utterance.ts`; `#analytics` and `#energy` render on hash navigation only (no extra startup fetch). Voice mic injected on add form when supported. Full cumulative energy timeline and Groq agent remain full-stack / Conduit only.
 
