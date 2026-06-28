@@ -19,6 +19,53 @@ function fmtDate(dateStr: string): string {
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+function energyTone(value: number): { fill: string; text: string; label: string } {
+  if (value < 0.25) return { fill: "var(--terra)", text: "text-circuit-accent", label: "Low" };
+  if (value < 0.55) return { fill: "var(--mustard)", text: "text-amber-500", label: "Limited" };
+  if (value < 0.8) return { fill: "var(--sage)", text: "text-circuit-accent2", label: "Steady" };
+  return { fill: "#2f8f5b", text: "text-emerald-600", label: "Full" };
+}
+
+function BatteryGauge({
+  value,
+  label,
+  size = "lg",
+}: {
+  value: number;
+  label?: string;
+  size?: "sm" | "lg";
+}) {
+  const level = clamp01(value);
+  const tone = energyTone(level);
+  const height = size === "lg" ? "h-12" : "h-7";
+  const width = size === "lg" ? "w-full max-w-[15rem]" : "w-20";
+  const capHeight = size === "lg" ? "h-5" : "h-3";
+
+  return (
+    <div className={size === "lg" ? "space-y-2" : "flex items-center justify-end gap-2"}>
+      {label && <p className="text-xs text-circuit-muted">{label}</p>}
+      <div className={`flex items-center gap-1.5 ${size === "lg" ? "" : "shrink-0"}`} aria-label={`${Math.round(level * 100)}% energy`}>
+        <div className={`relative ${height} ${width} rounded-md border border-circuit-border bg-paper overflow-hidden`}>
+          <div
+            className="absolute inset-y-0 left-0 rounded-[5px] transition-[width]"
+            style={{ width: `${level * 100}%`, backgroundColor: tone.fill }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className={`mono text-sm font-semibold ${tone.text}`}>{Math.round(level * 100)}%</span>
+          </div>
+        </div>
+        <div className={`${capHeight} w-1.5 rounded-r-sm border border-l-0 border-circuit-border bg-paper-2`} />
+      </div>
+      {size === "lg" && <p className={`text-xs font-medium ${tone.text}`}>{tone.label}</p>}
+    </div>
+  );
+}
+
 export default function EnergyPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -47,31 +94,29 @@ export default function EnergyPage() {
           <h1 className="text-xl font-medium text-circuit-text">Energy</h1>
           <p className="text-sm text-circuit-muted mt-1">
             Task-event balance for the day. For the combined Circuit + Canopy + Chef chart, open
-            {" "}<span className="text-circuit-accent">Canopy → Energy</span> when sibling apps share Cortex auth.
+            {" "}<span className="text-circuit-accent">Canopy -&gt; Energy</span> when sibling apps share Cortex auth.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, -1))}>‹</button>
+          <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, -1))}>{"<"}</button>
           <span className="text-sm text-circuit-muted min-w-[8rem] text-center">{fmtDate(date)}</span>
-          <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, 1))} disabled={date >= todayIST()}>›</button>
+          <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, 1))} disabled={date >= todayIST()}>{">"}</button>
           {date !== todayIST() && (
             <button type="button" className="btn text-xs" onClick={() => setDate(todayIST())}>Today</button>
           )}
         </div>
       </div>
 
-      {fetching && <p className="text-sm text-circuit-muted">Loading…</p>}
+      {fetching && <p className="text-sm text-circuit-muted">Loading...</p>}
 
       {timeline && (
         <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <div className="panel p-4">
-              <p className="text-xs text-circuit-muted">Start</p>
-              <p className="text-2xl font-semibold text-circuit-accent mt-1">{pct(timeline.start_energy)}</p>
+              <BatteryGauge value={timeline.start_energy} label="Start" />
             </div>
             <div className="panel p-4">
-              <p className="text-xs text-circuit-muted">Now / close</p>
-              <p className="text-2xl font-semibold text-circuit-text mt-1">{pct(timeline.end_energy)}</p>
+              <BatteryGauge value={timeline.end_energy} label="Now / close" />
             </div>
             <div className="panel p-4 col-span-2 sm:col-span-1">
               <p className="text-xs text-circuit-muted">Events</p>
@@ -87,16 +132,16 @@ export default function EnergyPage() {
                 <li key={`${ev.occurred_at}-${i}`} className="panel px-4 py-3 flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm text-circuit-text">{ev.note}</p>
-                    <p className="text-xs text-circuit-muted mt-1">{ev.time} · {ev.label}</p>
+                    <p className="text-xs text-circuit-muted mt-1">{ev.time} - {ev.label}</p>
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="text-right shrink-0 space-y-1">
                     {ev.delta != null && (
                       <p className={`text-xs mono ${ev.delta >= 0 ? "text-emerald-400" : "text-amber-400"}`}>
                         {ev.delta >= 0 ? "+" : ""}{pct(ev.delta)}
                       </p>
                     )}
                     {ev.running_energy != null && (
-                      <p className="text-xs text-circuit-muted mt-0.5">→ {pct(ev.running_energy)}</p>
+                      <BatteryGauge value={ev.running_energy} size="sm" />
                     )}
                   </div>
                 </li>
