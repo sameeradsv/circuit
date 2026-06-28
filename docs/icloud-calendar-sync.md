@@ -46,6 +46,8 @@ If the calendar is missing, sync returns:
 iCloud calendar 'Circuit' was not found. Please create it manually in Apple Calendar and retry sync.
 ```
 
+Use `https://caldav.icloud.com` as the base URL. Circuit performs CalDAV principal and calendar-home discovery from there before listing calendars; do not paste a specific calendar collection URL.
+
 ## Setup Check
 
 Run a non-destructive setup check:

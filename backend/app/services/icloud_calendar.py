@@ -257,6 +257,49 @@ class CalDAVClient:
         response.raise_for_status()
         return response
 
+    def _propfind(self, url: str, body: str, *, depth: str = "0") -> ET.Element:
+        response = self._request(
+            "PROPFIND",
+            url,
+            headers={"Depth": depth, "Content-Type": "application/xml"},
+            content=body,
+        )
+        return ET.fromstring(response.text)
+
+    def _discover_calendar_home_url(self) -> str:
+        ns = {"d": "DAV:", "cal": "urn:ietf:params:xml:ns:caldav"}
+        principal_body = """<?xml version="1.0" encoding="utf-8" ?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop><d:current-user-principal/></d:prop>
+</d:propfind>"""
+        principal_root: Optional[ET.Element] = None
+        last_error: Optional[Exception] = None
+        for candidate in (self.base_url, urljoin(self.base_url, ".well-known/caldav")):
+            try:
+                principal_root = self._propfind(candidate, principal_body, depth="0")
+                break
+            except Exception as exc:
+                last_error = exc
+        if principal_root is None:
+            if last_error:
+                raise last_error
+            raise ICloudCalendarSetupError("Unable to discover iCloud CalDAV principal.")
+
+        principal_href = principal_root.findtext(".//d:current-user-principal/d:href", default="", namespaces=ns)
+        if not principal_href:
+            raise ICloudCalendarSetupError("Unable to discover iCloud CalDAV principal.")
+
+        home_body = """<?xml version="1.0" encoding="utf-8" ?>
+<d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:prop><cal:calendar-home-set/></d:prop>
+</d:propfind>"""
+        principal_url = urljoin(self.base_url, principal_href)
+        home_root = self._propfind(principal_url, home_body, depth="0")
+        home_href = home_root.findtext(".//cal:calendar-home-set/d:href", default="", namespaces=ns)
+        if not home_href:
+            raise ICloudCalendarSetupError("Unable to discover iCloud calendar home.")
+        return urljoin(self.base_url, home_href).rstrip("/") + "/"
+
     def discover_circuit_calendar(self) -> str:
         calendars = self.discover_calendars()
         for item in calendars:
@@ -269,8 +312,8 @@ class CalDAVClient:
 <d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
   <d:prop><d:displayname/><d:resourcetype/></d:prop>
 </d:propfind>"""
-        response = self._request("PROPFIND", self.base_url, headers={"Depth": "1"}, content=body)
-        root = ET.fromstring(response.text)
+        calendar_home_url = self._discover_calendar_home_url()
+        root = self._propfind(calendar_home_url, body, depth="1")
         ns = {"d": "DAV:", "cal": "urn:ietf:params:xml:ns:caldav"}
         calendars: list[dict[str, object]] = []
         for resp in root.findall("d:response", ns):
@@ -280,7 +323,7 @@ class CalDAVClient:
             is_calendar = resourcetype is not None and resourcetype.find("cal:calendar", ns) is not None
             calendars.append({
                 "display_name": display,
-                "url": urljoin(self.base_url, href).rstrip("/") + "/",
+                "url": urljoin(calendar_home_url, href).rstrip("/") + "/",
                 "is_calendar": is_calendar,
             })
         return calendars
