@@ -293,6 +293,7 @@ class Blackout(Base):
     blackout_type: Mapped[str] = mapped_column(String(30), nullable=False)
     start_date_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
     end_date_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 

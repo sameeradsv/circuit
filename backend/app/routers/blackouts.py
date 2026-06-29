@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -22,6 +23,7 @@ class BlackoutIn(BaseModel):
     blackout_type: str
     start_date_ms: int
     end_date_ms: int
+    is_active: Optional[bool] = None
 
 
 def _to_dict(b: Blackout, tasks_rescheduled: int = 0) -> dict:
@@ -30,9 +32,20 @@ def _to_dict(b: Blackout, tasks_rescheduled: int = 0) -> dict:
         "blackout_type": b.blackout_type,
         "start_date_ms": b.start_date_ms,
         "end_date_ms": b.end_date_ms,
+        "is_active": b.is_active,
         "created_at": b.created_at.isoformat(),
         "tasks_rescheduled": tasks_rescheduled,
     }
+
+
+def _now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _close_at_disable_time(b: Blackout) -> None:
+    now_ms = _now_ms()
+    if b.start_date_ms < now_ms < b.end_date_ms:
+        b.end_date_ms = now_ms
 
 
 def _overlaps_work(user_id: int, start_ms: int, duration_mins: int, db: Session) -> bool:
@@ -125,15 +138,15 @@ def create_blackout(payload: BlackoutIn, user: User = Depends(require_user), db:
         blackout_type=payload.blackout_type,
         start_date_ms=payload.start_date_ms,
         end_date_ms=payload.end_date_ms,
+        is_active=payload.is_active if payload.is_active is not None else True,
     )
     db.add(b)
     db.commit()
     db.refresh(b)
 
-    moved = reschedule_tasks_for_blackout(user.id, b, db)
     if b.blackout_type == "period":
         _create_period_change_tasks(user.id, b, db)
-    return _to_dict(b, tasks_rescheduled=moved)
+    return _to_dict(b, tasks_rescheduled=0)
 
 
 @router.patch("/{blackout_id}", status_code=200)
@@ -145,12 +158,19 @@ def update_blackout(blackout_id: int, payload: BlackoutIn, user: User = Depends(
         raise HTTPException(400, f"blackout_type must be one of: {', '.join(sorted(_VALID_TYPES))}")
     if payload.end_date_ms <= payload.start_date_ms:
         raise HTTPException(400, "end_date_ms must be after start_date_ms")
+    was_active = b.is_active
     b.blackout_type = payload.blackout_type
     b.start_date_ms = payload.start_date_ms
     b.end_date_ms = payload.end_date_ms
+    wants_active = payload.is_active if payload.is_active is not None else b.is_active
+    moved = 0
+    if was_active and not wants_active:
+        _close_at_disable_time(b)
+        moved = reschedule_tasks_for_blackout(user.id, b, db)
+    b.is_active = wants_active
     db.commit()
     db.refresh(b)
-    return _to_dict(b)
+    return _to_dict(b, tasks_rescheduled=moved)
 
 
 @router.delete("/{blackout_id}", status_code=204)
@@ -158,5 +178,8 @@ def delete_blackout(blackout_id: int, user: User = Depends(require_user), db: Se
     b = db.get(Blackout, blackout_id)
     if not b or b.user_id != user.id:
         raise HTTPException(404, "Blackout not found")
+    if b.is_active:
+        _close_at_disable_time(b)
+        reschedule_tasks_for_blackout(user.id, b, db)
     db.delete(b)
     db.commit()

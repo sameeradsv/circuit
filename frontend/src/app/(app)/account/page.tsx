@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiBlackout, ApiSettings, ApiSleepLog, ApiUserState } from "@/lib/api";
 import { useAuth } from "@shared/cortex";
 import { usePasskey } from "@/lib/usePasskey";
-import { dateStrToISTEndMs, dateStrToISTMs, fmtDateIST, todayIST } from "@/lib/tz";
+import { dateTimeStrToISTMs, fmtDateIST, fmtTimeIST, timeInputIST, todayIST } from "@/lib/tz";
 import { invalidateTaskCache } from "@/lib/task-cache";
 import { useCombinedEnergy } from "@/lib/use-combined-energy";
 import { canopyPresetZeroOne, notifyUserStateUpdated } from "@/lib/use-effective-energy";
@@ -73,7 +73,9 @@ export default function AccountPage() {
   const [newBlackoutType, setNewBlackoutType] = useState("travelling");
   const today = new Date().toISOString().slice(0, 10);
   const [newBlackoutStart, setNewBlackoutStart] = useState(today);
+  const [newBlackoutStartTime, setNewBlackoutStartTime] = useState("00:00");
   const [newBlackoutEnd, setNewBlackoutEnd] = useState(today);
+  const [newBlackoutEndTime, setNewBlackoutEndTime] = useState("23:59");
   const [addingBlackout, setAddingBlackout] = useState(false);
   const [blackoutMsg, setBlackoutMsg] = useState<string | null>(null);
   const [blackoutErr, setBlackoutErr] = useState<string | null>(null);
@@ -82,7 +84,9 @@ export default function AccountPage() {
   const [editingBlackoutId, setEditingBlackoutId] = useState<number | null>(null);
   const [editBlackoutType, setEditBlackoutType] = useState("travelling");
   const [editBlackoutStart, setEditBlackoutStart] = useState(today);
+  const [editBlackoutStartTime, setEditBlackoutStartTime] = useState("00:00");
   const [editBlackoutEnd, setEditBlackoutEnd] = useState(today);
+  const [editBlackoutEndTime, setEditBlackoutEndTime] = useState("23:59");
   const [savingBlackout, setSavingBlackout] = useState(false);
   const BLACKOUT_PAGE_SIZE = 5;
   const { energy: combinedEnergy } = useCombinedEnergy();
@@ -252,17 +256,15 @@ export default function AccountPage() {
     setBlackoutErr(null);
     setBlackoutMsg(null);
     try {
-      const startMs = dateStrToISTMs(newBlackoutStart);
-      const endMs = dateStrToISTEndMs(newBlackoutEnd);
+      const startMs = dateTimeStrToISTMs(newBlackoutStart, newBlackoutStartTime);
+      const endMs = dateTimeStrToISTMs(newBlackoutEnd, newBlackoutEndTime);
       const b = await api.createBlackout({ blackout_type: newBlackoutType, start_date_ms: startMs, end_date_ms: endMs });
       setBlackouts((prev) => [...prev, b].sort((a, b) => a.start_date_ms - b.start_date_ms));
       invalidateTaskCache();
       const moved = b.tasks_rescheduled ?? 0;
-      setBlackoutMsg(
-        moved > 0
-          ? `Blackout added. ${moved} scheduled task${moved !== 1 ? "s" : ""} moved out of the range.`
-          : "Blackout added.",
-      );
+      setBlackoutMsg(moved > 0
+        ? `Blackout added. ${moved} scheduled task${moved !== 1 ? "s" : ""} resumed.`
+        : "Blackout added. Flagged tasks will park while it is active.");
     } catch (e) {
       setBlackoutErr(e instanceof Error ? e.message : "Failed to add blackout");
     } finally {
@@ -291,6 +293,8 @@ export default function AccountPage() {
       await api.deleteBlackout(id);
       setBlackouts((prev) => prev.filter((b) => b.id !== id));
       if (editingBlackoutId === id) setEditingBlackoutId(null);
+      invalidateTaskCache();
+      setBlackoutMsg("Blackout removed. Active parked tasks were resumed first.");
     } catch (e) {
       setBlackoutErr(e instanceof Error ? e.message : "Failed to remove blackout");
     }
@@ -302,7 +306,9 @@ export default function AccountPage() {
     const startStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(b.start_date_ms));
     const endStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(b.end_date_ms));
     setEditBlackoutStart(startStr);
+    setEditBlackoutStartTime(timeInputIST(b.start_date_ms));
     setEditBlackoutEnd(endStr);
+    setEditBlackoutEndTime(timeInputIST(b.end_date_ms));
     setBlackoutErr(null);
     setBlackoutMsg(null);
   }
@@ -314,14 +320,37 @@ export default function AccountPage() {
     try {
       const updated = await api.updateBlackout(id, {
         blackout_type: editBlackoutType,
-        start_date_ms: dateStrToISTMs(editBlackoutStart),
-        end_date_ms: dateStrToISTEndMs(editBlackoutEnd),
+        start_date_ms: dateTimeStrToISTMs(editBlackoutStart, editBlackoutStartTime),
+        end_date_ms: dateTimeStrToISTMs(editBlackoutEnd, editBlackoutEndTime),
       });
       setBlackouts((prev) => prev.map((b) => b.id === id ? updated : b).sort((a, b) => a.start_date_ms - b.start_date_ms));
       setEditingBlackoutId(null);
       setBlackoutMsg("Blackout updated.");
     } catch (e) {
       setBlackoutErr(e instanceof Error ? e.message : "Failed to update blackout");
+    } finally {
+      setSavingBlackout(false);
+    }
+  }
+
+  async function handleDisableBlackout(b: ApiBlackout) {
+    setSavingBlackout(true);
+    setBlackoutErr(null);
+    try {
+      const updated = await api.updateBlackout(b.id, {
+        blackout_type: b.blackout_type,
+        start_date_ms: b.start_date_ms,
+        end_date_ms: b.end_date_ms,
+        is_active: false,
+      });
+      setBlackouts((prev) => prev.map((item) => item.id === b.id ? updated : item).sort((a, b) => a.start_date_ms - b.start_date_ms));
+      invalidateTaskCache();
+      const moved = updated.tasks_rescheduled ?? 0;
+      setBlackoutMsg(moved > 0
+        ? `Blackout disabled. ${moved} parked task${moved !== 1 ? "s" : ""} resumed.`
+        : "Blackout disabled.");
+    } catch (e) {
+      setBlackoutErr(e instanceof Error ? e.message : "Failed to disable blackout");
     } finally {
       setSavingBlackout(false);
     }
@@ -628,8 +657,7 @@ export default function AccountPage() {
         <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Blackouts</h2>
         <div className="panel p-5 space-y-4">
           <p className="text-xs text-circuit-muted">
-            Mark dates when you&apos;re unavailable. Flagged tasks are hidden in your task list during blackouts;
-            adding a blackout also moves affected scheduled tasks to their post-blackout slot. Shaded days appear on the calendar.
+            Mark exact windows when you&apos;re unavailable. Flagged tasks park while a blackout is active, then resume from the disable time using each task&apos;s after-blackout behavior.
           </p>
 
           <div className="flex flex-wrap gap-3 items-end">
@@ -657,11 +685,29 @@ export default function AccountPage() {
               />
             </label>
             <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Time</span>
+              <input
+                type="time"
+                value={newBlackoutStartTime}
+                onChange={(e) => { setNewBlackoutStartTime(e.target.value); setBlackoutMsg(null); }}
+                className="input-field"
+              />
+            </label>
+            <label className="space-y-1">
               <span className="text-xs text-circuit-muted">To</span>
               <input
                 type="date"
                 value={newBlackoutEnd}
                 onChange={(e) => { setNewBlackoutEnd(e.target.value); setBlackoutMsg(null); }}
+                className="input-field"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-circuit-muted">Time</span>
+              <input
+                type="time"
+                value={newBlackoutEndTime}
+                onChange={(e) => { setNewBlackoutEndTime(e.target.value); setBlackoutMsg(null); }}
                 className="input-field"
               />
             </label>
@@ -720,7 +766,9 @@ export default function AccountPage() {
                                 <option value="wfh">Working from home</option>
                               </select>
                               <input type="date" value={editBlackoutStart} onChange={(e) => setEditBlackoutStart(e.target.value)} className="input-field text-xs" />
+                              <input type="time" value={editBlackoutStartTime} onChange={(e) => setEditBlackoutStartTime(e.target.value)} className="input-field text-xs" />
                               <input type="date" value={editBlackoutEnd} onChange={(e) => setEditBlackoutEnd(e.target.value)} className="input-field text-xs" />
+                              <input type="time" value={editBlackoutEndTime} onChange={(e) => setEditBlackoutEndTime(e.target.value)} className="input-field text-xs" />
                             </div>
                             <div className="flex gap-3">
                               <button onClick={() => void handleSaveBlackout(b.id)} disabled={savingBlackout} className="btn btn-primary text-xs py-1">
@@ -735,9 +783,18 @@ export default function AccountPage() {
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                             <span className="text-circuit-text">
                               <span className="font-medium">{label}</span>
+                              <span className={`ml-2 ${b.is_active ? "text-green-400" : "text-circuit-muted"}`}>
+                                {b.is_active ? "Active" : "Disabled"}
+                              </span>
                               <span className="text-circuit-muted ml-2">{start} — {end}</span>
+                              <span className="block text-circuit-muted">{fmtTimeIST(b.start_date_ms)} - {fmtTimeIST(b.end_date_ms)}</span>
                             </span>
                             <div className="flex gap-3 shrink-0">
+                              {b.is_active && (
+                                <button onClick={() => void handleDisableBlackout(b)} className="text-circuit-muted hover:text-circuit-text transition-colors">
+                                  Disable
+                                </button>
+                              )}
                               <button onClick={() => startEditBlackout(b)} className="text-circuit-muted hover:text-circuit-text transition-colors">
                                 Edit
                               </button>

@@ -38,6 +38,7 @@ def _blackout(start: datetime, end: datetime, btype: str = "travelling") -> Simp
         blackout_type=btype,
         start_date_ms=_ms(start),
         end_date_ms=_ms(end),
+        is_active=True,
     )
 
 
@@ -78,6 +79,21 @@ def test_adjust_for_blackouts_catch_up_uses_suitable_slot():
     new_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
     assert new_dt.weekday() == 5
     assert new_dt.date() == datetime(2026, 1, 17, tzinfo=_IST).date()
+
+
+def test_inactive_blackout_does_not_adjust_occurrence():
+    sat = datetime(2026, 1, 10, 10, 0, tzinfo=_IST)
+    blackout = _blackout(
+        datetime(2026, 1, 8, 0, 0, tzinfo=_IST),
+        datetime(2026, 1, 14, 23, 59, tzinfo=_IST),
+    )
+    blackout.is_active = False
+    task = _task(
+        recurrence="every:2w",
+        scheduled_at=_ms(sat),
+        post_blackout_behavior="resume",
+    )
+    assert adjust_for_blackouts(_ms(sat), task, [blackout], sat) == _ms(sat)
 
 
 def test_skip_sat_after_catch_up_fri_for_weekly_wed_sat():

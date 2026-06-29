@@ -29,7 +29,7 @@ export function dayEndMs(d: Date): number {
 export function blackoutsOnDay(day: Date, blackouts: ApiBlackout[]): ApiBlackout[] {
   const start = dayStartMs(day);
   const end = dayEndMs(day);
-  return blackouts.filter((b) => b.start_date_ms <= end && b.end_date_ms >= start);
+  return blackouts.filter((b) => b.is_active && b.start_date_ms <= end && b.end_date_ms >= start);
 }
 
 export function blackoutTintForDay(day: Date, blackouts: ApiBlackout[]): string | undefined {

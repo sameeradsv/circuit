@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date as date_type, datetime, timedelta, timezone
 import json
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -26,10 +26,12 @@ def _task_delta(event_type: str, task: CircuitTask, metadata_json: str | None = 
 
     Completing a high-reward task can be net-positive because the sense of
     accomplishment offsets the cognitive cost. Low-reward/heavy tasks drain.
-    Duration scales the cost linearly (30 min = 0.5×, 60 min = 1.0×, 480 min = 8.0×).
+    Duration scales sublinearly so long imported calendar blocks do not
+    single-handedly flatten the balance (30 min = 0.7x, 60 min = 1.0x,
+    480 min = 2.8x).
     """
     duration_mins = max(5, task.duration or 30)
-    dur_factor = min(8.0, max(0.5, duration_mins / 60))
+    dur_factor = min(3.0, max(0.5, (duration_mins / 60) ** 0.5))
     metadata = {}
     if metadata_json:
         try:
@@ -75,8 +77,90 @@ def _start_energy(state: Optional[UserState], sleep_factor: float) -> float:
     energy provides the carry-over base (30% weight).
     """
     eod = (state.energy_eod if state and state.energy_eod is not None else 0.70)
+    return _start_energy_from_eod(eod, sleep_factor)
+
+
+def _start_energy_from_eod(eod: float, sleep_factor: float) -> float:
+    """
+    Compute an opening balance from a known previous close and the day's sleep.
+    """
     raw = sleep_factor * 0.70 + eod * 0.30
     return round(min(1.0, max(0.0, raw)), 3)
+
+
+def _day_bounds(target: date_type) -> tuple[datetime, datetime, int, int]:
+    day_start_ist = datetime(target.year, target.month, target.day, tzinfo=_IST)
+    day_end_ist = day_start_ist + timedelta(days=1)
+    day_start_utc = day_start_ist.astimezone(timezone.utc).replace(tzinfo=None)
+    day_end_utc = day_end_ist.astimezone(timezone.utc).replace(tzinfo=None)
+    return (
+        day_start_utc,
+        day_end_utc,
+        int(day_start_utc.timestamp() * 1000),
+        int(day_end_utc.timestamp() * 1000),
+    )
+
+
+def _timeline_rows(user_id: int, target: date_type, db: Session) -> list[tuple[TaskEvent, CircuitTask]]:
+    day_start_utc, day_end_utc, day_start_ms, day_end_ms = _day_bounds(target)
+    rows = (
+        db.query(TaskEvent, CircuitTask)
+        .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
+        .filter(
+            TaskEvent.user_id == user_id,
+            or_(
+                and_(
+                    TaskEvent.occurred_at >= day_start_utc,
+                    TaskEvent.occurred_at < day_end_utc,
+                ),
+                and_(
+                    CircuitTask.scheduled_at.isnot(None),
+                    CircuitTask.scheduled_at >= day_start_ms,
+                    CircuitTask.scheduled_at < day_end_ms,
+                ),
+            ),
+        )
+        .all()
+    )
+    rows = [
+        row for row in rows
+        if day_start_utc <= effective_event_time(row[0], row[1]) < day_end_utc
+    ]
+    rows.sort(key=lambda row: effective_event_time(row[0], row[1]))
+    return rows
+
+
+def _sleep_factor_for_date(user_id: int, target: date_type, db: Session) -> float:
+    from app.routers.sleep import compute_sleep_factor, resolve_sleep_with_fallback, _get_work_signals
+
+    sleep_ctx = resolve_sleep_with_fallback(user_id, target.isoformat(), db)
+    work_end_h, work_span_h, first_today_h = _get_work_signals(user_id, db)
+    sleep_factor, _ = compute_sleep_factor(sleep_ctx, work_end_h, work_span_h, first_today_h)
+    return sleep_factor
+
+
+def _end_energy_for_date(user_id: int, target: date_type, start_energy: float, db: Session) -> float:
+    running = start_energy
+    for ev, task in _timeline_rows(user_id, target, db):
+        running = round(min(1.0, max(0.0, running + _task_delta(ev.event_type, task, ev.metadata_json))), 3)
+    return running
+
+
+def _timeline_start_energy(user_id: int, target: date_type, sleep_factor: float, state: Optional[UserState], db: Session) -> float:
+    """
+    Today's opening uses the live carry-over in user_state. Historical timelines
+    derive their opening from that date's previous-day close, so browsing old
+    dates does not reuse or mutate today's carry-over.
+    """
+    today = datetime.now(_IST).date()
+    if target == today:
+        return _start_energy(state, sleep_factor)
+
+    previous_day = target - timedelta(days=1)
+    previous_sleep = _sleep_factor_for_date(user_id, previous_day, db)
+    previous_start = _start_energy_from_eod(0.70, previous_sleep)
+    previous_end = _end_energy_for_date(user_id, previous_day, previous_start, db)
+    return _start_energy_from_eod(previous_end, sleep_factor)
 
 
 @router.get("/timeline")
@@ -104,46 +188,11 @@ def energy_timeline(
     else:
         target = datetime.now(_IST).date()
 
-    day_start_ist = datetime(target.year, target.month, target.day, tzinfo=_IST)
-    day_end_ist   = day_start_ist + timedelta(days=1)
-    day_start_utc = day_start_ist.astimezone(timezone.utc).replace(tzinfo=None)
-    day_end_utc   = day_end_ist.astimezone(timezone.utc).replace(tzinfo=None)
-
-    day_start_ms = int(day_start_utc.timestamp() * 1000)
-    day_end_ms = int(day_end_utc.timestamp() * 1000)
-    rows = (
-        db.query(TaskEvent, CircuitTask)
-        .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
-        .filter(
-            TaskEvent.user_id == user.id,
-            or_(
-                and_(
-                    TaskEvent.occurred_at >= day_start_utc,
-                    TaskEvent.occurred_at < day_end_utc,
-                ),
-                and_(
-                    CircuitTask.scheduled_at.isnot(None),
-                    CircuitTask.scheduled_at >= day_start_ms,
-                    CircuitTask.scheduled_at < day_end_ms,
-                ),
-            ),
-        )
-        .all()
-    )
-    rows = [
-        row for row in rows
-        if day_start_utc <= effective_event_time(row[0], row[1]) < day_end_utc
-    ]
-    rows.sort(key=lambda row: effective_event_time(row[0], row[1]))
-
-    from app.routers.sleep import compute_sleep_factor, resolve_sleep_with_fallback, _get_work_signals
-    date_str = target.isoformat()
-    sleep_ctx = resolve_sleep_with_fallback(user.id, date_str, db)
-    work_end_h, work_span_h, first_today_h = _get_work_signals(user.id, db)
-    sleep_factor, _ = compute_sleep_factor(sleep_ctx, work_end_h, work_span_h, first_today_h)
+    rows = _timeline_rows(user.id, target, db)
+    sleep_factor = _sleep_factor_for_date(user.id, target, db)
 
     state = db.query(UserState).filter_by(user_id=user.id).first()
-    s_energy = _start_energy(state, sleep_factor)
+    s_energy = _timeline_start_energy(user.id, target, sleep_factor, state, db)
 
     # Build events with running balance
     running = s_energy
@@ -166,13 +215,6 @@ def energy_timeline(
         })
 
     end_energy = running  # balance after last event (or start_energy if no events)
-
-    # Persist end_energy as carry-over when viewing yesterday
-    now_ist       = datetime.now(_IST)
-    yesterday_str = (now_ist - timedelta(days=1)).strftime("%Y-%m-%d")
-    if target.isoformat() == yesterday_str and state:
-        state.energy_eod = end_energy
-        db.commit()
 
     return {
         "date":         target.isoformat(),

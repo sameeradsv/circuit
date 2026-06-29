@@ -148,6 +148,7 @@ def _migrate_blackout_and_rrule() -> None:
                     "blackout_type VARCHAR(30) NOT NULL, "
                     "start_date_ms INTEGER NOT NULL, "
                     "end_date_ms INTEGER NOT NULL, "
+                    "is_active BOOLEAN NOT NULL DEFAULT 1, "
                     "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
                 ))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_blackouts_user ON blackouts (user_id)"))
@@ -159,10 +160,25 @@ def _migrate_blackout_and_rrule() -> None:
                     "blackout_type VARCHAR(30) NOT NULL, "
                     "start_date_ms BIGINT NOT NULL, "
                     "end_date_ms BIGINT NOT NULL, "
+                    "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
                     "created_at TIMESTAMP DEFAULT NOW())"
                 ))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_blackouts_user ON blackouts (user_id)"))
 
+        conn.commit()
+
+
+def _migrate_blackout_active() -> None:
+    inspector = inspect(engine)
+    existing_cols = {c["name"] for c in inspector.get_columns("blackouts")}
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    if "is_active" in existing_cols:
+        return
+    with engine.connect() as conn:
+        if is_sqlite:
+            conn.execute(text("ALTER TABLE blackouts ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
+        else:
+            conn.execute(text("ALTER TABLE blackouts ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"))
         conn.commit()
 
 
@@ -652,6 +668,7 @@ def init_db() -> None:
         ("postgres_base_columns",  _migrate_postgres),
         ("webauthn_tables",        _migrate_webauthn_tables),
         ("blackout_and_rrule",     _migrate_blackout_and_rrule),
+        ("blackout_active",        _migrate_blackout_active),
         ("recurrence_extra",       _migrate_recurrence_extra),
         ("sleep_log_table",        _migrate_sleep_log),
         ("energy_eod_column",      _migrate_energy_eod),

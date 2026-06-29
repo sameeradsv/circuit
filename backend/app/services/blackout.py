@@ -32,7 +32,9 @@ def _overlapping_blackouts(ms: int, task: CircuitTask, blackouts: list) -> list:
     flags = set(json.loads(task.blackout_skip_flags) if task.blackout_skip_flags else [])
     return [
         b for b in blackouts
-        if b.blackout_type in flags and b.start_date_ms <= ms <= b.end_date_ms
+        if getattr(b, "is_active", True)
+        and b.blackout_type in flags
+        and b.start_date_ms <= ms <= b.end_date_ms
     ]
 
 
@@ -166,8 +168,11 @@ def _apply_day_time_override(dt: datetime, overrides_json: Optional[str]) -> dat
 
 
 def reschedule_tasks_for_blackout(user_id: int, blackout: Blackout, db: Session) -> int:
-    """Move open tasks scheduled during a blackout to their post-blackout slot."""
-    all_blackouts = db.query(Blackout).filter(Blackout.user_id == user_id).all()
+    """Move open tasks parked during a blackout to their post-blackout slot."""
+    all_blackouts = db.query(Blackout).filter(
+        Blackout.user_id == user_id,
+        Blackout.is_active.is_(True),
+    ).all()
     candidates = (
         db.query(CircuitTask)
         .filter(

@@ -4,7 +4,28 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 
 const STORAGE_KEY = "circuit-notifications";
-const SW_PATH = "/sw.js";
+const SW_FILE = "sw.js";
+
+function appBasePath(): string {
+  if (typeof window === "undefined") return "";
+
+  const manifest = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+  if (manifest?.href) {
+    try {
+      const url = new URL(manifest.href);
+      const path = url.pathname.replace(/\/manifest(?:\.webmanifest)?$/, "");
+      if (url.origin === window.location.origin && path !== "/") return path.replace(/\/$/, "");
+    } catch {
+      // Fall back to the pathname heuristic below.
+    }
+  }
+
+  return window.location.pathname.startsWith("/circuit") ? "/circuit" : "";
+}
+
+function serviceWorkerPath(): string {
+  return `${appBasePath()}/${SW_FILE}`.replace(/\/{2,}/g, "/");
+}
 
 function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -41,7 +62,15 @@ async function getRegistration() {
   if (!("serviceWorker" in navigator)) {
     throw new Error("Service workers are not supported in this browser");
   }
-  return navigator.serviceWorker.register(SW_PATH);
+  try {
+    return await navigator.serviceWorker.register(serviceWorkerPath());
+  } catch (err) {
+    throw new Error(
+      err instanceof Error
+        ? `Unable to register notification service worker: ${err.message}`
+        : "Unable to register notification service worker",
+    );
+  }
 }
 
 async function getExistingSubscription() {
@@ -69,14 +98,19 @@ export function useNotificationToggle() {
   const [busy, setBusy] = useState(false);
   const [supported, setSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const canPush =
       typeof window !== "undefined" &&
       "Notification" in window &&
       "serviceWorker" in navigator &&
-      "PushManager" in window;
+      "PushManager" in window &&
+      window.isSecureContext;
     setSupported(canPush);
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setError("Notifications require HTTPS or localhost");
+    }
     if (!canPush) return;
     setPermission(Notification.permission);
     getExistingSubscription()
@@ -91,10 +125,15 @@ export function useNotificationToggle() {
     if (!supported || busy) return;
     setBusy(true);
     setError(null);
+    setStatus("Requesting permission...");
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
-      if (result !== "granted") return;
+      if (result !== "granted") {
+        setStatus(result === "denied" ? "Notifications are blocked in browser settings" : null);
+        return;
+      }
+      setStatus("Registering this device...");
       const existing = await getExistingSubscription();
       if (existing) {
         await api.subscribeNotifications(subscriptionToPayload(existing));
@@ -103,8 +142,10 @@ export function useNotificationToggle() {
       }
       localStorage.setItem(STORAGE_KEY, "true");
       setEnabled(true);
+      setStatus("Task reminders are on");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to enable notifications");
+      setStatus(null);
     } finally {
       setBusy(false);
     }
@@ -114,6 +155,7 @@ export function useNotificationToggle() {
     if (!supported || busy) return;
     setBusy(true);
     setError(null);
+    setStatus("Turning notifications off...");
     try {
       const existing = await getExistingSubscription();
       if (existing) {
@@ -122,8 +164,10 @@ export function useNotificationToggle() {
       }
       localStorage.setItem(STORAGE_KEY, "false");
       setEnabled(false);
+      setStatus("Task reminders are off");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to disable notifications");
+      setStatus(null);
     } finally {
       setBusy(false);
     }
@@ -137,5 +181,5 @@ export function useNotificationToggle() {
     }
   }
 
-  return { permission, enabled, supported, busy, error, toggle };
+  return { permission, enabled, supported, busy, error, status, toggle };
 }

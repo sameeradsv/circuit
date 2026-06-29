@@ -155,6 +155,7 @@ export interface ApiBlackout {
   blackout_type: string;
   start_date_ms: number;
   end_date_ms: number;
+  is_active: boolean;
   created_at: string;
   tasks_rescheduled?: number;
 }
@@ -435,9 +436,9 @@ export const api = {
 
   // blackouts
   listBlackouts: () => req<ApiBlackout[]>("GET", "/api/blackouts"),
-  createBlackout: (payload: { blackout_type: string; start_date_ms: number; end_date_ms: number }) =>
+  createBlackout: (payload: { blackout_type: string; start_date_ms: number; end_date_ms: number; is_active?: boolean }) =>
     req<ApiBlackout>("POST", "/api/blackouts", payload),
-  updateBlackout: (id: number, payload: { blackout_type: string; start_date_ms: number; end_date_ms: number }) =>
+  updateBlackout: (id: number, payload: { blackout_type: string; start_date_ms: number; end_date_ms: number; is_active?: boolean }) =>
     req<ApiBlackout>("PATCH", `/api/blackouts/${id}`, payload),
   deleteBlackout: (id: number) => req<void>("DELETE", `/api/blackouts/${id}`),
 

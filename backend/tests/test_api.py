@@ -9,6 +9,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
+from app.models import CircuitTask, UserState
+from app.routers.energy import _task_delta, _timeline_start_energy
 
 TEST_DB_URL = "sqlite:///:memory:"
 
@@ -475,4 +477,46 @@ def test_energy_timeline_uses_scheduled_at(client, auth):
     expected_time = datetime.fromtimestamp(scheduled_ms / 1000, tz=timezone.utc).astimezone(ist).strftime("%H:%M")
     match = next(e for e in events if "Deep work block" in e["note"])
     assert match["time"] == expected_time
+
+
+def test_historical_energy_start_ignores_live_carryover():
+    engine = create_engine(
+        TEST_DB_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        state = UserState(user_id=999, energy_eod=1.0)
+        db.add(state)
+        db.commit()
+        db.refresh(state)
+
+        from datetime import date
+
+        start = _timeline_start_energy(
+            user_id=999,
+            target=date(2026, 1, 15),
+            sleep_factor=1.0,
+            state=state,
+            db=db,
+        )
+
+        assert start < 1.0
+    finally:
+        db.close()
+
+
+def test_long_calendar_block_has_bounded_energy_delta():
+    task = CircuitTask(
+        user_id=999,
+        text="Imported long work block",
+        duration=480,
+        cognitive_load=0.5,
+        energy_to_reward_ratio=0.5,
+    )
+
+    assert _task_delta("completed", task) > -0.2
 

@@ -129,7 +129,7 @@ export default function TasksPage() {
         .then((res) => setDoneTotal(res.total))
         .catch(() => {});
       api.listBlackouts().then((blackouts) => {
-        setActiveBlackouts(blackouts.filter(b => b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
+        setActiveBlackouts(blackouts.filter(b => b.is_active && b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
       }).catch(() => {});
       return;
     }
@@ -141,7 +141,7 @@ export default function TasksPage() {
     ]).then(([openList, doneMeta, blackouts]) => {
       setTasks(openList);
       setDoneTotal(doneMeta.total);
-      setActiveBlackouts(blackouts.filter(b => b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
+      setActiveBlackouts(blackouts.filter(b => b.is_active && b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
     }).catch(() => {}).finally(() => setFetching(false));
   }, [user]);
 

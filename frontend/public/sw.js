@@ -9,13 +9,16 @@ self.addEventListener("push", (event) => {
   }
 
   const title = payload.title || "Circuit reminder";
+  const scopeUrl = new URL(self.registration.scope);
+  const basePath = scopeUrl.pathname.replace(/\/$/, "");
+  const iconUrl = `${basePath}/icons/icon-192.png`.replace(/\/{2,}/g, "/");
   const options = {
     body: payload.body || "A task is coming up.",
     tag: payload.tag || "circuit-reminder",
     renotify: true,
     requireInteraction: false,
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    icon: iconUrl,
+    badge: iconUrl,
     timestamp: payload.scheduledAt || Date.now(),
     data: {
       url: payload.url || "/",
@@ -33,7 +36,11 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  const scopeUrl = new URL(self.registration.scope);
+  const basePath = scopeUrl.pathname.replace(/\/$/, "");
+  const rawUrl = event.notification.data?.url || "/";
+  const targetPath = rawUrl.startsWith("/") ? `${basePath}${rawUrl}`.replace(/\/{2,}/g, "/") : rawUrl;
+  const targetUrl = new URL(targetPath, self.location.origin).href;
   event.waitUntil((async () => {
     const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windows) {
