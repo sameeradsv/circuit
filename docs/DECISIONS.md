@@ -103,7 +103,7 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 ## Polish pass: local utterance parser (2026-06-17)
 
-**Decision:** Task capture uses sync `parseUtterance()` (`frontend/src/lib/parse-utterance.ts`) for explicit syntax (`#tag`, duration, priority, schedule text) and sends full-stack additions through `POST /api/ai/suggest-task` for Groq-backed defaults across scheduling, cognitive, priority, energy, reminder, and tiny-step fields. Calendar imports also use `suggest-task` for Circuit planning fields, but preserve ICS-owned time, duration, UID, RRULE, recurrence anchor, and location. **No `POST /api/ai/classify` on Add/Tasks submit**; classify remains a lightweight standalone endpoint.
+**Decision:** Task capture uses sync `parseUtterance()` (`frontend/src/lib/parse-utterance.ts`) for explicit syntax (`#tag`, duration, priority, schedule text) and sends full-stack additions through `POST /api/ai/suggest-task` for Groq-backed defaults across scheduling, cognitive, priority, energy, reminder, and tiny-step fields. Calendar imports also use `suggest-task` for Circuit planning fields; the actual event title is the primary semantic signal, with imported start time, duration, calendar name, description, and location as context, while ICS-owned time, duration, UID, RRULE, recurrence anchor, and location are preserved. **No `POST /api/ai/classify` on Add/Tasks submit**; classify remains a lightweight standalone endpoint.
 
 **Vanilla PWA:** Same parser in `src/ai-assistance/parse-utterance.ts`; `#analytics` and `#energy` render on hash navigation only (no extra startup fetch). Voice mic injected on add form when supported. Full cumulative energy timeline and Groq agent remain full-stack / Conduit only.
 
@@ -187,13 +187,13 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 ---
 
-## Notifications: per-task browser reminders (2026-06-18)
+## Notifications: durable Web Push reminders (2026-06-29)
 
-**Decision:** Scheduled tasks store `notifications_enabled`, `notification_offset_1_mins`, and `notification_offset_2_mins`. The browser scheduler uses those offsets when the global sidebar notification toggle is enabled.
+**Decision:** Scheduled tasks store `notifications_enabled`, `notification_offset_1_mins`, and `notification_offset_2_mins`. The backend materializes those offsets into durable `reminders` rows and sends them through Web Push to enabled device subscriptions. Shared `/api/cron/*` jobs now also process due reminder deliveries after materialization.
 
-**Reason:** Users need event-specific reminders without adding server-push infrastructure.
+**Reason:** Users need event-specific reminders even when the app is closed, and the cron job should not report success while only generating rows that are never delivered.
 
-**Implication:** Server-push notifications remain out of scope; reminders are local browser notifications scheduled while the app is open and within the 24-hour timer horizon.
+**Implication:** Reminder delivery requires VAPID keys, push subscriptions from the sidebar bell, and a cron call to either `/api/cron/materialize-occurrences`, `/api/cron/sync-icloud-calendar`, or the reminder-only `/api/notifications/process` endpoint.
 
 ---
 

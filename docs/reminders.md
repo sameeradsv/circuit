@@ -5,7 +5,7 @@ Circuit supports two reminder shapes:
 1. Production task reminders for one-time and recurring tasks.
 2. Lightweight fixed daily reminders for small apps such as habit trackers, journaling, gratitude, Canopy, or Chef.
 
-The TypeScript implementation lives in the Next.js app under `frontend/src/server/reminders` and is exposed through Vercel route handlers under `frontend/src/app/api`.
+The production implementation lives in the FastAPI backend under `backend/app/services/reminders.py` and is exposed through `backend/app/routers/notifications.py` plus the shared backend cron routes.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ flowchart LR
   Tasks["Tasks + recurrence rules\nWHAT should be reminded"] --> Materializer["Reminder materializer\nfinite upcoming horizon"]
   Materializer --> Reminders["reminders table\nWHEN to send"]
   Devices["push_subscriptions table\nWHERE to deliver"] --> Sender["Web Push sender"]
-  Cron["cron-job.org\nevery minute"] --> Processor["/api/reminders/process"]
+  Cron["cron-job.org\nevery minute"] --> Processor["/api/cron/materialize-occurrences\nor /api/notifications/process"]
   Processor --> Reminders
   Processor --> Sender
   Sender --> PWA["Installed PWA devices\nservice worker receives push"]
@@ -51,11 +51,7 @@ Authenticated. Upserts a device subscription by `(user_id, endpoint)`, enables i
 
 Authenticated. Disables the matching endpoint for the current user.
 
-### `POST /api/notifications/send`
-
-Authenticated direct-send endpoint for explicit user-triggered notifications. This is useful for testing and for product flows that need an immediate notification.
-
-### `GET|POST /api/reminders/process`
+### `POST /api/notifications/process`
 
 Cron-protected. Requires:
 
@@ -72,13 +68,22 @@ The endpoint:
 - increments attempts and records `last_error`,
 - disables invalid push subscriptions on `404` or `410`.
 
+### `POST /api/cron/materialize-occurrences`
+
+Cron-protected. Requires:
+
+```http
+Authorization: Bearer <CRON_SECRET>
+```
+
+This shared Circuit cron endpoint expands recurring occurrences, materializes upcoming reminders, and now processes due reminder deliveries in the same run. `POST /api/cron/sync-icloud-calendar` does the same reminder work before calendar sync.
+
 ## Concurrency and Duplicate Prevention
 
 The reminder processor is safe to call every minute and safe to overlap:
 
 - `reminders` has `unique(user_id, task_id, remind_at)` so materialization is idempotent.
-- due rows are claimed with a single `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED ...) RETURNING *`.
-- a claimed row is moved to `processing` before sending.
+- due rows are claimed in stable due-time order and moved to `processing` before sending.
 - only rows in `pending` or retryable `failed` are claimable.
 - a reminder is marked `sent` only after at least one enabled subscription accepts the push request.
 
@@ -86,7 +91,7 @@ This means cron-job.org can retry transient failures without causing duplicate s
 
 ## Recurrence
 
-The TypeScript materializer supports Circuit's common recurrence patterns:
+The backend materializer supports Circuit's recurrence patterns, including:
 
 - `daily`
 - `weekday`
@@ -96,7 +101,7 @@ The TypeScript materializer supports Circuit's common recurrence patterns:
 - `every:4d`
 - `every:2w`
 
-The materializer intentionally creates only finite reminder rows between now and `REMINDER_MATERIALIZE_DAYS`. Completion, skip, reschedule, and recurrence edits should cancel or update affected pending reminder rows in the task mutation path, then call `materializeUpcomingReminders()`.
+The materializer intentionally creates only finite reminder rows between now and `REMINDER_MATERIALIZE_DAYS`. Completion, skip, reschedule, and recurrence edits cancel or update affected pending reminder rows in the task mutation path, then re-materialize the user's upcoming reminders.
 
 ## Vercel Environment
 
@@ -110,7 +115,7 @@ VAPID_SUBJECT=mailto:you@example.com
 REMINDER_CRON_SECRET=<long random token>
 REMINDER_MATERIALIZE_DAYS=7
 REMINDER_BATCH_SIZE=100
-REMINDER_MAX_ATTEMPTS=5
+REMINDER_MAX_ATTEMPTS=3
 ```
 
 Generate VAPID keys once:
@@ -119,20 +124,18 @@ Generate VAPID keys once:
 npx web-push generate-vapid-keys
 ```
 
-Run the migration against Neon before enabling cron:
-
-```bash
-psql "$DATABASE_URL" -f frontend/migrations/001_reminders.sql
-```
+Run `python -m app.database` from `backend/` against production before enabling cron so the additive reminder tables and columns exist.
 
 ## cron-job.org Setup
 
 Create a job that runs every minute:
 
-- URL: `https://<your-app>.vercel.app/api/reminders/process`
+- URL: `https://<api-host>/api/cron/materialize-occurrences`
 - Method: `POST`
-- Header: `Authorization: Bearer <REMINDER_CRON_SECRET>`
+- Header: `Authorization: Bearer <CRON_SECRET>`
 - Timeout: 60 seconds
+
+If you want reminders to run independently from the shared Circuit cron job, create a separate every-minute job for `POST /api/notifications/process` with `Authorization: Bearer <REMINDER_CRON_SECRET>`.
 
 For fixed small-app reminders, create three daily jobs:
 

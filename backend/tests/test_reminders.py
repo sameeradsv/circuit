@@ -132,6 +132,40 @@ def test_process_due_reminder_sends_to_all_devices(client, auth, monkeypatch):
     assert row.sent_at is not None
 
 
+def test_cron_materialization_processes_due_reminders(client, auth, monkeypatch):
+    monkeypatch.setattr(settings, "cron_secret", "secret")
+    now = datetime.now(timezone.utc)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "Leave for appointment",
+            "scheduled_at": _ms(now - timedelta(seconds=1)),
+            "notification_offset_1_mins": 0,
+        },
+        headers=auth,
+    ).json()
+    sent: list[int] = []
+
+    def fake_send(_sub, payload):
+        sent.append(payload["taskId"])
+
+    monkeypatch.setattr("app.services.reminders.send_web_push", fake_send)
+    with client.testing_session() as db:
+        db.add(PushSubscription(user_id=1, endpoint="https://push.example/cron", p256dh="a", auth="a"))
+        db.commit()
+
+    response = client.post("/api/cron/materialize-occurrences", headers={"Authorization": "Bearer secret"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["claimed"] == 1
+    assert body["sent"] == 1
+    assert sent == [task["id"]]
+    with client.testing_session() as db:
+        reminder = db.query(Reminder).filter(Reminder.task_id == task["id"]).one()
+        assert reminder.status == "sent"
+
+
 def test_process_due_reminder_disables_invalid_subscription(client, auth, monkeypatch):
     now = datetime(2026, 1, 1, 8, 0, tzinfo=timezone.utc).replace(tzinfo=None)
     client.post(

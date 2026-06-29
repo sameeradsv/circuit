@@ -10,7 +10,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import CircuitTask
 from app.services.icloud_calendar import ICloudCalendarSetupError, cleanup_icloud_calendar, sync_icloud_calendar
-from app.services.reminders import materialize_reminders_for_user
+from app.services.reminders import materialize_reminders_for_user, process_due_reminders
 from app.services.virtual_recurrence import materialize_occurrences_for_all_users
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,13 @@ def _materialize_reminders_for_all_task_users(db: Session) -> int:
     return generated
 
 
+def _run_reminder_job(db: Session) -> dict[str, int]:
+    generated = _materialize_reminders_for_all_task_users(db)
+    stats = process_due_reminders(db)
+    stats["reminders_generated_count"] = generated
+    return stats
+
+
 @router.post("/materialize-occurrences")
 def materialize_occurrences(
     authorization: Optional[str] = Header(default=None),
@@ -39,16 +46,16 @@ def materialize_occurrences(
 ):
     _require_cron(authorization)
     occurrence_stats = materialize_occurrences_for_all_users(db)
-    reminders_generated = _materialize_reminders_for_all_task_users(db)
+    reminder_stats = _run_reminder_job(db)
     db.commit()
     result = {
         "materialized_count": occurrence_stats["materialized"],
-        "reminders_generated_count": reminders_generated,
         "calendar_created_count": 0,
         "updated_count": occurrence_stats["updated"],
         "deleted_count": occurrence_stats["deleted"],
         "skipped_count": occurrence_stats["skipped"],
         "failed_count": occurrence_stats["failed"],
+        **reminder_stats,
     }
     logger.info("Cron materialized occurrences", extra=result)
     return result
@@ -60,13 +67,14 @@ def sync_calendar(
     db: Session = Depends(get_db),
 ):
     _require_cron(authorization)
-    reminders_generated = _materialize_reminders_for_all_task_users(db)
+    reminder_stats = _run_reminder_job(db)
     try:
         stats = sync_icloud_calendar(db)
     except ICloudCalendarSetupError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    stats["reminders_generated_count"] = int(stats.get("reminders_generated_count", 0)) + reminders_generated
+    stats["reminders_generated_count"] = int(stats.get("reminders_generated_count", 0)) + reminder_stats.pop("reminders_generated_count", 0)
+    stats.update(reminder_stats)
     db.commit()
     logger.info("Cron synced iCloud calendar", extra=stats)
     return stats

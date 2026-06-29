@@ -27,6 +27,14 @@ ICLOUD_CALENDAR_NAME=Circuit
 CRON_SECRET=<long random token>
 ```
 
+Reminder delivery from these cron jobs also requires Web Push credentials:
+
+```bash
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:you@example.com
+```
+
 Optional:
 
 ```bash
@@ -94,11 +102,11 @@ Expands recurrence definitions into the rolling materialized window:
 materializationEnd = max(endOfCurrentMonth, today + 7 days)
 ```
 
-It also generates reminder rows for the next 7 days. Future generated occurrence rows outside the current recurrence state are pruned only when they are pending generated rows. Completed, skipped, edited, and past recurring occurrence history is preserved in `occurrence_overrides`.
+It also generates reminder rows for the next 7 days and processes due Web Push reminders. Future generated occurrence rows outside the current recurrence state are pruned only when they are pending generated rows. Completed, skipped, edited, and past recurring occurrence history is preserved in `occurrence_overrides`.
 
 ### `POST /api/cron/sync-icloud-calendar`
 
-Runs materialization, validates iCloud setup, discovers the `Circuit` iCloud calendar, reads current events for today through `ICLOUD_SYNC_WINDOW_DAYS`, diffs against Circuit occurrences, then creates, updates, or deletes mirror events. Set `ICLOUD_SYNC_ENABLED=true` to allow calendar writes.
+Runs materialization, processes due Web Push reminders, validates iCloud setup, discovers the `Circuit` iCloud calendar, reads current events for today through `ICLOUD_SYNC_WINDOW_DAYS`, diffs against Circuit occurrences, then creates, updates, or deletes mirror events. Set `ICLOUD_SYNC_ENABLED=true` to allow calendar writes.
 
 Each event is a one-off `VEVENT` with no `RRULE`. The UID is deterministic:
 

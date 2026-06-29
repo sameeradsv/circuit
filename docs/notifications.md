@@ -9,7 +9,7 @@ flowchart LR
   Task["Task or recurrence rule"] --> Materializer["Reminder materializer"]
   Materializer --> Reminder["reminders rows"]
   Device["Installed PWA device"] --> Sub["push_subscriptions rows"]
-  Cron["cron-job.org every minute"] --> Processor["POST /api/notifications/process"]
+  Cron["cron-job.org every minute"] --> Processor["POST /api/cron/materialize-occurrences\nor POST /api/notifications/process"]
   Processor --> Reminder
   Processor --> Sub
   Processor --> Push["Web Push service"]
@@ -18,7 +18,7 @@ flowchart LR
 
 Tasks and recurrence rules decide what should be reminded. `reminders` rows decide when the reminder is eligible for delivery. `push_subscriptions` rows decide where it is delivered.
 
-The backend materializes reminders only for a bounded upcoming window (`REMINDER_MATERIALIZE_DAYS`, default 14). Recurring tasks still remain recurrence definitions; Circuit does not generate infinite task rows.
+The backend materializes reminders only for a bounded upcoming window (`REMINDER_MATERIALIZE_DAYS`, default 7). Recurring tasks still remain recurrence definitions; Circuit does not generate infinite task rows.
 
 ## Data model
 
@@ -57,12 +57,16 @@ The extra operational columns support retries, logging, and virtual recurring oc
 - `POST /api/notifications/subscribe`
 - `POST /api/notifications/unsubscribe`
 - `POST /api/notifications/process`
+- `POST /api/cron/materialize-occurrences`
+- `POST /api/cron/sync-icloud-calendar`
 
-`/process` requires:
+`/api/notifications/process` is the reminder-only processor and requires:
 
 ```http
 Authorization: Bearer ${REMINDER_CRON_SECRET}
 ```
+
+The shared backend cron endpoints use `CRON_SECRET`. They now materialize upcoming reminder rows and process due reminder deliveries as part of their normal response, returning reminder counts such as `reminders_generated_count`, `claimed`, `sent`, `failed`, and `cancelled`.
 
 ## Vercel setup
 
@@ -83,9 +87,11 @@ Generate VAPID keys with a Web Push key generator, for example `npx web-push gen
 Configure cron-job.org to call every minute:
 
 ```text
-POST https://<api-host>/api/notifications/process
-Authorization: Bearer <REMINDER_CRON_SECRET>
+POST https://<api-host>/api/cron/materialize-occurrences
+Authorization: Bearer <CRON_SECRET>
 ```
+
+If an existing every-minute job already calls `POST /api/cron/sync-icloud-calendar`, that job also processes due reminders. A separate `POST /api/notifications/process` job is only needed when reminders should run independently from the shared Circuit cron job.
 
 ## Canopy and Chef lightweight reminders
 
