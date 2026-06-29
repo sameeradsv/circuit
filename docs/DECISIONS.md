@@ -105,6 +105,8 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 **Decision:** Task capture uses sync `parseUtterance()` (`frontend/src/lib/parse-utterance.ts`) for explicit syntax (`#tag`, duration, priority, schedule text) and sends full-stack additions through `POST /api/ai/suggest-task` for Groq-backed defaults across scheduling, cognitive, priority, energy, reminder, and tiny-step fields. Calendar imports also use `suggest-task` for Circuit planning fields; the actual event title is the primary semantic signal, with imported start time, duration, calendar name, description, and location as context, while ICS-owned time, duration, UID, RRULE, recurrence anchor, and location are preserved. **No `POST /api/ai/classify` on Add/Tasks submit**; classify remains a lightweight standalone endpoint.
 
+**Output calibration:** The Groq prompt defines each 0-1 metric separately (`importance`, `urgency`, `cost of delay`, `mental load`, startup friction, recovery drain, momentum, reward). If Groq returns near-zero for a dimension that the title-derived fallback detects as meaningful, the backend repairs only that field from the fallback.
+
 **Vanilla PWA:** Same parser in `src/ai-assistance/parse-utterance.ts`; `#analytics` and `#energy` render on hash navigation only (no extra startup fetch). Voice mic injected on add form when supported. Full cumulative energy timeline and Groq agent remain full-stack / Conduit only.
 
 **Do not** re-add classify-on-capture. If capture latency becomes a problem, tune or defer `suggest-task` rather than routing through the narrower classify endpoint.

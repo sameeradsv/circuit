@@ -13,7 +13,7 @@ _IST = ZoneInfo("Asia/Kolkata")
 
 _URGENT_WORDS = {"urgent", "asap", "today", "now", "immediately", "critical", "deadline", "overdue", "emergency"}
 _IMPORTANT_WORDS = {"important", "key", "essential", "must", "priority", "vital", "crucial", "critical"}
-_WORK_WORDS = {"write", "code", "build", "design", "review", "report", "meeting", "email", "presentation", "project", "ticket", "deploy", "fix", "debug", "implement", "develop", "test", "research", "analyze"}
+_WORK_WORDS = {"work", "office", "write", "code", "build", "design", "review", "report", "meeting", "email", "presentation", "project", "ticket", "deploy", "fix", "debug", "implement", "develop", "test", "research", "analyze"}
 _SOCIAL_WORDS = {"call", "meet", "lunch", "dinner", "coffee", "friend", "family", "party", "visit", "chat", "talk", "catch"}
 _LATER_WORDS = {"someday", "maybe", "eventually", "later", "backlog", "wishlist"}
 _EASY_WORDS = {"quick", "simple", "easy", "brief", "small", "minor"}
@@ -109,6 +109,10 @@ def _valid_choice(value: Any, allowed: set[str], fallback: str) -> str:
 
 def _first_tiny_step(text: str) -> str:
     lower = text.lower()
+    if any(w in lower for w in ("sleep", "bedtime", "nap", "rest")):
+        return "Start winding down and make the room sleep-ready."
+    if any(w in lower for w in ("renew", "subscription", "billing")):
+        return "Open the billing page and check the renewal status."
     if any(w in lower for w in ("reply", "email", "message", "dm")):
         return "Open the thread and write the first sentence."
     if any(w in lower for w in ("call", "phone")):
@@ -126,6 +130,8 @@ def _suggest_heuristic(text: str, context: str | None = None) -> dict:
     classified = _classify_heuristic(text, context)
     full = f"{text} {context or ''}".lower()
     effort = classified["effort"]
+    sleep = any(w in full for w in ("sleep", "bedtime", "nap", "rest"))
+    renew = any(w in full for w in ("renew", "subscription", "bill", "billing", "payment", "pay ", "invoice"))
     healthy = any(w in full for w in ("health", "workout", "exercise", "walk", "run", "stretch", "sleep", "meditat"))
     blocks = any(w in full for w in ("block", "unblock", "dependency", "launch", "release", "client", "deadline"))
     dread = any(w in full for w in ("dread", "avoid", "anxious", "scary", "awkward", "hard to start"))
@@ -138,24 +144,31 @@ def _suggest_heuristic(text: str, context: str | None = None) -> dict:
         else "admin" if admin
         else "shallow"
     )
+    if sleep:
+        effort = "low"
+        focus_type = "shallow"
+    elif renew:
+        effort = "low"
+        focus_type = "admin"
+
     return {
         **classified,
-        "duration": 15 if effort == "low" else 90 if effort == "high" and focus_type == "deep" else 30,
+        "duration": 480 if sleep else 15 if effort == "low" else 90 if effort == "high" and focus_type == "deep" else 30,
         "deadline_type": "hard" if classified["urgency"] >= 0.75 or "deadline" in full else "none",
-        "time_sensitivity": classified["urgency"],
+        "time_sensitivity": _clamp01(0.65 if renew else classified["urgency"], classified["urgency"]),
         "scheduled_at": None,
         "recurrence": None,
         "recurrence_ends_at": None,
         "post_blackout_behavior": "resume",
-        "emotional_resistance": _clamp01(0.75 if dread else 0.25 if healthy else 0.45, 0.45),
-        "activation_energy": _clamp01(0.25 if easy else 0.7 if effort == "high" else 0.5, 0.5),
-        "recovery_cost": _clamp01(0.55 if effort == "high" else 0.2 if effort == "low" else 0.35, 0.35),
+        "emotional_resistance": _clamp01(0.1 if sleep else 0.2 if renew else 0.75 if dread else 0.25 if healthy else 0.45, 0.45),
+        "activation_energy": _clamp01(0.1 if sleep else 0.25 if renew or easy else 0.7 if effort == "high" else 0.5, 0.5),
+        "recovery_cost": _clamp01(0.05 if sleep else 0.15 if renew else 0.55 if effort == "high" else 0.2 if effort == "low" else 0.35, 0.35),
         "focus_type": focus_type,
-        "consequence_of_delay": _clamp01(0.75 if classified["urgency"] > 0.7 or blocks else 0.35, 0.35),
-        "momentum_value": _clamp01(0.85 if blocks else 0.65 if classified["urgency"] > 0.7 else 0.5, 0.5),
+        "consequence_of_delay": _clamp01(0.6 if sleep else 0.8 if renew else 0.75 if classified["urgency"] > 0.7 or blocks else 0.35, 0.35),
+        "momentum_value": _clamp01(0.35 if sleep else 0.65 if renew else 0.85 if blocks else 0.65 if classified["urgency"] > 0.7 else 0.5, 0.5),
         "compound_benefit": _clamp01(0.7 if blocks or healthy else 0.35, 0.35),
         "identity_alignment": _clamp01(0.85 if healthy else 0.4, 0.4),
-        "energy_to_reward_ratio": _clamp01(0.75 if healthy else 0.45 if effort == "high" else 0.6, 0.6),
+        "energy_to_reward_ratio": _clamp01(0.95 if sleep else 0.55 if renew else 0.75 if healthy else 0.45 if effort == "high" else 0.6, 0.6),
         "task_decomposition_potential": _clamp01(0.7 if effort == "high" else 0.3, 0.3),
         "tiny_step": _first_tiny_step(text),
         "preferred_execution_window": "morning" if focus_type == "deep" else None,
@@ -230,9 +243,9 @@ def _normalize_suggestion(raw: dict[str, Any], text: str, context: str | None) -
 
 
 def _repair_degenerate_zeroes(data: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
-    # A value of exactly 0 is rarely useful as a prefilled planner setting.
-    # When the model collapses a field to 0, restore the name-based heuristic
-    # fallback instead of inventing category floors here.
+    # Values near zero are rarely useful as prefilled planner settings for
+    # real events. When the model underestimates a dimension that the
+    # title-derived heuristic believes exists, restore that title-derived value.
     metric_fields = (
         "urgency",
         "importance",
@@ -254,7 +267,7 @@ def _repair_degenerate_zeroes(data: dict[str, Any], fallback: dict[str, Any]) ->
         except (TypeError, ValueError):
             current = 0
         fallback_value = fallback.get(field)
-        if current <= 0.01 and isinstance(fallback_value, (int, float)) and fallback_value > 0:
+        if current <= 0.2 and isinstance(fallback_value, (int, float)) and fallback_value >= 0.3:
             data[field] = fallback_value
     return data
 
@@ -314,6 +327,11 @@ def _suggest_with_groq(text: str, context: str | None, api_key: str) -> dict:
         "Do not assign generic category defaults blindly. For example, 'Sleep' should look restorative and low-cognitive, "
         "'Renew Codex subscription' should look like a short admin/finance task with real cost of delay, "
         "and 'Deep work on launch plan' should look cognitively demanding and important. "
+        "Use this calibration: importance means value if done; urgency/time_sensitivity means time pressure; "
+        "consequence_of_delay means harm if delayed; cognitive_load means mental bandwidth; activation_energy means startup friction; "
+        "recovery_cost means fatigue after doing it; momentum_value means how much it unlocks follow-on work; "
+        "energy_to_reward_ratio means how restorative or satisfying completion is. "
+        "For real commitments, avoid compressing values toward 0. Pick differentiated values that match the title. "
         "Use null when a date/time is not clearly implied. "
         "scheduled_at and recurrence_ends_at must be Unix epoch milliseconds or null. "
         "Use 0 only when a dimension is truly absent; most real tasks/events should have non-zero importance, load, and delay impact. "
