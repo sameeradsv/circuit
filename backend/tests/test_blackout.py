@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 
 from app.engines.recurrence import (
     first_catch_up_slot_after,
-    skip_occurrences_too_close_after_catchup,
+    shifted_rrule,
+    shifted_series_pattern,
 )
 from app.services.blackout import adjust_for_blackouts, task_affected_by
 
@@ -96,25 +97,6 @@ def test_inactive_blackout_does_not_adjust_occurrence():
     assert adjust_for_blackouts(_ms(sat), task, [blackout], sat) == _ms(sat)
 
 
-def test_skip_sat_after_catch_up_fri_for_weekly_wed_sat():
-    """Wed+Sat series: Wed catch-up on Fri → skip Sat, keep Wed."""
-    anchor = datetime(2026, 1, 7, 10, 0, tzinfo=_IST)   # Wed (original slot)
-    catch_up = datetime(2026, 1, 9, 10, 0, tzinfo=_IST)  # Fri (after blackout)
-    sat_next = datetime(2026, 1, 10, 10, 0, tzinfo=_IST)  # Sat from anchor series
-    wed_after = datetime(2026, 1, 14, 10, 0, tzinfo=_IST)  # next Wed
-
-    skipped = skip_occurrences_too_close_after_catchup(
-        "weekly:WE,SA",
-        _ms(sat_next),
-        _ms(catch_up),
-        _ms(anchor),
-        min_gap_days=2,
-    )
-    result = datetime.fromtimestamp(skipped / 1000, tz=_IST)
-    assert result.weekday() == 2  # Wednesday
-    assert result.date() == wed_after.date()
-
-
 def test_resume_still_skips_to_next_series_tick():
     """resume on every:2w skips the missed Saturday to the next biweekly tick."""
     sat = datetime(2026, 1, 10, 10, 0, tzinfo=_IST)
@@ -130,6 +112,53 @@ def test_resume_still_skips_to_next_series_tick():
     new_ms = adjust_for_blackouts(_ms(sat), task, [blackout], sat)
     new_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
     assert new_dt.date() == datetime(2026, 1, 24, tzinfo=_IST).date()
+
+
+def test_one_off_resumes_at_original_time_on_disable_day_when_possible():
+    task_dt = datetime(2026, 1, 10, 15, 30, tzinfo=_IST)
+    blackout = _blackout(
+        datetime(2026, 1, 10, 0, 0, tzinfo=_IST),
+        datetime(2026, 1, 10, 10, 0, tzinfo=_IST),
+    )
+    task = _task(
+        recurrence=None,
+        scheduled_at=_ms(task_dt),
+        post_blackout_behavior="resume",
+    )
+    new_ms = adjust_for_blackouts(_ms(task_dt), task, [blackout], task_dt)
+    new_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
+    assert new_dt == task_dt
+
+
+def test_one_off_resumes_next_day_at_original_time_when_time_has_passed():
+    task_dt = datetime(2026, 1, 10, 9, 30, tzinfo=_IST)
+    blackout = _blackout(
+        datetime(2026, 1, 10, 0, 0, tzinfo=_IST),
+        datetime(2026, 1, 10, 10, 0, tzinfo=_IST),
+    )
+    task = _task(
+        recurrence=None,
+        scheduled_at=_ms(task_dt),
+        post_blackout_behavior="resume",
+    )
+    new_ms = adjust_for_blackouts(_ms(task_dt), task, [blackout], task_dt)
+    new_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
+    assert new_dt == datetime(2026, 1, 11, 9, 30, tzinfo=_IST)
+
+
+def test_shifted_monthly_nth_weekday_pattern_follows_new_series_anchor():
+    shifted = datetime(2026, 1, 24, 10, 0, tzinfo=_IST)  # fourth Saturday
+    assert shifted_series_pattern("monthly:3SA", shifted) == "monthly:4sa"
+
+
+def test_shifted_weekly_pattern_keeps_same_weekly_rule():
+    shifted = datetime(2026, 1, 24, 10, 0, tzinfo=_IST)
+    assert shifted_series_pattern("weekly:SA", shifted) == "weekly:sa"
+
+
+def test_shifted_monthly_rrule_follows_new_series_anchor():
+    shifted = datetime(2026, 1, 24, 10, 0, tzinfo=_IST)  # fourth Saturday
+    assert shifted_rrule("FREQ=MONTHLY;BYDAY=SA;BYSETPOS=3", shifted) == "FREQ=MONTHLY;BYDAY=SA;BYSETPOS=4"
 
 
 def test_catch_up_immediate_uses_day_after_blackout():

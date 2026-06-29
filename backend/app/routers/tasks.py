@@ -14,7 +14,7 @@ from app.database import get_db
 from app.deps.auth import require_user
 from app.models import CircuitTask, RecurringTask, TaskEvent, User
 from app.behavioral import record_completion_rate
-from app.engines.recurrence import is_hourly_recurrence, next_occurrence, skip_occurrences_too_close_after_catchup
+from app.engines.recurrence import is_hourly_recurrence, next_occurrence
 from app.services.blackout import adjust_for_blackouts
 from app.services.adaptive_learning import apply_complete_learning, update_delay_pattern_on_skip
 from app.services.ai import suggest_task_defaults
@@ -147,7 +147,7 @@ def _create_next_occurrence_for_completed_task(db: Session, user_id: int, task: 
         if next_ms:
             pre_adjust_ms = next_ms
             next_ms = adjust_for_blackouts(next_ms, task, user_blackouts, time_ref_dt)
-            if task.post_blackout_behavior in ("catch_up_once", "catch_up_immediate") and next_ms != pre_adjust_ms:
+            if task.post_blackout_behavior == "catch_up_immediate" and next_ms != pre_adjust_ms:
                 next_anchor_ms = pre_adjust_ms
             if task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
                 next_ms = None
@@ -155,21 +155,6 @@ def _create_next_occurrence_for_completed_task(db: Session, user_id: int, task: 
                 adj_dt = datetime.fromtimestamp(next_ms / 1000, tz=_IST)
                 adj_dt = _apply_day_time_override(adj_dt, task.day_time_overrides)
                 next_ms = int(adj_dt.timestamp() * 1000)
-            if (
-                next_ms
-                and task.post_blackout_behavior == "catch_up_once"
-                and task.recurrence
-                and task.recurrence_anchor_ms
-            ):
-                next_ms = skip_occurrences_too_close_after_catchup(
-                    task.recurrence,
-                    next_ms,
-                    task.scheduled_at,
-                    task.recurrence_anchor_ms,
-                )
-                if task.recurrence_ends_at and next_ms > task.recurrence_ends_at:
-                    next_ms = None
-
         if not next_ms:
             return
 

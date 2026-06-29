@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Optional
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
-from app.engines.recurrence import first_catch_up_slot_after, is_hourly_recurrence, next_occurrence
+from app.engines.recurrence import first_catch_up_slot_after, is_hourly_recurrence, next_occurrence, shifted_rrule, shifted_series_pattern
 from app.models import Blackout, CircuitTask, TaskEvent
 
 if TYPE_CHECKING:
@@ -17,10 +17,10 @@ if TYPE_CHECKING:
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
 
-# catch_up / catch_up_once → next pattern slot; immediate modes → day after blackout
-_SUITABLE_SLOT_CATCHUP = frozenset({"catch_up", "catch_up_once"})
+_SHIFT_SERIES = frozenset({"catch_up", "catch_up_imm_shift"})
+_SUITABLE_SLOT_CATCHUP = frozenset({"catch_up"})
 _IMMEDIATE_CATCHUP = frozenset({"catch_up_immediate", "catch_up_imm_shift"})
-_ANCHOR_PRESERVING_CATCHUP = frozenset({"catch_up_once", "catch_up_immediate"})
+_ANCHOR_PRESERVING_CATCHUP = frozenset({"catch_up_immediate"})
 
 
 def task_affected_by(task: CircuitTask, blackout_type: str) -> bool:
@@ -41,13 +41,12 @@ def _overlapping_blackouts(ms: int, task: CircuitTask, blackouts: list) -> list:
 def _catch_up_after_ms(ms: int, hits: list, from_dt: datetime) -> int:
     latest_end = max(b.end_date_ms for b in hits)
     latest_end_dt = datetime.fromtimestamp(latest_end / 1000, tz=_IST)
-    next_day = (latest_end_dt + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    next_day = next_day.replace(
+    candidate = latest_end_dt.replace(
         hour=from_dt.hour, minute=from_dt.minute, second=from_dt.second, microsecond=0
     )
-    return int(next_day.timestamp() * 1000)
+    if candidate <= latest_end_dt:
+        candidate += timedelta(days=1)
+    return int(candidate.timestamp() * 1000)
 
 
 def _catch_up_suitable_ms(
@@ -118,7 +117,7 @@ def adjust_for_blackouts(
             current_ms = _catch_up_after_ms(current_ms, hits, from_dt)
             continue
 
-        # resume: advance one recurrence period at a time
+        # Continue series: advance one recurrence period at a time.
         if task.rrule and task.is_recurring_template:
             from app.routers.calendar import _expand_rrule
             candidates = _expand_rrule(
@@ -207,6 +206,13 @@ def reschedule_tasks_for_blackout(user_id: int, blackout: Blackout, db: Session)
             continue
 
         old_ms = task.scheduled_at
+        if task.post_blackout_behavior in _SHIFT_SERIES and task.recurrence:
+            shifted_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
+            task.recurrence = shifted_series_pattern(task.recurrence, shifted_dt)
+        if task.post_blackout_behavior in _SHIFT_SERIES and task.rrule:
+            shifted_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
+            task.rrule = shifted_rrule(task.rrule, shifted_dt)
+            task.rrule_dtstart_ms = new_ms
         task.scheduled_at = new_ms
         if task.post_blackout_behavior in _ANCHOR_PRESERVING_CATCHUP and new_ms != old_ms:
             task.recurrence_anchor_ms = task.recurrence_anchor_ms or old_ms

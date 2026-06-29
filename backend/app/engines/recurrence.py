@@ -23,6 +23,8 @@ from zoneinfo import ZoneInfo
 
 _IST = ZoneInfo("Asia/Kolkata")
 _INTERVAL_RE = re.compile(r"^every:(\d+)([dwh])$")
+_MONTHLY_NTH_WEEKDAY_RE = re.compile(r"^monthly:(\d|L)(MO|TU|WE|TH|FR|SA|SU)$", re.IGNORECASE)
+_MONTHLY_DAY_RE = re.compile(r"^monthly:(\d{1,2})$", re.IGNORECASE)
 
 
 def is_hourly_recurrence(pattern: str | None) -> bool:
@@ -120,36 +122,72 @@ def first_catch_up_slot_after(
     return next_occurrence_strictly_after(pattern, after_dt, anchor_dt)
 
 
-# Min gap after a catch_up_once slot before the next anchor-based occurrence is kept.
-_CATCH_UP_MIN_GAP_DAYS = 2
+def shifted_series_pattern(pattern: str | None, shifted_dt: datetime) -> str | None:
+    """Return a recurrence pattern adjusted to a shifted series anchor when needed."""
+    if not pattern:
+        return pattern
+
+    raw = pattern.strip()
+    normalized = raw.lower()
+
+    m = _MONTHLY_NTH_WEEKDAY_RE.match(raw)
+    if m:
+        day_codes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+        first = shifted_dt.replace(day=1)
+        count = 0
+        day = first
+        while day.month == shifted_dt.month:
+            if day.weekday() == shifted_dt.weekday():
+                count += 1
+                if day.day == shifted_dt.day:
+                    return f"monthly:{count}{day_codes[shifted_dt.weekday()]}".lower()
+            day += timedelta(days=1)
+        return normalized
+
+    m = _MONTHLY_DAY_RE.match(raw)
+    if m:
+        return f"monthly:{shifted_dt.day}"
+
+    return normalized
 
 
-def skip_occurrences_too_close_after_catchup(
-    pattern: str | None,
-    next_ms: int,
-    catch_up_ms: int,
-    anchor_ms: int,
-    *,
-    min_gap_days: int = _CATCH_UP_MIN_GAP_DAYS,
-) -> int:
-    """Skip anchor-based occurrences that land too soon after a catch-up completion."""
-    if not pattern or not pattern.strip():
-        return next_ms
+def shifted_rrule(rrule: str | None, shifted_dt: datetime) -> str | None:
+    """Adjust monthly RRULE date selectors to a shifted series anchor."""
+    if not rrule:
+        return rrule
 
-    min_gap = timedelta(days=min_gap_days)
-    anchor_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
-    catch_up_dt = datetime.fromtimestamp(catch_up_ms / 1000, tz=_IST)
-    current = datetime.fromtimestamp(next_ms / 1000, tz=_IST)
+    parts: dict[str, str] = {}
+    order: list[str] = []
+    for raw_part in rrule.split(";"):
+        if "=" not in raw_part:
+            continue
+        key, value = raw_part.split("=", 1)
+        key = key.upper()
+        parts[key] = value
+        order.append(key)
 
-    for _ in range(30):
-        if current - catch_up_dt >= min_gap:
-            return int(current.timestamp() * 1000)
-        nxt = next_occurrence_strictly_after(pattern, current, anchor_dt)
-        if not nxt:
-            break
-        current = nxt
+    if parts.get("FREQ", "").upper() != "MONTHLY":
+        return rrule
 
-    return int(current.timestamp() * 1000)
+    day_codes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+    if "BYSETPOS" in parts and "BYDAY" in parts and "," not in parts["BYDAY"]:
+        first = shifted_dt.replace(day=1)
+        count = 0
+        day = first
+        while day.month == shifted_dt.month:
+            if day.weekday() == shifted_dt.weekday():
+                count += 1
+                if day.day == shifted_dt.day:
+                    parts["BYSETPOS"] = str(count)
+                    parts["BYDAY"] = day_codes[shifted_dt.weekday()]
+                    return ";".join(f"{key}={parts[key]}" for key in order if key in parts)
+            day += timedelta(days=1)
+
+    if "BYMONTHDAY" in parts:
+        parts["BYMONTHDAY"] = str(shifted_dt.day)
+        return ";".join(f"{key}={parts[key]}" for key in order if key in parts)
+
+    return rrule
 
 
 def next_occurrence(pattern: str, from_dt: datetime) -> Optional[datetime]:

@@ -256,11 +256,11 @@ Use `every:Nd` / `every:Nw` / `every:Nh` for intervals — e.g. every 4 days →
 
 | Option | Meaning |
 |--------|---------|
-| `resume` | Skip to next natural schedule occurrence after blackout — series unchanged (missed instance dropped) |
-| `catch_up` | Catch up on the next valid pattern slot after blackout; anchor whole series from that date |
-| `catch_up_once` | Next valid slot once, then resume original series; anchor slots within 2 days of catch-up are skipped |
-| `catch_up_immediate` | First day after blackout ends; original series preserved; next anchor slot kept even if close |
-| `catch_up_imm_shift` | First day after blackout ends; whole series re-anchors from that date |
+| `resume` | Skip missed events and continue the original series at its usual time |
+| `catch_up` | Move to the next valid recurrence date after blackout; anchor the series from that date |
+| `catch_up_once` | Legacy alias for `resume` |
+| `catch_up_immediate` | Move the next event to the first available date after blackout; preserve the original series |
+| `catch_up_imm_shift` | Move the next event to the first available date after blackout; re-anchor the series |
 
 ## Response style
 

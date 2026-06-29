@@ -202,18 +202,17 @@ export function TaskTimeFocusSection({
           <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
             <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
               After blackout
-              <FieldHint text="Resume: skips to the next natural schedule occurrence (missed instance is dropped). Catch up next slot, shift series: next valid pattern slot after the blackout; anchors the series there. Catch up next slot, keep schedule: same next-slot catch-up once, original series preserved; occurrences within 2 days of catch-up are skipped. Catch up immediately, keep schedule: first day after blackout, original series preserved. Catch up immediately, shift series: first day after blackout; whole series re-anchors from that date." />
+              <FieldHint text="Continue series: missed events are skipped and the original recurrence continues at its usual time. Shift to next slot: moves the series to the next valid recurrence date after the blackout while keeping the gap. Resume immediately: moves the next event to the first available date after the blackout while keeping the original time." />
             </span>
             <select
-              value={merged.post_blackout_behavior ?? "resume"}
-              onChange={(e) => set("post_blackout_behavior", e.target.value as "resume" | "catch_up" | "catch_up_once" | "catch_up_immediate" | "catch_up_imm_shift")}
+              value={(merged.post_blackout_behavior === "catch_up_once" ? "resume" : merged.post_blackout_behavior) ?? "resume"}
+              onChange={(e) => set("post_blackout_behavior", e.target.value as "resume" | "catch_up" | "catch_up_immediate" | "catch_up_imm_shift")}
               className={TASK_ENTRY_CLASS}
             >
-              <option value="resume">Resume on next schedule</option>
-              <option value="catch_up">Catch up next slot, shift series</option>
-              <option value="catch_up_once">Catch up next slot, keep schedule</option>
-              <option value="catch_up_immediate">Catch up immediately, keep schedule</option>
-              <option value="catch_up_imm_shift">Catch up immediately, shift series</option>
+              <option value="resume">Continue series</option>
+              <option value="catch_up">Shift series to next slot</option>
+              <option value="catch_up_immediate">Resume immediately, keep series</option>
+              <option value="catch_up_imm_shift">Resume immediately, shift series</option>
             </select>
           </label>
 
