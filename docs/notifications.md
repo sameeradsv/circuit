@@ -68,6 +68,10 @@ Authorization: Bearer ${REMINDER_CRON_SECRET}
 
 The shared backend cron endpoints use `CRON_SECRET`. They now materialize upcoming reminder rows and process due reminder deliveries as part of their normal response, returning reminder counts such as `reminders_generated_count`, `claimed`, `sent`, `failed`, and `cancelled`.
 
+## Service worker scope
+
+The notification service worker must be served from the same base path as the installed PWA. Root deployments register `/sw.js`; subpath deployments such as `/circuit` register `/circuit/sw.js` and use the same base path for notification icons and click targets. Keep the manifest URL, service worker file, and installed app scope aligned.
+
 ## Vercel setup
 
 Set these environment variables for the backend deployment:

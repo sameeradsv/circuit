@@ -9,8 +9,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import CircuitTask, UserState
+from app.models import CircuitTask, TaskEvent, UserState
 from app.routers.energy import _task_delta, _timeline_start_energy
+from app.routers.sleep import _get_work_signals
 
 TEST_DB_URL = "sqlite:///:memory:"
 
@@ -362,8 +363,6 @@ def _sleep_task_times():
     ist = ZoneInfo("Asia/Kolkata")
     now = datetime.now(ist)
     wake = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if wake > now:
-        wake -= timedelta(days=1)
     bedtime = wake - timedelta(hours=8)
     return int(bedtime.timestamp() * 1000), wake.strftime("%Y-%m-%d")
 
@@ -390,13 +389,13 @@ def test_sleep_from_task_default_quality(client, auth):
 
 
 def test_sleep_quality_override(client, auth):
-    bedtime_ms, _ = _sleep_task_times()
+    bedtime_ms, wake_date = _sleep_task_times()
     client.post(
         "/api/tasks",
         json={"text": "Sleep", "scheduled_at": bedtime_ms, "duration": 480},
         headers=auth,
     )
-    client.post("/api/sleep", json={"quality": 4, "disturbed": True}, headers=auth)
+    client.post("/api/sleep", json={"date": wake_date, "quality": 4, "disturbed": True}, headers=auth)
 
     r = client.get("/api/sleep/factor", headers=auth)
     log = r.json()["sleep_log"]
@@ -505,6 +504,39 @@ def test_historical_energy_start_ignores_live_carryover():
         )
 
         assert start < 1.0
+    finally:
+        db.close()
+
+
+def test_historical_work_signals_are_bounded_to_target_date():
+    engine = create_engine(
+        TEST_DB_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        from datetime import date, datetime, timezone
+
+        db.add(TaskEvent(
+            user_id=999,
+            task_id=1,
+            event_type="completed",
+            occurred_at=datetime(2026, 1, 16, 3, 30, tzinfo=timezone.utc).replace(tzinfo=None),
+        ))
+        db.commit()
+
+        work_end_h, work_span_h, first_today_h = _get_work_signals(
+            user_id=999,
+            db=db,
+            target_date=date(2026, 1, 15),
+        )
+
+        assert work_end_h is None
+        assert work_span_h is None
+        assert first_today_h is None
     finally:
         db.close()
 

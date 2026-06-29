@@ -106,7 +106,7 @@ Circuit's backend is consumed by **conduit** — the hub app that provides cross
 
 Circuit also has an embedded terminal chat at `/chat` (in the nav), powered by Circuit's native Groq agent at `POST /api/agent/chat`. Requires `GROQ_API_KEY` on the backend (see `CIRCUIT_AGENT_MODEL` / `CIRCUIT_AGENT_PROVIDER` env vars). No Conduit dependency for in-app chat.
 
-Auth supports **passkey / biometric sign-in** via WebAuthn. Enable or check status in **Account → Security**. Registration: `POST /api/auth/webauthn/register/begin` → `/register/complete`. Login: `POST /api/auth/webauthn/login/begin` → `/login/complete` (returns JWT).
+Auth supports **passkey / biometric sign-in** via WebAuthn. Enable or check status in **Account → Security**. Registration: `POST /api/auth/webauthn/register/begin` → `/register/complete`. Login: `POST /api/auth/webauthn/login/begin` → `/login/complete` (returns JWT). Passkeys require explicit `WEBAUTHN_RP_ID` and `WEBAUTHN_ORIGIN` environment variables; dev origins belong in local env, not code defaults.
 
 ## Docs
 

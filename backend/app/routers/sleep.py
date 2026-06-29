@@ -517,15 +517,17 @@ def compute_sleep_factor(
     return round(max(0.10, min(1.0, factor)), 3), notes
 
 
-def _get_work_signals(user_id: int, db: Session) -> tuple[Optional[int], Optional[float], Optional[int]]:
+def _get_work_signals(user_id: int, db: Session, target_date: Optional[date] = None) -> tuple[Optional[int], Optional[float], Optional[int]]:
     """Derive yesterday's work end hour, yesterday's work span, and today's first event hour
     from TaskEvent timestamps. Returns (end_hour_yesterday, span_h_yesterday, first_hour_today)."""
-    now_ist = datetime.now(_IST)
-    today_start = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    target = target_date or datetime.now(_IST).date()
+    today_start = datetime(target.year, target.month, target.day, tzinfo=_IST)
     yesterday_start = today_start - timedelta(days=1)
+    tomorrow_start = today_start + timedelta(days=1)
 
     today_start_utc = today_start.astimezone(timezone.utc).replace(tzinfo=None)
     yesterday_start_utc = yesterday_start.astimezone(timezone.utc).replace(tzinfo=None)
+    tomorrow_start_utc = tomorrow_start.astimezone(timezone.utc).replace(tzinfo=None)
 
     yesterday_events = (
         db.query(TaskEvent.occurred_at)
@@ -553,6 +555,7 @@ def _get_work_signals(user_id: int, db: Session) -> tuple[Optional[int], Optiona
         .filter(
             TaskEvent.user_id == user_id,
             TaskEvent.occurred_at >= today_start_utc,
+            TaskEvent.occurred_at < tomorrow_start_utc,
         )
         .order_by(TaskEvent.occurred_at)
         .limit(1)

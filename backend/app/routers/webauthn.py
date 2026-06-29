@@ -27,10 +27,19 @@ from app.models import User, WebAuthnChallenge, WebAuthnCredential
 
 router = APIRouter(prefix="/api/auth/webauthn", tags=["webauthn"])
 
-RP_ID = os.getenv("WEBAUTHN_RP_ID", "localhost")
+RP_ID = os.getenv("WEBAUTHN_RP_ID")
 RP_NAME = os.getenv("WEBAUTHN_RP_NAME", "circuit")
-ORIGIN = os.getenv("WEBAUTHN_ORIGIN", "http://localhost:3000").rstrip("/")
+ORIGIN = (os.getenv("WEBAUTHN_ORIGIN") or "").rstrip("/")
 _TTL = 120
+
+
+def _webauthn_config() -> tuple[str, str]:
+    if not RP_ID or not ORIGIN:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Passkey sign-in is not configured. Set WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN.",
+        )
+    return RP_ID, ORIGIN
 
 
 def _b64u(data: bytes) -> str:
@@ -81,8 +90,9 @@ class _AuthComplete(BaseModel):
 
 @router.post("/register/begin")
 def register_begin(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    rp_id, _ = _webauthn_config()
     opts = webauthn.generate_registration_options(
-        rp_id=RP_ID,
+        rp_id=rp_id,
         rp_name=RP_NAME,
         user_id=str(user.id).encode(),
         user_name=user.username,
@@ -106,13 +116,14 @@ def register_complete(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    rp_id, origin = _webauthn_config()
     challenge = _pop(db, body.challenge_id)
     try:
         v = webauthn.verify_registration_response(
             credential=body.credential,
             expected_challenge=challenge,
-            expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_rp_id=rp_id,
+            expected_origin=origin,
             require_user_verification=False,
         )
     except Exception as exc:
@@ -136,8 +147,9 @@ def register_complete(
 
 @router.post("/login/begin")
 def login_begin(db: Session = Depends(get_db)):
+    rp_id, _ = _webauthn_config()
     opts = webauthn.generate_authentication_options(
-        rp_id=RP_ID,
+        rp_id=rp_id,
         user_verification=UserVerificationRequirement.PREFERRED,
     )
     cid = _store(db, opts.challenge)
@@ -146,6 +158,7 @@ def login_begin(db: Session = Depends(get_db)):
 
 @router.post("/login/complete")
 def login_complete(body: _AuthComplete, db: Session = Depends(get_db)):
+    rp_id, origin = _webauthn_config()
     challenge = _pop(db, body.challenge_id)
     cred_id = body.credential.get("id", "")
     cred = db.get(WebAuthnCredential, cred_id)
@@ -155,8 +168,8 @@ def login_complete(body: _AuthComplete, db: Session = Depends(get_db)):
         v = webauthn.verify_authentication_response(
             credential=body.credential,
             expected_challenge=challenge,
-            expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
+            expected_rp_id=rp_id,
+            expected_origin=origin,
             credential_public_key=base64.b64decode(cred.public_key),
             credential_current_sign_count=cred.sign_count,
             require_user_verification=False,

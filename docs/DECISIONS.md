@@ -62,7 +62,6 @@ Cross-app consumers (Canopy Energy, Chef Decide) must keep using `/api/energy/sy
 
 ## Not in scope (unchanged)
 
-- Server-push notifications
 - Full external calendar two-way sync (ICS import + export only)
 - Multi-user collaboration on tasks
 

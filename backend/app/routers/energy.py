@@ -134,7 +134,7 @@ def _sleep_factor_for_date(user_id: int, target: date_type, db: Session) -> floa
     from app.routers.sleep import compute_sleep_factor, resolve_sleep_with_fallback, _get_work_signals
 
     sleep_ctx = resolve_sleep_with_fallback(user_id, target.isoformat(), db)
-    work_end_h, work_span_h, first_today_h = _get_work_signals(user_id, db)
+    work_end_h, work_span_h, first_today_h = _get_work_signals(user_id, db, target)
     sleep_factor, _ = compute_sleep_factor(sleep_ctx, work_end_h, work_span_h, first_today_h)
     return sleep_factor
 
@@ -176,8 +176,8 @@ def energy_timeline(
     (balance after that event). The day opens at `start_energy` derived from
     sleep quality and previous-day carry-over.
 
-    Viewing yesterday's timeline stores its `end_energy` as the carry-over
-    base for tomorrow.
+    Historical dates derive their opening energy from that date's previous
+    close, without mutating today's carry-over state.
     """
     if date:
         try:
