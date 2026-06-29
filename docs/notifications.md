@@ -77,7 +77,7 @@ VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:you@example.com
 REMINDER_CRON_SECRET=...
-REMINDER_MATERIALIZE_DAYS=14
+REMINDER_MATERIALIZE_DAYS=7
 REMINDER_BATCH_SIZE=100
 REMINDER_MAX_ATTEMPTS=3
 ```
@@ -98,9 +98,9 @@ If an existing every-minute job already calls `POST /api/cron/sync-icloud-calend
 For fixed daily reminders, use the same Web Push subscription table and service worker, but skip the `reminders` table. cron-job.org should call one endpoint at fixed times:
 
 ```text
-09:00 POST /api/reminders/send?type=morning
-14:00 POST /api/reminders/send?type=afternoon
-20:00 POST /api/reminders/send?type=evening
+09:00 POST /api/reminders/fixed?type=morning
+14:00 POST /api/reminders/fixed?type=afternoon
+20:00 POST /api/reminders/fixed?type=evening
 ```
 
 Or use one parameterized Vercel route:

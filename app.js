@@ -2521,7 +2521,8 @@ Overdue: ${overdue}`;
     return btoa(String.fromCharCode(...new Uint8Array(buf)));
   }
   function fromB64(s) {
-    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+    const bytes = Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   }
   async function encryptBundle(key, bundle) {
     const iv = crypto.getRandomValues(new Uint8Array(12));

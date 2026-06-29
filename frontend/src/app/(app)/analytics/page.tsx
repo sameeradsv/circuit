@@ -160,9 +160,9 @@ export default function AnalyticsPage() {
               <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Most skipped</h2>
               <ul className="space-y-2">
                 {summary.most_skipped.map((t) => (
-                  <li key={t.id} className="panel flex items-center justify-between px-4 py-3">
+                  <li key={t.id} className="panel flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-sm text-circuit-text truncate">{t.text}</span>
-                    <span className="ml-4 shrink-0 text-xs text-amber-400">skipped ×{t.skipped_count}</span>
+                    <span className="shrink-0 text-xs text-amber-400 sm:ml-4">skipped ×{t.skipped_count}</span>
                   </li>
                 ))}
               </ul>
@@ -176,9 +176,9 @@ export default function AnalyticsPage() {
               </h2>
               <ul className="space-y-2">
                 {summary.stale_tasks.map((t) => (
-                  <li key={t.id} className="panel flex items-center justify-between px-4 py-3">
+                  <li key={t.id} className="panel flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-sm text-circuit-text truncate">{t.text}</span>
-                    <span className="ml-4 shrink-0 text-xs text-circuit-muted">{t.days_open}d old</span>
+                    <span className="shrink-0 text-xs text-circuit-muted sm:ml-4">{t.days_open}d old</span>
                   </li>
                 ))}
               </ul>

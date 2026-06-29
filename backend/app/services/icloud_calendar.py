@@ -224,14 +224,17 @@ def desired_events_for_user(db: Session, user_id: int, from_ms: int, to_ms: int)
     return sorted(deduped.values(), key=lambda e: (e.start_ms, e.uid))
 
 
+_REQUIRED_ENV = {
+    "ICLOUD_APPLE_ID": "icloud_apple_id",
+    "ICLOUD_APP_SPECIFIC_PASSWORD": "icloud_app_specific_password",
+    "ICLOUD_CALDAV_BASE_URL": "icloud_caldav_base_url",
+    "ICLOUD_CALENDAR_NAME": "icloud_calendar_name",
+    "CRON_SECRET": "cron_secret",
+}
+
+
 class CalDAVClient:
-    REQUIRED_ENV = {
-        "ICLOUD_APPLE_ID": "icloud_apple_id",
-        "ICLOUD_APP_SPECIFIC_PASSWORD": "icloud_app_specific_password",
-        "ICLOUD_CALDAV_BASE_URL": "icloud_caldav_base_url",
-        "ICLOUD_CALENDAR_NAME": "icloud_calendar_name",
-        "CRON_SECRET": "cron_secret",
-    }
+    REQUIRED_ENV = _REQUIRED_ENV
 
     def __init__(self) -> None:
         missing = [
@@ -436,7 +439,7 @@ def _upsert_ledger(
 def icloud_setup_check() -> dict[str, object]:
     env_vars_present = {
         name: bool(getattr(settings, attr, ""))
-        for name, attr in CalDAVClient.REQUIRED_ENV.items()
+        for name, attr in _REQUIRED_ENV.items()
     }
     result: dict[str, object] = {
         "syncEnabled": bool(settings.icloud_sync_enabled),

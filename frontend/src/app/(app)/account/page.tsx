@@ -492,7 +492,7 @@ export default function AccountPage() {
           <div className="panel p-5 text-sm text-circuit-muted">Loading preferences…</div>
         ) : (
         <form key={prefsFormKey} onSubmit={savePreferences} className="panel p-5 space-y-5">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="space-y-1">
               <span className="text-xs text-circuit-muted">Default energy mode</span>
               <select name="default_energy_mode" defaultValue={String(vals.default_energy_mode ?? "normal")} className="input-field w-full">
@@ -535,7 +535,7 @@ export default function AccountPage() {
             </label>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="space-y-1">
               <span className="text-xs text-circuit-muted">Default bedtime</span>
               <input
@@ -573,7 +573,7 @@ export default function AccountPage() {
             />
             <span className="text-xs text-circuit-muted">Override with manual energy level</span>
           </label>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className={`space-y-1 ${energyManualOverride ? "" : "opacity-50"}`}>
               <span className="text-xs text-circuit-muted">
                 Energy level {energyManualOverride && state ? `${Math.round(state.energy_level * 100)}%` : `${Math.round(canopyPreset * 100)}%`}
@@ -732,7 +732,7 @@ export default function AccountPage() {
                             </div>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-between gap-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                             <span className="text-circuit-text">
                               <span className="font-medium">{label}</span>
                               <span className="text-circuit-muted ml-2">{start} — {end}</span>
@@ -818,7 +818,7 @@ export default function AccountPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="space-y-1">
               <span className="text-xs text-circuit-muted">
                 Sleep quality override (0–10)
@@ -880,12 +880,12 @@ export default function AccountPage() {
                   {sleepOverrides.map((l) => (
                     <div
                       key={l.id ?? l.date}
-                      className={`flex items-center justify-between gap-3 text-xs py-1.5 border-b border-circuit-border last:border-0 ${
+                      className={`flex flex-col gap-1.5 text-xs py-2 border-b border-circuit-border last:border-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3 ${
                         editingSleepDate === l.date ? "bg-circuit-accent/5 -mx-1 px-1 rounded" : ""
                       }`}
                     >
                       <span className="text-circuit-text font-medium shrink-0">{l.date}</span>
-                      <span className="text-circuit-muted text-right flex-1 min-w-0">
+                      <span className="text-circuit-muted sm:text-right flex-1 min-w-0">
                         {l.duration_h != null ? `${l.duration_h.toFixed(1)}h` : "—"}
                         {l.quality != null
                           ? l.quality_is_default
@@ -895,7 +895,7 @@ export default function AccountPage() {
                         {l.disturbed ? " · disturbed" : ""}
                         {l.notes ? ` · ${l.notes.slice(0, 40)}${l.notes.length > 40 ? "…" : ""}` : ""}
                       </span>
-                      <span className="flex items-center gap-2 shrink-0">
+                      <span className="flex items-center gap-3 shrink-0">
                         <button
                           type="button"
                           onClick={() => beginEditSleepOverride(l)}
@@ -914,7 +914,7 @@ export default function AccountPage() {
                     </div>
                   ))}
                   {sleepOverridePages > 1 && (
-                    <div className="flex items-center justify-between pt-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
                       <button
                         type="button"
                         disabled={sleepOverridePage <= 1 || sleepHistoryLoading}
@@ -952,7 +952,7 @@ export default function AccountPage() {
           <p className="text-xs text-circuit-muted">
             Download an AES-256 encrypted backup of all your tasks and settings.
           </p>
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <input
               type="password" value={exportPass} onChange={(e) => setExportPass(e.target.value)}
               placeholder="Passphrase (min 8 chars)" minLength={8} required
@@ -1004,7 +1004,7 @@ export default function AccountPage() {
             </p>
             <ul className="space-y-2">
               {vanillaStores.map((store) => (
-                <li key={store.key} className="flex items-center justify-between gap-3 text-sm">
+                <li key={store.key} className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <span className="text-circuit-muted font-mono text-xs truncate">{store.key}</span>
                   <span className="text-circuit-text shrink-0">{store.count} tasks</span>
                   <button
@@ -1032,7 +1032,7 @@ export default function AccountPage() {
             Remove far-future recurring events to reduce app load.
             Only events with a specific scheduled date are affected — tasks with no date are untouched.
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             <label className="text-xs text-circuit-muted shrink-0">Delete events after</label>
             <input
               type="date"
@@ -1050,7 +1050,7 @@ export default function AccountPage() {
               Clean up future data…
             </button>
           ) : (
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <button
                 onClick={handleCleanup}
                 disabled={cleaning}
@@ -1078,7 +1078,7 @@ export default function AccountPage() {
         <section className="space-y-4">
           <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Security</h2>
           <div className="panel p-5">
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-sm font-medium text-circuit-text">Biometric sign-in</p>
                 <p className="text-xs text-circuit-muted mt-1">
@@ -1119,7 +1119,7 @@ export default function AccountPage() {
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-red-400 font-medium">Are you sure? This cannot be undone.</p>
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
                 <button
                   onClick={handleDeleteData} disabled={deleting}
                   className="px-4 py-2 rounded-lg bg-red-500/20 border border-red-400/40 text-sm text-red-400 hover:bg-red-500/30 transition-colors"

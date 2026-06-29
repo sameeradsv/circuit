@@ -98,9 +98,9 @@ export default function EnergyPage() {
             {" "}<span className="text-circuit-accent">Canopy -&gt; Energy</span> when sibling apps share Cortex auth.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, -1))}>{"<"}</button>
-          <span className="text-sm text-circuit-muted min-w-[8rem] text-center">{fmtDate(date)}</span>
+          <span className="text-sm text-circuit-muted min-w-0 text-center sm:min-w-[8rem]">{fmtDate(date)}</span>
           <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, 1))} disabled={date >= todayIST()}>{">"}</button>
           {date !== todayIST() && (
             <button type="button" className="btn text-xs" onClick={() => setDate(todayIST())}>Today</button>
@@ -112,14 +112,14 @@ export default function EnergyPage() {
 
       {timeline && (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="panel p-4">
               <BatteryGauge value={timeline.start_energy} label="Start" />
             </div>
             <div className="panel p-4">
               <BatteryGauge value={timeline.end_energy} label="Now / close" />
             </div>
-            <div className="panel p-4 col-span-2 sm:col-span-1">
+            <div className="panel p-4 sm:col-span-1">
               <p className="text-xs text-circuit-muted">Events</p>
               <p className="text-2xl font-semibold text-circuit-text mt-1">{timeline.events.length}</p>
             </div>

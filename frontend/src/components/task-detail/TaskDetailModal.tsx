@@ -135,7 +135,7 @@ export function TaskDetailModal({
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-[200] safe-overlay-pad"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-circuit-surface border border-circuit-border rounded-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+      <div className="bg-circuit-surface border border-circuit-border rounded-lg w-full max-w-lg max-h-[calc(100dvh-32px)] flex flex-col">
         <div className="flex items-start justify-between p-5 border-b border-circuit-border">
           <div>
             <h2 className="font-semibold text-circuit-text">{task.text}</h2>
@@ -143,7 +143,7 @@ export function TaskDetailModal({
               {merged.tag} · {merged.effort} effort · {merged.duration}m
             </p>
           </div>
-          <button onClick={onClose} className="text-circuit-muted hover:text-circuit-text ml-4">✕</button>
+          <button onClick={onClose} className="text-circuit-muted hover:text-circuit-text ml-4 min-h-11 min-w-11">✕</button>
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-6">
@@ -186,7 +186,7 @@ export function TaskDetailModal({
             />
           )}
 
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             {onDelete && (
               <button
                 onClick={async () => {
@@ -202,7 +202,7 @@ export function TaskDetailModal({
                   }
                 }}
                 disabled={saving || propagating || deleting}
-                className="flex-1 text-sm text-red-400 hover:text-red-300 transition-colors"
+                className="flex-1 min-h-11 text-sm text-red-400 hover:text-red-300 transition-colors"
                 title="Delete"
               >
                 {deleting ? "Deleting..." : "Delete"}
@@ -225,13 +225,13 @@ export function TaskDetailModal({
               <button
                 onClick={() => { setShowSeriesPanel((v) => !v); setPropagateMsg(null); }}
                 disabled={saving || propagating || deleting}
-                className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors"
+                className="flex-1 min-h-11 text-sm text-circuit-muted hover:text-circuit-text transition-colors"
                 title="Apply changes to all occurrences in this recurring series"
               >
                 Edit series {showSeriesPanel ? "▴" : "▾"}
               </button>
             )}
-            <button onClick={onClose} className="flex-1 text-sm text-circuit-muted hover:text-circuit-text transition-colors">
+            <button onClick={onClose} className="flex-1 min-h-11 text-sm text-circuit-muted hover:text-circuit-text transition-colors">
               Cancel
             </button>
           </div>

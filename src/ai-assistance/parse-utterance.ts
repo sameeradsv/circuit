@@ -34,7 +34,7 @@ const _SOCIAL = new Set(["call", "meet", "lunch", "dinner", "coffee", "friend", 
 const _LATER = new Set(["someday", "maybe", "eventually", "later", "backlog", "wishlist"]);
 const _EASY = new Set(["quick", "simple", "easy", "brief", "small", "minor"]);
 const _HARD = new Set(["complex", "difficult", "hard", "thorough", "comprehensive", "refactor", "redesign", "multiple", "several", "extensive"]);
-const EFFORT_COG: Record<string, number> = { low: 0.3, medium: 0.5, high: 0.7 };
+const EFFORT_COG: Record<"low" | "medium" | "high", number> = { low: 0.3, medium: 0.5, high: 0.7 };
 
 export function classifyUtteranceHeuristic(text: string, context?: string): UtteranceClassification {
   const words = new Set(text.toLowerCase().split(/\s+/).filter(Boolean));

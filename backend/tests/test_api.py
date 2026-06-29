@@ -58,7 +58,7 @@ def test_health(client):
 
 
 def test_register_duplicate(client, auth):
-    r = client.post("/api/auth/register", json={"username": "tester", "password": "pass"})
+    r = client.post("/api/auth/register", json={"username": "tester", "password": "pass123"})
     assert r.status_code == 409
 
 

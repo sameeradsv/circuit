@@ -628,22 +628,6 @@ def _classify_event(title: str, description: str) -> tuple[str, str]:
     return ("work", "shallow")
 
 
-def _extract_series_uid(client_id: str) -> Optional[str]:
-    """Extract UID from a recurring client_id like 'ics:{uid}:{ts_ms}'.
-    Uses rfind on the last colon so it handles UIDs that contain colons.
-    Returns None if the client_id is not a recurring-series entry."""
-    if not client_id or not client_id.startswith("ics:"):
-        return None
-    inner = client_id[4:]  # strip leading "ics:"
-    last_colon = inner.rfind(":")
-    if last_colon < 0:
-        return None
-    suffix = inner[last_colon + 1:]
-    if not suffix.isdigit() or len(suffix) < 10:
-        return None
-    return inner[:last_colon]
-
-
 def _client_id(uid: str, suffix: str = "") -> str:
     key = f"{uid}{suffix}"
     if len(key) <= 90:
@@ -1071,34 +1055,6 @@ def propagate_classification(
     db.commit()
     return {"updated": updated}
 
-    uid = _extract_series_uid(source.client_id or "")
-    if not uid:
-        raise HTTPException(400, "Task is not part of a recurring series")
-
-    if not body.include_classification and not body.include_text:
-        raise HTTPException(400, "Nothing to propagate — select at least one option")
-
-    pattern = f"ics:{uid}:%"
-    q = db.query(CircuitTask).filter(
-        CircuitTask.user_id == user.id,
-        CircuitTask.client_id.like(pattern),
-        CircuitTask.id != source.id,
-    )
-    if body.from_scheduled_at is not None:
-        q = q.filter(CircuitTask.scheduled_at >= body.from_scheduled_at)
-    siblings = q.all()
-
-    for sibling in siblings:
-        if body.include_classification:
-            for field in _CLASSIFICATION_FIELDS:
-                setattr(sibling, field, getattr(source, field))
-        if body.include_text:
-            sibling.text = source.text
-            sibling.tiny_step = source.tiny_step
-
-    db.commit()
-    return {"updated": len(siblings)}
-
 
 @router.delete("/series/{task_id}")
 def delete_series(
@@ -1114,25 +1070,6 @@ def delete_series(
     count = delete_recurring_series(db, user.id, source, from_scheduled_at)
     if count == 0:
         raise HTTPException(400, "Task is not part of a recurring series")
-    db.commit()
-    return {"deleted": count}
-
-    uid = _extract_series_uid(source.client_id or "")
-    if not uid:
-        raise HTTPException(400, "Task is not part of a recurring series")
-
-    pattern = f"ics:{uid}:%"
-    q = db.query(CircuitTask).filter(
-        CircuitTask.user_id == user.id,
-        CircuitTask.client_id.like(pattern),
-    )
-    if from_scheduled_at is not None:
-        q = q.filter(CircuitTask.scheduled_at >= from_scheduled_at)
-    tasks = q.all()
-
-    count = len(tasks)
-    for t in tasks:
-        db.delete(t)
     db.commit()
     return {"deleted": count}
 
