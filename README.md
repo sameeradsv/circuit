@@ -85,7 +85,7 @@ Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed fr
 | **Canopy-default energy** | Home/Tasks/Sidebar use Canopy `energy_so_far` by default; optional same-day manual override in Account → Today's context |
 | **Calendar navigation + layout** | Day/week/month support arrows and swipe/trackpad navigation; day view has the date strip; day/week overlaps account for travel buffers, virtual recurring slots, and minimum rendered event height; month view scrolls horizontally and vertically |
 | **Home focus window** | Read-only countdown to next scheduled event; shows busy/blocked when the current time is inside a calendar task |
-| **Groq task defaults** | Home/Tasks quick-add and calendar imports call `POST /api/ai/suggest-task` so new tasks infer effort, focus type, priority, cognitive/energy fields, reminders, and a tiny step from the event name; review opens TaskDetailModal for overrides |
+| **Groq task defaults** | Home/Tasks quick-add and calendar imports call `POST /api/ai/suggest-task` so the actual event/task name drives effort, focus type, priority, cognitive/energy fields, reminders, and a tiny step; review opens TaskDetailModal for overrides |
 | **Account preferences fix** | Form waits for API load before render; default bedtime and wake time on shared row |
 | **Manual datetime picker** | Set exact scheduled date + time when adding or editing a task |
 | **Voice input** | Dictate tasks on the Add page and quick-add row (Web Speech API) |

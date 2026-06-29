@@ -226,46 +226,36 @@ def _normalize_suggestion(raw: dict[str, Any], text: str, context: str | None) -
         "notification_offset_2_mins": raw.get("notification_offset_2_mins") if isinstance(raw.get("notification_offset_2_mins"), int) else None,
         "reasoning": str(raw.get("reasoning") or fallback["reasoning"])[:1000],
     }
-    return _apply_contextual_floors(normalized, text, context)
+    return _repair_degenerate_zeroes(normalized, fallback)
 
 
-def _apply_contextual_floors(data: dict[str, Any], text: str, context: str | None) -> dict[str, Any]:
-    full = f"{text} {context or ''}".lower()
-    # The model may legally return 0 for 0-1 fields. For planner defaults,
-    # zero usually means "this dimension does not exist", which is too
-    # destructive for generic calendar blocks like "Work".
-    floor_by_field = {
-        "importance": 0.2,
-        "urgency": 0.2,
-        "cognitive_load": 0.2,
-        "emotional_resistance": 0.1,
-        "activation_energy": 0.1,
-        "recovery_cost": 0.1,
-        "time_sensitivity": 0.2,
-        "consequence_of_delay": 0.15,
-        "momentum_value": 0.2,
-        "compound_benefit": 0.1,
-        "identity_alignment": 0.1,
-        "energy_to_reward_ratio": 0.1,
-    }
-    if any(token in full for token in ("work", "office", "deep work", "focus", "project", "client", "meeting", "review", "deadline")):
-        floor_by_field.update({
-            "importance": 0.65,
-            "cognitive_load": 0.45,
-            "activation_energy": 0.4,
-            "recovery_cost": 0.25,
-            "consequence_of_delay": 0.45,
-            "momentum_value": 0.45,
-            "time_sensitivity": 0.4,
-        })
-        if data.get("focus_type") in (None, "shallow") and any(token in full for token in ("deep work", "focus", "project")):
-            data["focus_type"] = "deep"
-        if data.get("tag") == "general":
-            data["tag"] = "work"
-    for field, minimum in floor_by_field.items():
-        data[field] = _clamp01(data.get(field), minimum)
-        if data[field] < minimum:
-            data[field] = minimum
+def _repair_degenerate_zeroes(data: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    # A value of exactly 0 is rarely useful as a prefilled planner setting.
+    # When the model collapses a field to 0, restore the name-based heuristic
+    # fallback instead of inventing category floors here.
+    metric_fields = (
+        "urgency",
+        "importance",
+        "cognitive_load",
+        "emotional_resistance",
+        "activation_energy",
+        "recovery_cost",
+        "time_sensitivity",
+        "consequence_of_delay",
+        "momentum_value",
+        "compound_benefit",
+        "identity_alignment",
+        "energy_to_reward_ratio",
+        "task_decomposition_potential",
+    )
+    for field in metric_fields:
+        try:
+            current = float(data.get(field, 0))
+        except (TypeError, ValueError):
+            current = 0
+        fallback_value = fallback.get(field)
+        if current <= 0.01 and isinstance(fallback_value, (int, float)) and fallback_value > 0:
+            data[field] = fallback_value
     return data
 
 
@@ -320,10 +310,13 @@ def _suggest_with_groq(text: str, context: str | None, api_key: str) -> dict:
         f"Task/event name: {text}\n"
         + (f"Context: {context}\n" if context else "")
         + "\nInfer practical defaults for a new Circuit task. "
+        "The task/event name is the primary signal; infer what the event actually is before choosing parameters. "
+        "Do not assign generic category defaults blindly. For example, 'Sleep' should look restorative and low-cognitive, "
+        "'Renew Codex subscription' should look like a short admin/finance task with real cost of delay, "
+        "and 'Deep work on launch plan' should look cognitively demanding and important. "
         "Use null when a date/time is not clearly implied. "
         "scheduled_at and recurrence_ends_at must be Unix epoch milliseconds or null. "
-        "Do not use 0 unless the dimension is truly absent. "
-        "Generic work blocks are important by default and should carry meaningful mental load, activation energy, and cost of delay. "
+        "Use 0 only when a dimension is truly absent; most real tasks/events should have non-zero importance, load, and delay impact. "
         "Respond with JSON only using these exact keys:\n"
         '{"tag":"general|work|social|later|errand|shopping|travel",'
         '"urgency":0-1,"importance":0-1,"cognitive_load":0-1,'

@@ -312,12 +312,15 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
     explicit_effort = _emoji_to_effort(ev.get("summary", ""))
     color_effort = _color_to_effort(ev.get("color", ""))
     tag, focus_type = _classify_event(ev.get("summary", ""), ev.get("description", ""))
+    start_ist = datetime.fromtimestamp(ev["scheduled_at"] / 1000, tz=_IST)
     ai_context = "\n".join(
         part for part in (
             f"Calendar: {ev.get('cal_name', '')}" if ev.get("cal_name") else "",
+            f"Imported event start: {start_ist.isoformat(timespec='minutes')}",
+            f"Imported event duration: {ev['duration_min']} minutes",
             f"Description: {ev.get('description', '')}" if ev.get("description") else "",
             f"Location: {ev.get('location', '')}" if ev.get("location") else "",
-            "This is an imported calendar event. Preserve the calendar start time, duration, and recurrence.",
+            "This is an imported calendar event. Use the event name as the primary semantic signal, then use start time, duration, calendar name, description, and location as supporting context. Preserve the calendar start time, duration, and recurrence.",
         )
         if part
     )
