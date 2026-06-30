@@ -514,6 +514,9 @@ body {
   background: var(--paper);
   position: fixed; top: 0; bottom: 0; left: 0;
   z-index: 50;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .mobile-nav-toggle,
 .mobile-nav-backdrop {

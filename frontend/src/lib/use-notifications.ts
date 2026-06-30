@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 
 const STORAGE_KEY = "circuit-notifications";
@@ -99,6 +99,23 @@ export function useNotificationToggle() {
   const [supported, setSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const statusTimerRef = useRef<number | null>(null);
+
+  function clearStatusTimer() {
+    if (statusTimerRef.current != null) {
+      window.clearTimeout(statusTimerRef.current);
+      statusTimerRef.current = null;
+    }
+  }
+
+  function setTransientStatus(message: string) {
+    clearStatusTimer();
+    setStatus(message);
+    statusTimerRef.current = window.setTimeout(() => {
+      setStatus(null);
+      statusTimerRef.current = null;
+    }, 3500);
+  }
 
   useEffect(() => {
     const canPush =
@@ -119,6 +136,8 @@ export function useNotificationToggle() {
         setEnabled(on);
       })
       .catch(() => setEnabled(false));
+
+    return clearStatusTimer;
   }, []);
 
   async function enable() {
@@ -130,7 +149,8 @@ export function useNotificationToggle() {
       const result = await Notification.requestPermission();
       setPermission(result);
       if (result !== "granted") {
-        setStatus(result === "denied" ? "Notifications are blocked in browser settings" : null);
+        setStatus(null);
+        setError(result === "denied" ? "Notifications are blocked in browser settings" : null);
         return;
       }
       setStatus("Registering this device...");
@@ -142,7 +162,7 @@ export function useNotificationToggle() {
       }
       localStorage.setItem(STORAGE_KEY, "true");
       setEnabled(true);
-      setStatus("Task reminders are on");
+      setTransientStatus("Task reminders are on");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to enable notifications");
       setStatus(null);
@@ -164,7 +184,7 @@ export function useNotificationToggle() {
       }
       localStorage.setItem(STORAGE_KEY, "false");
       setEnabled(false);
-      setStatus("Task reminders are off");
+      setTransientStatus("Task reminders are off");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to disable notifications");
       setStatus(null);
