@@ -363,6 +363,7 @@ def test_weekday_reschedule_updates_original_time_reference(client, auth):
         next_dt = datetime.fromtimestamp(task["scheduled_at"] / 1000, tz=_IST)
         assert (next_dt.weekday(), next_dt.hour, next_dt.minute) == expected
 
+
 def test_repeated_virtual_completions_do_not_leave_open_duplicates(client, auth):
     start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
     _create_recurring(client, auth, "Daily no dupes", start, "daily")
