@@ -109,7 +109,7 @@ export type TaskPatch = Partial<Pick<ApiTask,
   | "travel_buffer_before_mins" | "travel_buffer_after_mins"
   | "notifications_enabled" | "notification_offset_1_mins" | "notification_offset_2_mins"
   | "recurrence_anchor_ms" | "import_review_pending"
->> & { propagate_group?: boolean; completion_occurred_at?: number };
+>> & { propagate_group?: boolean; auto_reschedule_conflicts?: boolean; completion_occurred_at?: number };
 
 export interface ApiSleepLog {
   id: number | null;

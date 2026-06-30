@@ -36,6 +36,7 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 - **TaskDetailModal** (`components/task-detail/`) — sectioned editor with hover tooltips on every field
 - **Per-task reminders** — scheduled tasks can enable/disable browser notifications and choose two reminder timings in Time & focus; the global sidebar bell still controls browser permission/overall enablement
 - **TerminalChat** — natural-language batch reschedule/complete/prioritize with approval preview
+- **Smart reschedules** — manual reschedules can ask the backend to move conflicting events. Circuit compares importance, urgency, consequence of delay, time sensitivity, momentum, deadline pressure, and effort; the highest-weight task keeps the contested slot while lower-weight conflicts move to deterministic suggested slots that avoid overlaps and overloaded days. This is fixed backend logic, not a Groq call, so schedule changes stay explainable.
 
 ## Calendar
 
@@ -44,7 +45,7 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 - **Overlapping events** in day/week use side-by-side columns; travel buffers and minimum rendered event height are included in overlap detection so painted blocks do not collide
 - **Day-view date strip + gestures** let users switch across dates/weeks/months with clicks, horizontal swipes, or trackpad/wheel motion in addition to arrow buttons
 - **Month view** scrolls vertically when the grid exceeds viewport height, horizontally when narrow, and moves to the next/previous month when scrolling past the vertical edge
-- **Drag-and-drop** to reschedule; recurring tasks ask *this occurrence* vs *shift series*
+- **Drag-and-drop** to reschedule; recurring tasks ask *this occurrence* vs *shift series*. Drops that collide with another event can move the lower-weight event to a better slot using the same backend conflict resolver used by task-list reschedules and chat batch moves.
 - **Blackout shading** — unavailable date ranges tinted on all views
 - **ICS import/export** — recurring events stored as one RRULE template per series; `scheduled_at` = first occurrence on or after today (original DTSTART kept in `rrule_dtstart_ms`). Supports iCloud-style `FREQ=WEEKLY` without `BYDAY`, explicit `BYDAY`, monthly patterns, and detached `RECURRENCE-ID` instances as one-offs. Imported events are marked review-pending so Groq-filled values can be checked. Re-import to refresh dates after importer fixes.
 - Travel buffers shown as hatched blocks before/after tasks
@@ -58,9 +59,10 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 
 Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`, `leave`, `wfh`).
 
-- Tasks opt in via **Skip this task when** flags in the task editor (all types including `leave` require an explicit checkbox)
+- Tasks opt in via **Park this task during** flags in the task editor (all types including `leave` require an explicit checkbox)
 - During an active blackout: affected tasks move to **On hold** on the task list
-- **On create**: affected scheduled tasks are automatically moved per each task's post-blackout behavior (`resume` / `catch_up` / `catch_up_once` / `catch_up_immediate` / `catch_up_imm_shift`). See task edit modal for slot vs immediate catch-up and series-anchor differences.
+- **On disable/remove**: parked tasks resume per each task's post-blackout behavior (`resume` / `catch_up_immediate` / `catch_up_imm_shift`; legacy `catch_up` and `catch_up_once` map to `resume`)
+- `resume` moves the series to the next valid recurrence slot after the blackout; immediate modes move to the first available date while preserving the original task time
 - Calendar days in range are visually shaded
 
 ## Sleep & energy

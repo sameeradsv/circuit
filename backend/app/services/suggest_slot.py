@@ -10,6 +10,7 @@ _IST = ZoneInfo("Asia/Kolkata")
 _IST_OFFSET = timedelta(hours=5, minutes=30)
 _WORKDAY_END = 19
 _SOON_MS = 3 * 86_400_000
+_DAY_CAPACITY_MINS = 8 * 60
 
 
 def _ist_hour(ms: int) -> int:
@@ -18,6 +19,13 @@ def _ist_hour(ms: int) -> int:
 
 def _is_weekday(ms: int) -> bool:
     return datetime.fromtimestamp(ms / 1000, tz=_IST).weekday() < 5
+
+
+def _ist_day_bounds(ms: int) -> tuple[int, int]:
+    dt = datetime.fromtimestamp(ms / 1000, tz=_IST)
+    start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
 def _next_ist_slot(ist_hour: int, after_ms: int) -> int:
@@ -38,6 +46,19 @@ def _clamp01(value: float | None, fallback: float = 0.0) -> float:
     if value is None:
         return fallback
     return max(0.0, min(1.0, float(value)))
+
+
+def _day_workload_minutes(candidate: int, others: list[CircuitTask]) -> int:
+    start, end = _ist_day_bounds(candidate)
+    total = 0
+    for task in others:
+        if task.completed or not task.scheduled_at:
+            continue
+        duration = task.duration or 30
+        task_end = task.scheduled_at + duration * 60_000
+        if task.scheduled_at < end and task_end > start:
+            total += duration
+    return total
 
 
 def _deadline_weight(task: CircuitTask, now_ms: int) -> float:
@@ -77,6 +98,7 @@ def suggest_slot_for_task(
     now_ms: int | None = None,
     energy_level: float = 0.6,
     stress_level: float = 0.3,
+    workload_capacity_mins: int = _DAY_CAPACITY_MINS,
 ) -> dict:
     now_ms = now_ms or int(datetime.now(timezone.utc).timestamp() * 1000)
     rationale: list[str] = []
@@ -137,6 +159,15 @@ def suggest_slot_for_task(
         candidate = conflict.scheduled_at + (conflict.duration or 30) * 60_000 + 5 * 60_000
         if len(rationale) < 4:
             rationale.append("moved past conflict")
+
+    duration_mins = task.duration or 30
+    for _ in range(7):
+        day_load = _day_workload_minutes(candidate, open_others)
+        if day_load + duration_mins <= workload_capacity_mins:
+            break
+        candidate = _next_ist_slot(9 if focus != "admin" else 14, candidate)
+        if len(rationale) < 4:
+            rationale.append("moved past overloaded day")
 
     if _is_weekday(candidate) and _ist_hour(candidate) >= _WORKDAY_END:
         candidate = _next_ist_slot(9 if focus != "admin" else 14, candidate)

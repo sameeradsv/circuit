@@ -14,12 +14,29 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `time_sensitivity`, `preferred_execution_window` (`morning` / `afternoon` / `evening`)
 - `recurrence` — user patterns: `daily`, `weekly`, `every:4d`, `every:2w`, `every:4h`, `weekly:MO,WE`, `monthly:1MO`, `monthly:LWD`, …
 - `recurrence_ends_at` — optional cutoff (ms); null = indefinite
-- `post_blackout_behavior` — `resume` | `catch_up` | `catch_up_once` | `catch_up_immediate` | `catch_up_imm_shift`
-- `recurrence_anchor_ms` — for `catch_up_once` / `catch_up_immediate`: preserves pre-blackout anchor (`catch_up_once` also skips too-close anchor slots on completion)
+- `post_blackout_behavior` - see Post-Blackout Behavior below
+- `recurrence_anchor_ms` - for `catch_up_immediate`: preserves the pre-blackout anchor after a one-time immediate resume
 - `rrule`, `rrule_dtstart_ms`, `is_recurring_template` — calendar ICS imports
-- `day_time_overrides` — JSON `{"SA": "10:00", "SU": "10:00"}` (morning tasks only); weekend occurrences use the override time, then weekday occurrences return to the original recurrence clock.
+- `day_time_overrides` — JSON `{"SA": "10:00", "SU": "10:00"}` (morning tasks only); weekend occurrences use the override time, then weekday occurrences return to the original recurrence clock stored in `metadata_json.recurrence_time_ref_ms`.
 - `travel_buffer_before_mins`, `travel_buffer_after_mins` — rendered as calendar buffer blocks and included in day/week overlap layout
 - `notifications_enabled`, `notification_offset_1_mins`, `notification_offset_2_mins` - per-task Web Push reminder config; the backend materializes durable `reminders` rows for enabled scheduled tasks. Default is enabled with a 10-minute first reminder and no second reminder.
+
+### Reschedule conflict handling
+
+- Normal `PATCH /api/tasks/{id}` reschedules update only that task, plus same-`group_id` siblings when `propagate_group` is true.
+- Sending `auto_reschedule_conflicts: true` asks the backend to resolve overlapping scheduled tasks after the move. The resolver is deterministic fixed code: it compares `importance`, `urgency`, `consequence_of_delay`, `time_sensitivity`, `momentum_value`, deadline pressure, and effort. The strongest task keeps the contested slot; lower-weight tasks move to suggested slots.
+- Suggested slots come from `services/suggest_slot.py`: preferred execution window, focus type, energy/stress defaults, learned skip window, existing conflicts, after-hours wrapping, and an 8-hour daily workload cap are considered before choosing a time.
+- Calendar drag/drop, task-list manual reschedule, skip/defer, and TerminalChat batch reschedules opt into this flag. Groq is not called for live conflict arbitration; it remains limited to task classification/default fields.
+
+### Post-Blackout Behavior
+
+- Current choices: `resume`, `catch_up_immediate`, `catch_up_imm_shift`.
+- Legacy values `catch_up` and `catch_up_once` are accepted as aliases for `resume`.
+- `resume`: move to the next valid recurrence slot after the blackout and shift the series from there.
+- `catch_up_immediate`: move to the first available date after the blackout, keep the original series.
+- `catch_up_imm_shift`: move to the first available date after the blackout and re-anchor the series.
+- Post-blackout moves preserve the original task clock time; only dates change unless the recurrence is hourly.
+- Shifted monthly rules update their date selector where possible, e.g. `monthly:3SA` to `monthly:4sa`, `BYSETPOS=3` to `BYSETPOS=4`.
 
 ## Virtual recurrence
 
@@ -32,8 +49,8 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 ## Blackouts
 
 - `blackout_skip_flags` — JSON array: `travelling`, `period`, `sickness`, `leave`, `wfh`; each type requires explicit opt-in (no tag-based auto-apply)
-- During blackout: task hidden from active list → **On hold**
-- On blackout create: scheduled tasks in range rescheduled via `services/blackout.py`
+- During active blackout: affected tasks are parked in **On hold** instead of being rescheduled immediately
+- On blackout disable/remove: parked tasks resume via `services/blackout.py`
 
 ## Cognitive / energy dimensions
 

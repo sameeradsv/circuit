@@ -18,7 +18,7 @@ from app.engines.recurrence import is_hourly_recurrence, next_occurrence
 from app.services.blackout import adjust_for_blackouts
 from app.services.adaptive_learning import apply_complete_learning, update_delay_pattern_on_skip
 from app.services.ai import suggest_task_defaults
-from app.services.suggest_slot import suggest_slot_for_task
+from app.services.suggest_slot import suggest_slot_for_task, task_conflict_weight
 from app.services.reminders import cancel_pending_reminders_for_task, materialize_reminders_for_task, materialize_reminders_for_user
 from app.services.virtual_recurrence import (
     expand_virtual_occurrences,
@@ -89,6 +89,51 @@ def _metadata_with_recurrence_time_ref(task: CircuitTask, time_ref_ms: Optional[
     if time_ref_ms is not None:
         meta["recurrence_time_ref_ms"] = time_ref_ms
     return json.dumps(meta)
+
+
+def _is_weekend_override_slot(ms: Optional[int], overrides_json: Optional[str]) -> bool:
+    if not ms or not overrides_json:
+        return False
+    try:
+        overrides = json.loads(overrides_json)
+    except Exception:
+        return False
+    dt = datetime.fromtimestamp(ms / 1000, tz=_IST)
+    time_str = overrides.get(_WEEKDAY[dt.weekday()])
+    if not time_str:
+        return False
+    try:
+        h, m = map(int, time_str.split(":"))
+    except Exception:
+        return False
+    return dt.hour == h and dt.minute == m
+
+
+def _normalize_recurrence_time_ref(
+    task: CircuitTask,
+    previous_ref_ms: Optional[int] = None,
+    *,
+    scheduled_at_changed: bool = False,
+) -> None:
+    if not task.scheduled_at or not (task.recurrence or task.rrule):
+        return
+
+    meta = _metadata_dict(task)
+    existing = meta.get("recurrence_time_ref_ms")
+    if isinstance(existing, int) and not scheduled_at_changed:
+        return
+
+    if scheduled_at_changed and not _is_weekend_override_slot(task.scheduled_at, task.day_time_overrides):
+        meta["recurrence_time_ref_ms"] = task.scheduled_at
+    elif previous_ref_ms is not None:
+        meta["recurrence_time_ref_ms"] = previous_ref_ms
+    elif isinstance(existing, int):
+        meta["recurrence_time_ref_ms"] = existing
+    elif not _is_weekend_override_slot(task.scheduled_at, task.day_time_overrides):
+        meta["recurrence_time_ref_ms"] = task.scheduled_at
+    else:
+        meta["recurrence_time_ref_ms"] = task.recurrence_anchor_ms or task.scheduled_at
+    task.metadata_json = json.dumps(meta)
 
 
 def _create_next_occurrence_for_completed_task(db: Session, user_id: int, task: CircuitTask) -> None:
@@ -303,6 +348,7 @@ class TaskPatch(BaseModel):
     recurrence_anchor_ms: Optional[int] = None
     import_review_pending: Optional[bool] = None
     propagate_group: Optional[bool] = True
+    auto_reschedule_conflicts: Optional[bool] = False
     completion_occurred_at: Optional[int] = None
 
 
@@ -419,6 +465,130 @@ def _task_to_dict(t: CircuitTask) -> dict:
         "occurrence_start_ms": None,
         "source_task_id": None,
     }
+
+
+def _task_end_ms(task: CircuitTask) -> Optional[int]:
+    if task.scheduled_at is None:
+        return None
+    return task.scheduled_at + (task.duration or 30) * 60_000
+
+
+def _tasks_overlap(a: CircuitTask, b: CircuitTask) -> bool:
+    a_end = _task_end_ms(a)
+    b_end = _task_end_ms(b)
+    if a.scheduled_at is None or b.scheduled_at is None or a_end is None or b_end is None:
+        return False
+    return a.scheduled_at < b_end and a_end > b.scheduled_at
+
+
+def _auto_reschedule_conflicts(
+    db: Session,
+    user_id: int,
+    anchor: CircuitTask,
+    now_utc: datetime,
+) -> list[dict[str, Any]]:
+    """Resolve direct schedule conflicts after a task move.
+
+    The highest weighted task keeps the contested slot; lower weighted tasks are
+    moved to deterministic suggested slots that avoid conflicts and overloaded
+    days. This is intentionally fixed-code rather than LLM-driven so calendar
+    behavior remains explainable and repeatable.
+    """
+    if anchor.scheduled_at is None or anchor.completed:
+        return []
+
+    now_ms = int(now_utc.replace(tzinfo=timezone.utc).timestamp() * 1000)
+    tasks = (
+        db.query(CircuitTask)
+        .filter(
+            CircuitTask.user_id == user_id,
+            CircuitTask.completed == False,  # noqa: E712
+            CircuitTask.scheduled_at.isnot(None),
+        )
+        .all()
+    )
+    moved: list[dict[str, Any]] = []
+    moved_ids: set[int] = set()
+
+    for _ in range(12):
+        if anchor.scheduled_at is None:
+            break
+        conflicts = [task for task in tasks if task.id != anchor.id and _tasks_overlap(anchor, task)]
+        if not conflicts:
+            break
+
+        strongest = max(conflicts, key=lambda task: task_conflict_weight(task, now_ms))
+        anchor_weight = task_conflict_weight(anchor, now_ms)
+        if anchor_weight < task_conflict_weight(strongest, now_ms):
+            old_ms = anchor.scheduled_at
+            suggestion = suggest_slot_for_task(
+                anchor,
+                [task for task in tasks if task.id != anchor.id],
+                now_ms=max(now_ms, _task_end_ms(strongest) or now_ms),
+            )
+            new_ms = int(suggestion["scheduled_at"])
+            if new_ms == old_ms:
+                break
+            anchor.scheduled_at = new_ms
+            anchor.updated_at = now_utc
+            moved.append({
+                "task": anchor,
+                "from_ms": old_ms,
+                "to_ms": new_ms,
+                "reason": "lower_priority_than_conflict",
+                "rationale": suggestion.get("rationale", []),
+            })
+            moved_ids.add(anchor.id)
+            continue
+
+        moved_any = False
+        for conflict in sorted(conflicts, key=lambda task: task_conflict_weight(task, now_ms)):
+            old_ms = conflict.scheduled_at
+            suggestion = suggest_slot_for_task(
+                conflict,
+                tasks,
+                now_ms=max(now_ms, _task_end_ms(anchor) or now_ms),
+            )
+            new_ms = int(suggestion["scheduled_at"])
+            if old_ms is None or new_ms == old_ms:
+                continue
+            conflict.scheduled_at = new_ms
+            conflict.updated_at = now_utc
+            moved.append({
+                "task": conflict,
+                "from_ms": old_ms,
+                "to_ms": new_ms,
+                "reason": "conflict_with_higher_priority_task",
+                "rationale": suggestion.get("rationale", []),
+            })
+            moved_ids.add(conflict.id)
+            moved_any = True
+        if not moved_any:
+            break
+
+    for change in moved:
+        moved_task = change["task"]
+        db.add(TaskEvent(
+            user_id=user_id,
+            task_id=moved_task.id,
+            event_type="rescheduled",
+            occurred_at=now_utc,
+            metadata_json=json.dumps({
+                "reason": "auto_conflict_resolution",
+                "from_ms": change["from_ms"],
+                "to_ms": change["to_ms"],
+                "trigger_task_id": anchor.id,
+                "resolution": change["reason"],
+                "rationale": change["rationale"],
+            }),
+        ))
+
+    for task in tasks:
+        if task.id in moved_ids:
+            sync_recurring_definition(db, task)
+            _refresh_task_reminders(db, task)
+
+    return moved
 
 
 @router.get("")
@@ -564,6 +734,7 @@ def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session
     )
     db.add(task)
     db.flush()
+    _normalize_recurrence_time_ref(task)
     sync_recurring_definition(db, task)
     _refresh_task_reminders(db, task)
     db.commit()
@@ -629,9 +800,13 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
     was_completed = task.completed
     old_scheduled_at = task.scheduled_at
     old_skipped = task.skipped_count or 0
+    old_recurrence_time_ref_ms = _recurrence_time_ref_ms(task)
     _JSON_FIELDS = {"required_resources", "dependencies"}
 
-    for field, value in payload.model_dump(exclude_unset=True, exclude={"propagate_group", "completion_occurred_at"}).items():
+    for field, value in payload.model_dump(
+        exclude_unset=True,
+        exclude={"propagate_group", "auto_reschedule_conflicts", "completion_occurred_at"},
+    ).items():
         if field == "metadata":
             task.metadata_json = json.dumps(value)
         elif field in _JSON_FIELDS:
@@ -644,6 +819,11 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             setattr(task, field, value)
 
     task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _normalize_recurrence_time_ref(
+        task,
+        old_recurrence_time_ref_ms,
+        scheduled_at_changed=payload.scheduled_at is not None and task.scheduled_at != old_scheduled_at,
+    )
 
     if payload.skipped_count is not None and payload.skipped_count > old_skipped:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -674,6 +854,15 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             if member.scheduled_at is not None:
                 member.scheduled_at += delta_ms
                 member.updated_at = now_utc
+
+    if (
+        payload.auto_reschedule_conflicts
+        and payload.scheduled_at is not None
+        and task.scheduled_at is not None
+        and task.scheduled_at != old_scheduled_at
+        and not task.completed
+    ):
+        _auto_reschedule_conflicts(db, user.id, task, datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Auto-log completion/uncompletion event
     if payload.completed is not None and payload.completed != was_completed:
@@ -730,12 +919,16 @@ def batch_update_tasks(
         .all()
     )
     _JSON_FIELDS = {"required_resources", "dependencies"}
-    patch_data = payload.patch.model_dump(exclude_unset=True, exclude={"propagate_group", "completion_occurred_at"})
+    patch_data = payload.patch.model_dump(
+        exclude_unset=True,
+        exclude={"propagate_group", "auto_reschedule_conflicts", "completion_occurred_at"},
+    )
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     for task in tasks:
         was_completed = task.completed
         old_scheduled_at = task.scheduled_at
         old_skipped = task.skipped_count or 0
+        old_recurrence_time_ref_ms = _recurrence_time_ref_ms(task)
         for field, value in patch_data.items():
             if field == "metadata":
                 task.metadata_json = json.dumps(value)
@@ -747,6 +940,12 @@ def batch_update_tasks(
                 task.day_time_overrides = json.dumps(value) if value else None
             else:
                 setattr(task, field, value)
+
+        _normalize_recurrence_time_ref(
+            task,
+            old_recurrence_time_ref_ms,
+            scheduled_at_changed=payload.patch.scheduled_at is not None and task.scheduled_at != old_scheduled_at,
+        )
 
         if payload.patch.skipped_count is not None and payload.patch.skipped_count > old_skipped:
             skip_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -776,6 +975,8 @@ def batch_update_tasks(
                     "to_ms": task.scheduled_at,
                 }),
             ))
+            if payload.patch.auto_reschedule_conflicts and task.scheduled_at is not None and not task.completed:
+                _auto_reschedule_conflicts(db, user.id, task, now_utc)
 
         if task.completed != was_completed:
             event_type = "completed" if task.completed else "uncompleted"
@@ -906,6 +1107,7 @@ def migrate_from_localstorage(
         )
         db.add(task)
         db.flush()
+        _normalize_recurrence_time_ref(task)
         sync_recurring_definition(db, task)
         _refresh_task_reminders(db, task)
         created += 1

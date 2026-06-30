@@ -971,9 +971,10 @@ export default function CalendarPage() {
 
   async function applyDrop(taskId: ApiTask["id"], patch: { scheduled_at: number; recurrence_anchor_ms?: number }): Promise<boolean> {
     try {
-      const updated = await api.updateTask(taskId, patch);
+      const updated = await api.updateTask(taskId, { ...patch, auto_reschedule_conflicts: true });
       updateTaskInCache(updated);
       setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t).filter((t) => !t.completed));
+      void refreshVisibleTasks();
       return true;
     } catch {
       return false;

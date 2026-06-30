@@ -285,6 +285,7 @@ export default function TasksPage() {
         scheduled_at: scheduledAt,
         skipped_count: (task.skipped_count ?? 0) + 1,
         last_skipped_at: now,
+        auto_reschedule_conflicts: true,
         ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
       }),
       api.logEvent(task.id, "skipped", { reason: "manual", rescheduled_to: scheduledAt }).catch(() => {}),
@@ -293,7 +294,7 @@ export default function TasksPage() {
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
   }
 
-  async function confirmReschedule(task: ApiTask, scheduledAt: number, moveGroup: boolean) {
+  async function confirmReschedule(task: ApiTask, scheduledAt: number, moveGroup: boolean, moveConflicts: boolean) {
     if (typeof task.id !== "number") return;
     const now = Date.now();
     const newPattern = updateDelayPattern(task, now);
@@ -303,9 +304,10 @@ export default function TasksPage() {
         skipped_count: (task.skipped_count ?? 0) + 1,
         last_skipped_at: now,
         propagate_group: moveGroup,
+        auto_reschedule_conflicts: moveConflicts,
         ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
       }),
-      api.logEvent(task.id, "rescheduled", { reason: "manual", scheduled_to: scheduledAt, move_group: moveGroup }).catch(() => {}),
+      api.logEvent(task.id, "rescheduled", { reason: "manual", scheduled_to: scheduledAt, move_group: moveGroup, move_conflicts: moveConflicts }).catch(() => {}),
     ]);
     updateTaskInCache(updated);
     const fresh = await api.listTasks({ completed: false }).catch(() => null);
@@ -523,7 +525,7 @@ export default function TasksPage() {
         />
       )}
 
-      {/* On hold — tasks skipped due to active blackouts */}
+      {/* On hold - tasks parked due to active blackouts */}
       {onHold.length > 0 && <OnHoldSection tasks={onHold} onDetail={setDetailTask} />}
 
       {!fetching && ranked.length === 0 && needsImportReview.length === 0 && onHold.length === 0 && (
@@ -581,7 +583,7 @@ export default function TasksPage() {
         <RescheduleModal
           task={reschedulingTask}
           allTasks={tasks}
-          onConfirm={(at, moveGroup) => confirmReschedule(reschedulingTask, at, moveGroup)}
+          onConfirm={(at, moveGroup, moveConflicts) => confirmReschedule(reschedulingTask, at, moveGroup, moveConflicts)}
           onClose={() => setReschedulingTask(null)}
         />
       )}
@@ -841,7 +843,7 @@ function OnHoldSection({ tasks, onDetail }: { tasks: ApiTask[]; onDetail: (t: Ap
       >
         <h3 className="display" style={{ margin: 0, fontSize: 22, color: "var(--ink-3)" }}>On hold</h3>
         <span className="serif" style={{ color: "var(--ink-3)", fontSize: 14 }}>
-          {tasks.length} task{tasks.length !== 1 ? "s" : ""} skipped during blackout
+          {tasks.length} task{tasks.length !== 1 ? "s" : ""} parked during blackout
         </span>
         <span style={{ color: "var(--ink-3)", fontSize: 13 }}>{expanded ? "▲" : "▼"}</span>
       </button>
@@ -933,7 +935,7 @@ function TaskRow({
     <div
       className={`task task-no-rank${isNow ? " is-now" : ""} ${completing ? "task-completing" : ""}`}
       style={{ cursor: "default", opacity: blackedOut ? 0.35 : undefined }}
-      title={blackedOut ? "Skipped during active blackout" : undefined}
+      title={blackedOut ? "Parked during active blackout" : undefined}
     >
       <div>
         <div className="row aic gap-2">
@@ -1209,11 +1211,12 @@ function RescheduleModal({
   task, allTasks, onConfirm, onClose,
 }: {
   task: ApiTask; allTasks: ApiTask[];
-  onConfirm: (scheduledAt: number, moveGroup: boolean) => void; onClose: () => void;
+  onConfirm: (scheduledAt: number, moveGroup: boolean, moveConflicts: boolean) => void; onClose: () => void;
 }) {
   const suggestion: SlotSuggestion = suggestSlot(task, allTasks);
   const [chosen, setChosen] = useState(suggestion.scheduledAt);
   const [moveGroup, setMoveGroup] = useState(Boolean(task.group_id));
+  const [moveConflicts, setMoveConflicts] = useState(true);
   const [saving, setSaving] = useState(false);
   const groupCount = task.group_id ? allTasks.filter((t) => t.group_id === task.group_id && !t.completed).length : 0;
 
@@ -1258,9 +1261,17 @@ function RescheduleModal({
             Move all {groupCount} tasks in this group
           </label>
         )}
+        <label className="row gap-2 aic" style={{ fontSize: 13, color: "var(--ink-2)" }}>
+          <input
+            type="checkbox"
+            checked={moveConflicts}
+            onChange={(e) => setMoveConflicts(e.target.checked)}
+          />
+          Move conflicting events to better slots
+        </label>
         <div className="row gap-3">
           <button
-            onClick={async () => { setSaving(true); try { await onConfirm(chosen, moveGroup); } finally { setSaving(false); } }}
+            onClick={async () => { setSaving(true); try { await onConfirm(chosen, moveGroup, moveConflicts); } finally { setSaving(false); } }}
             disabled={saving}
             className="btn btn-primary"
             style={{ flex: 1 }}
