@@ -26,7 +26,8 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - Normal `PATCH /api/tasks/{id}` reschedules update only that task, plus same-`group_id` siblings when `propagate_group` is true.
 - Sending `auto_reschedule_conflicts: true` asks the backend to resolve overlapping scheduled tasks after the move. The resolver is deterministic fixed code: it compares `importance`, `urgency`, `consequence_of_delay`, `time_sensitivity`, `momentum_value`, deadline pressure, and effort. The strongest task keeps the contested slot; lower-weight tasks move to suggested slots.
 - Suggested slots come from `services/suggest_slot.py`: preferred execution window, focus type, energy/stress defaults, learned skip window, existing conflicts, after-hours wrapping, and an 8-hour daily workload cap are considered before choosing a time.
-- Calendar drag/drop, task-list manual reschedule, skip/defer, and TerminalChat batch reschedules opt into this flag. Groq is not called for live conflict arbitration; it remains limited to task classification/default fields.
+- Calendar drag/drop, task-list manual reschedule, skip/defer, TerminalChat batch reschedules, blackout resumes, and recurrence-created next tasks use the same resolver. Groq is not called for live conflict arbitration; it remains limited to task classification/default fields.
+- Recurring definitions and materialized calendar rows are refreshed after recurrence schedule changes, virtual-occurrence reschedules, blackout resumes, and recurrence-created next tasks so Calendar and iCloud sync read the updated occurrence times instead of stale materialized rows.
 
 ### Post-Blackout Behavior
 
@@ -35,16 +36,18 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - `resume`: move to the next valid recurrence slot after the blackout and shift the series from there.
 - `catch_up_immediate`: move to the first available date after the blackout, keep the original series.
 - `catch_up_imm_shift`: move to the first available date after the blackout and re-anchor the series.
-- Post-blackout moves preserve the original task clock time; only dates change unless the recurrence is hourly.
+- Post-blackout moves preserve `metadata_json.recurrence_time_ref_ms`; only dates change unless the recurrence is hourly. If a blackout move lands on Saturday/Sunday, `day_time_overrides` can still adjust that weekend occurrence, but weekday moves return to the stored original clock.
 - Shifted monthly rules update their date selector where possible, e.g. `monthly:3SA` to `monthly:4sa`, `BYSETPOS=3` to `BYSETPOS=4`.
 
 ## Virtual recurrence
 
 - `recurring_tasks` stores recurring definitions instead of materializing every future slot: source task id, title, start datetime, duration, simple `recurrence` or imported `rrule`, optional end date, and metadata copied from the source task.
+- `metadata_json.recurrence_time_ref_ms` is copied into the recurring definition and is the canonical clock for non-hourly recurrence expansion. Weekend overrides are display/materialization adjustments only; they do not become the weekday recurrence time.
 - `occurrence_overrides` stores only per-occurrence changes: `completed`, `skipped`, or `rescheduled`, plus modified start/duration when needed.
 - Ranged task reads return ordinary one-off tasks plus recurring occurrences with stable ids like `r_<recurringTaskId>_<occurrenceStart>`. The current rolling window may come from `materialized_occurrences`; farther ranges are expanded virtually on demand.
 - Completing/skipping/rescheduling a virtual occurrence writes an override row; future occurrences remain virtual and bounded to the requested calendar/scheduler window.
 - `occurrence_overrides` is applied to both materialized and virtual reads, so completed/skipped/rescheduled instances behave the same regardless of how the occurrence was generated.
+- Weekend `day_time_overrides` use `metadata_json.recurrence_time_ref_ms` as the stable weekday clock. Weekend occurrences can render at the override time, then weekday recurrence, materialization, completion, and iCloud mirroring return to the original clock unless the user explicitly reschedules a weekday occurrence.
 
 ## Blackouts
 

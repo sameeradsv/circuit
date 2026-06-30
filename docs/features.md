@@ -36,11 +36,12 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 - **TaskDetailModal** (`components/task-detail/`) — sectioned editor with hover tooltips on every field
 - **Per-task reminders** — scheduled tasks can enable/disable browser notifications and choose two reminder timings in Time & focus; the global sidebar bell still controls browser permission/overall enablement
 - **TerminalChat** — natural-language batch reschedule/complete/prioritize with approval preview
-- **Smart reschedules** — manual reschedules can ask the backend to move conflicting events. Circuit compares importance, urgency, consequence of delay, time sensitivity, momentum, deadline pressure, and effort; the highest-weight task keeps the contested slot while lower-weight conflicts move to deterministic suggested slots that avoid overlaps and overloaded days. This is fixed backend logic, not a Groq call, so schedule changes stay explainable.
+- **Smart reschedules** — manual reschedules, blackout resumes, and recurrence-created next tasks can ask the backend to move conflicting events. Circuit compares importance, urgency, consequence of delay, time sensitivity, momentum, deadline pressure, and effort; the highest-weight task keeps the contested slot while lower-weight conflicts move to deterministic suggested slots that avoid overlaps and overloaded days. This is fixed backend logic, not a Groq call, so schedule changes stay explainable.
 
 ## Calendar
 
 - **Virtual recurring slots** are generated only for the visible range; completed, skipped, and rescheduled instances are stored as overrides so future availability stays accurate without unlimited task rows
+- **Materialized recurring slots** are refreshed after recurrence edits, virtual occurrence reschedules, blackout resumes, and recurrence-created next tasks, keeping Calendar and iCloud mirrors aligned with weekend overrides and conflict moves.
 - **Day / week / month** views with 24-hour grid (day/week)
 - **Overlapping events** in day/week use side-by-side columns; travel buffers and minimum rendered event height are included in overlap detection so painted blocks do not collide
 - **Day-view date strip + gestures** let users switch across dates/weeks/months with clicks, horizontal swipes, or trackpad/wheel motion in addition to arrow buttons
