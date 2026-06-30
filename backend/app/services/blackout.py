@@ -17,8 +17,9 @@ if TYPE_CHECKING:
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
 
-_SHIFT_SERIES = frozenset({"catch_up", "catch_up_imm_shift"})
-_SUITABLE_SLOT_CATCHUP = frozenset({"catch_up"})
+_NEXT_SLOT_SHIFT = frozenset({"resume", "catch_up", "catch_up_once"})
+_SHIFT_SERIES = frozenset({"resume", "catch_up", "catch_up_once", "catch_up_imm_shift"})
+_SUITABLE_SLOT_CATCHUP = _NEXT_SLOT_SHIFT
 _IMMEDIATE_CATCHUP = frozenset({"catch_up_immediate", "catch_up_imm_shift"})
 _ANCHOR_PRESERVING_CATCHUP = frozenset({"catch_up_immediate"})
 
@@ -117,7 +118,7 @@ def adjust_for_blackouts(
             current_ms = _catch_up_after_ms(current_ms, hits, from_dt)
             continue
 
-        # Continue series: advance one recurrence period at a time.
+        # Legacy fallback: advance one recurrence period at a time.
         if task.rrule and task.is_recurring_template:
             from app.routers.calendar import _expand_rrule
             candidates = _expand_rrule(

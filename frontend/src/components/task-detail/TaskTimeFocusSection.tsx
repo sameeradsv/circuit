@@ -202,15 +202,14 @@ export function TaskTimeFocusSection({
           <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
             <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
               After blackout
-              <FieldHint text="Continue series: missed events are skipped and the original recurrence continues at its usual time. Shift to next slot: moves the series to the next valid recurrence date after the blackout while keeping the gap. Resume immediately: moves the next event to the first available date after the blackout while keeping the original time." />
+              <FieldHint text="Next slot: moves the series to the next valid recurrence date after the blackout while keeping the gap and original time. Resume immediately: moves the next event to the first available date after the blackout while keeping the original time." />
             </span>
             <select
-              value={(merged.post_blackout_behavior === "catch_up_once" ? "resume" : merged.post_blackout_behavior) ?? "resume"}
+              value={(merged.post_blackout_behavior === "catch_up" || merged.post_blackout_behavior === "catch_up_once" ? "resume" : merged.post_blackout_behavior) ?? "resume"}
               onChange={(e) => set("post_blackout_behavior", e.target.value as "resume" | "catch_up" | "catch_up_immediate" | "catch_up_imm_shift")}
               className={TASK_ENTRY_CLASS}
             >
-              <option value="resume">Continue series</option>
-              <option value="catch_up">Shift series to next slot</option>
+              <option value="resume">Shift series to next slot</option>
               <option value="catch_up_immediate">Resume immediately, keep series</option>
               <option value="catch_up_imm_shift">Resume immediately, shift series</option>
             </select>
@@ -219,7 +218,7 @@ export function TaskTimeFocusSection({
           <label className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
             <span className="sm:w-44 sm:shrink-0 text-xs text-circuit-muted flex items-center gap-1.5">
               Weekend time (Sa–Su, AM)
-              <FieldHint text="Override the recurrence time on Saturday and Sunday. Only applies to morning tasks (originally scheduled before noon)." />
+              <FieldHint text="Override the recurrence time on Saturday and Sunday. Weekdays keep the original recurrence time. Only applies to morning tasks (originally scheduled before noon)." />
             </span>
             <input
               type="time"

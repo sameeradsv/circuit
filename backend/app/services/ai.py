@@ -191,7 +191,7 @@ def _normalize_suggestion(raw: dict[str, Any], text: str, context: str | None) -
     focus_type = _valid_choice(raw.get("focus_type"), {"shallow", "deep", "admin", "creative"}, fallback["focus_type"])
     post_blackout = _valid_choice(
         raw.get("post_blackout_behavior"),
-        {"resume", "catch_up", "catch_up_immediate", "catch_up_imm_shift"},
+        {"resume", "catch_up_immediate", "catch_up_imm_shift"},
         "resume",
     )
     scheduled_at = raw.get("scheduled_at")
@@ -341,7 +341,7 @@ def _suggest_with_groq(text: str, context: str | None, api_key: str) -> dict:
         '"effort":"low|medium|high","duration":minutes,'
         '"deadline_type":"none|soft|hard","time_sensitivity":0-1,'
         '"scheduled_at":null,"recurrence":null,"recurrence_ends_at":null,'
-        '"post_blackout_behavior":"resume|catch_up|catch_up_immediate|catch_up_imm_shift",'
+        '"post_blackout_behavior":"resume|catch_up_immediate|catch_up_imm_shift",'
         '"emotional_resistance":0-1,"activation_energy":0-1,"recovery_cost":0-1,'
         '"focus_type":"shallow|deep|admin|creative",'
         '"consequence_of_delay":0-1,"momentum_value":0-1,"compound_benefit":0-1,'
