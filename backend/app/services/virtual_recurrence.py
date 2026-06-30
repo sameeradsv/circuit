@@ -20,9 +20,12 @@ _MAX_OCCURRENCES_PER_SERIES = 500
 def _series_key(task: CircuitTask) -> str:
     if task.client_id:
         return f"client:{task.client_id}"
+    meta = json.loads(task.metadata_json or "{}")
     anchor_ms = task.rrule_dtstart_ms or task.recurrence_anchor_ms or task.scheduled_at or 0
-    anchor_dt = datetime.fromtimestamp(anchor_ms / 1000, tz=_IST)
-    clock = f"{anchor_dt.hour:02d}:{anchor_dt.minute:02d}:{anchor_dt.second:02d}"
+    time_ref_ms = meta.get("recurrence_time_ref_ms")
+    clock_ms = time_ref_ms if isinstance(time_ref_ms, int) else anchor_ms
+    clock_dt = datetime.fromtimestamp(clock_ms / 1000, tz=_IST)
+    clock = f"{clock_dt.hour:02d}:{clock_dt.minute:02d}:{clock_dt.second:02d}"
     rule = task.rrule or task.recurrence or ""
     return "|".join([
         f"user:{task.user_id}",
