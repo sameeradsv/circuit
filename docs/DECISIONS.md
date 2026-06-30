@@ -224,4 +224,4 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 **Reason:** Recurring and frequently delayed tasks need feedback loops based on when work really happens, not only when it was planned.
 
-**Implication:** Recurring and virtual recurring completions create energy-costing `TaskEvent` rows. Energy drain applies a small capped delay penalty, and analytics can suggest a more realistic hour for tasks repeatedly completed late.
+**Implication:** Recurring and virtual recurring completions create energy-costing `TaskEvent` rows. Energy drain applies a small capped delay penalty, and analytics can suggest a more realistic hour for tasks repeatedly completed late. Skip, reschedule, occurrence override, and uncompletion events are audit history only for energy/analytics.

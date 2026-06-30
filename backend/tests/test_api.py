@@ -160,7 +160,9 @@ def test_summary_analytics_fields(client, auth):
     assert "most_skipped" in data
     assert "stale_tasks" in data
     assert "attention_needed" in data
-    assert any(item["text"] == "Skipped a lot" for item in data["most_skipped"])
+    assert data["avg_skip_count"] == 0.0
+    assert data["most_skipped"] == []
+    assert all("skipped" not in item["message"].lower() for item in data["attention_needed"])
 
 
 def test_patch_task(client, auth):
@@ -476,6 +478,37 @@ def test_energy_timeline_uses_scheduled_at(client, auth):
     expected_time = datetime.fromtimestamp(scheduled_ms / 1000, tz=timezone.utc).astimezone(ist).strftime("%H:%M")
     match = next(e for e in events if "Deep work block" in e["note"])
     assert match["time"] == expected_time
+
+
+def test_energy_ignores_skip_and_reschedule_events(client, auth):
+    scheduled_ms = 1_700_000_000_000
+    task = client.post(
+        "/api/tasks",
+        json={"text": "App handled move", "scheduled_at": scheduled_ms},
+        headers=auth,
+    ).json()
+    client.post(
+        "/api/history/events",
+        json={"task_id": task["id"], "event_type": "skipped", "metadata": {"reason": "manual"}},
+        headers=auth,
+    )
+    client.post(
+        "/api/history/events",
+        json={"task_id": task["id"], "event_type": "rescheduled", "metadata": {"reason": "manual"}},
+        headers=auth,
+    )
+
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Asia/Kolkata")
+    target_date = datetime.fromtimestamp(scheduled_ms / 1000, tz=timezone.utc).astimezone(ist).date().isoformat()
+
+    r = client.get(f"/api/energy/timeline?date={target_date}", headers=auth)
+    assert r.status_code == 200
+    assert all("App handled move" not in e["note"] for e in r.json()["events"])
+    assert _task_delta("skipped", CircuitTask(text="Skipped task")) == 0.0
+    assert _task_delta("rescheduled", CircuitTask(text="Moved task")) == 0.0
+    assert _task_delta("uncompleted", CircuitTask(text="Audit task")) == 0.0
 
 
 def test_historical_energy_start_ignores_live_carryover():

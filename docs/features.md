@@ -19,7 +19,7 @@ Authenticated routes under `frontend/src/app/(app)/`:
 | Add | `/add` | Redirects to Home; quick capture now lives on `/` |
 | Account | `/account` | Preferences, sleep overrides, blackouts, energy manual override, encrypted export/import, **vanilla PWA localStorage import**, passkey |
 | More | nav section | Hides lower-frequency pages: Analytics, Energy, Chat |
-| Analytics | `/analytics` | Summary stats, selected-day **WorkloadBar**, **BehavioralInsights**, attention/stale/skipped lists |
+| Analytics | `/analytics` | Summary stats, selected-day **WorkloadBar**, **BehavioralInsights**, attention/stale task lists |
 | Energy | `/energy` | Per-day task-event balance (`GET /api/energy/timeline`); combined cross-app chart on Canopy → Energy |
 | Chat | `/chat` | TerminalChat — batch commands (no API) + Circuit native **Groq** agent |
 
@@ -79,7 +79,7 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 - **Time window for ranking:** `UserState.time_available_minutes` (Account) on Tasks.
 - **Energy mode:** `UserState.focus_mode` synced via `use-energy-mode.ts`; switchable on Tasks header.
 - **Task ranking:** Home and Tasks use shared `lib/task-ranking.ts` → engine `scoreTasks` (energy mode + available minutes aware). Home limits ranked picks to unscheduled tasks or tasks due within the next 3 days so suggestions stay actionable.
-- **Circuit task energy on the timeline** is anchored to each task's **scheduled time** (when the work was planned), not when you tapped complete — matches Canopy (`occurred_at`) and Chef (meal `timestamp`). Recurring and virtual recurring completions create `TaskEvent` rows and therefore cost/restore energy like one-off tasks. Optional completion time stores actual completion metadata and delay minutes; delayed completions apply a small capped extra drain and feed scheduling insights.
+- **Circuit task energy on the timeline** is anchored to each completed task's **scheduled time** (when the work was planned), not when you tapped complete. Only actual completion/work events affect energy and analytics. App-handled skips, reschedules, occurrence overrides, and uncompletion audit events remain in history but do not drain energy or appear as analytics signals. Optional completion time stores actual completion metadata and delay minutes; delayed completions apply a small capped extra drain and feed scheduling insights.
 
 ## Account and sync
 

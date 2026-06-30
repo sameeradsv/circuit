@@ -221,15 +221,6 @@ def energy_timeline(
     }
 
 
-def _event_metadata(metadata_json: str | None) -> dict:
-    if not metadata_json:
-        return {}
-    try:
-        return json.loads(metadata_json)
-    except (TypeError, json.JSONDecodeError):
-        return {}
-
-
 def _task_drain(event_type: str, task: CircuitTask, metadata_json: str | None = None) -> float:
     """Absolute drain cost for sync endpoint — kept for backward compat."""
     duration_mins = max(5, task.duration or 30)
