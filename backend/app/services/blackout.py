@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 
 from app.engines.recurrence import first_catch_up_slot_after, is_hourly_recurrence, next_occurrence, shifted_rrule, shifted_series_pattern
 from app.models import Blackout, CircuitTask, TaskEvent
+from app.services.reschedule import resolve_schedule_conflicts
+from app.services.virtual_recurrence import materialize_occurrences_for_user, sync_recurring_definition
 
 if TYPE_CHECKING:
     pass
@@ -89,6 +91,24 @@ def _catch_up_suitable_ms(
     return _catch_up_after_ms(task.scheduled_at or after_ms, hits, from_dt)
 
 
+def _metadata_dict(task: CircuitTask) -> dict:
+    try:
+        return json.loads(task.metadata_json or "{}")
+    except Exception:
+        return {}
+
+
+def _recurrence_time_ref_dt(task: CircuitTask) -> datetime:
+    meta = _metadata_dict(task)
+    value = meta.get("recurrence_time_ref_ms")
+    if isinstance(value, int):
+        return datetime.fromtimestamp(value / 1000, tz=_IST)
+    fallback_ms = task.recurrence_anchor_ms or task.rrule_dtstart_ms or task.scheduled_at
+    if fallback_ms:
+        return datetime.fromtimestamp(fallback_ms / 1000, tz=_IST)
+    return datetime.now(tz=_IST)
+
+
 def adjust_for_blackouts(
     next_ms: int,
     task: CircuitTask,
@@ -153,10 +173,10 @@ def adjust_for_blackouts(
     return current_ms
 
 
-def _apply_day_time_override(dt: datetime, overrides_json: Optional[str]) -> datetime:
+def _apply_day_time_override(dt: datetime, overrides_json: Optional[str], time_ref: datetime) -> datetime:
     if not overrides_json:
         return dt
-    if dt.hour >= 12:
+    if time_ref.hour >= 12:
         return dt
     overrides = json.loads(overrides_json)
     wd = _WEEKDAY[dt.weekday()]
@@ -185,7 +205,7 @@ def reschedule_tasks_for_blackout(user_id: int, blackout: Blackout, db: Session)
         .all()
     )
 
-    moved = 0
+    moved_task_ids: set[int] = set()
     now = datetime.now(tz=_IST).replace(tzinfo=None)
     for task in candidates:
         if not task_affected_by(task, blackout.blackout_type):
@@ -193,14 +213,14 @@ def reschedule_tasks_for_blackout(user_id: int, blackout: Blackout, db: Session)
         if not task.scheduled_at:
             continue
 
-        from_dt = datetime.fromtimestamp(task.scheduled_at / 1000, tz=_IST)
+        from_dt = _recurrence_time_ref_dt(task)
         new_ms = adjust_for_blackouts(task.scheduled_at, task, all_blackouts, from_dt)
 
         if task.recurrence_ends_at and new_ms > task.recurrence_ends_at:
             continue
         if task.day_time_overrides:
             adj_dt = datetime.fromtimestamp(new_ms / 1000, tz=_IST)
-            adj_dt = _apply_day_time_override(adj_dt, task.day_time_overrides)
+            adj_dt = _apply_day_time_override(adj_dt, task.day_time_overrides, from_dt)
             new_ms = int(adj_dt.timestamp() * 1000)
 
         if new_ms == task.scheduled_at:
@@ -217,6 +237,7 @@ def reschedule_tasks_for_blackout(user_id: int, blackout: Blackout, db: Session)
         task.scheduled_at = new_ms
         if task.post_blackout_behavior in _ANCHOR_PRESERVING_CATCHUP and new_ms != old_ms:
             task.recurrence_anchor_ms = task.recurrence_anchor_ms or old_ms
+        sync_recurring_definition(db, task)
         db.add(TaskEvent(
             user_id=user_id,
             task_id=task.id,
@@ -229,8 +250,20 @@ def reschedule_tasks_for_blackout(user_id: int, blackout: Blackout, db: Session)
                 "to_ms": new_ms,
             }),
         ))
-        moved += 1
+        moved_task_ids.add(task.id)
+        for change in resolve_schedule_conflicts(
+            db,
+            user_id,
+            task,
+            now_utc=now,
+            event_reason="blackout_conflict_resolution",
+        ):
+            moved_task = change.get("task")
+            if isinstance(moved_task, CircuitTask):
+                moved_task_ids.add(moved_task.id)
 
+    moved = len(moved_task_ids)
     if moved:
+        materialize_occurrences_for_user(db, user_id)
         db.commit()
     return moved

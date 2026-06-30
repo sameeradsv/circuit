@@ -368,6 +368,7 @@ body {
 .cal-view-area {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .cal-scroll-grid {
   overflow-y: auto;
@@ -379,11 +380,13 @@ body {
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  width: 100%;
+  min-width: 0;
   max-height: calc(100dvh - 200px - var(--content-bottom-inset));
   border-radius: 8px;
 }
 .cal-month-scroll .cal-grid {
-  min-width: 900px;
+  width: max(900px, 100%);
 }
 .cal-week-scroll {
   overflow-x: auto;

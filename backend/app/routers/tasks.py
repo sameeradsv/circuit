@@ -18,11 +18,13 @@ from app.engines.recurrence import is_hourly_recurrence, next_occurrence
 from app.services.blackout import adjust_for_blackouts
 from app.services.adaptive_learning import apply_complete_learning, update_delay_pattern_on_skip
 from app.services.ai import suggest_task_defaults
-from app.services.suggest_slot import suggest_slot_for_task, task_conflict_weight
+from app.services.suggest_slot import suggest_slot_for_task
+from app.services.reschedule import resolve_schedule_conflicts
 from app.services.reminders import cancel_pending_reminders_for_task, materialize_reminders_for_task, materialize_reminders_for_user
 from app.services.virtual_recurrence import (
     expand_virtual_occurrences,
     is_virtual_id,
+    materialize_occurrences_for_user,
     materialization_window_ms,
     materialized_occurrences,
     parse_virtual_id,
@@ -246,6 +248,14 @@ def _create_next_occurrence_for_completed_task(db: Session, user_id: int, task: 
             import_review_pending=False,
         )
         db.add(next_task)
+        db.flush()
+        resolve_schedule_conflicts(
+            db,
+            user_id,
+            next_task,
+            event_reason="recurrence_conflict_resolution",
+        )
+        materialize_occurrences_for_user(db, user_id)
     except Exception:
         pass
 
@@ -467,130 +477,6 @@ def _task_to_dict(t: CircuitTask) -> dict:
     }
 
 
-def _task_end_ms(task: CircuitTask) -> Optional[int]:
-    if task.scheduled_at is None:
-        return None
-    return task.scheduled_at + (task.duration or 30) * 60_000
-
-
-def _tasks_overlap(a: CircuitTask, b: CircuitTask) -> bool:
-    a_end = _task_end_ms(a)
-    b_end = _task_end_ms(b)
-    if a.scheduled_at is None or b.scheduled_at is None or a_end is None or b_end is None:
-        return False
-    return a.scheduled_at < b_end and a_end > b.scheduled_at
-
-
-def _auto_reschedule_conflicts(
-    db: Session,
-    user_id: int,
-    anchor: CircuitTask,
-    now_utc: datetime,
-) -> list[dict[str, Any]]:
-    """Resolve direct schedule conflicts after a task move.
-
-    The highest weighted task keeps the contested slot; lower weighted tasks are
-    moved to deterministic suggested slots that avoid conflicts and overloaded
-    days. This is intentionally fixed-code rather than LLM-driven so calendar
-    behavior remains explainable and repeatable.
-    """
-    if anchor.scheduled_at is None or anchor.completed:
-        return []
-
-    now_ms = int(now_utc.replace(tzinfo=timezone.utc).timestamp() * 1000)
-    tasks = (
-        db.query(CircuitTask)
-        .filter(
-            CircuitTask.user_id == user_id,
-            CircuitTask.completed == False,  # noqa: E712
-            CircuitTask.scheduled_at.isnot(None),
-        )
-        .all()
-    )
-    moved: list[dict[str, Any]] = []
-    moved_ids: set[int] = set()
-
-    for _ in range(12):
-        if anchor.scheduled_at is None:
-            break
-        conflicts = [task for task in tasks if task.id != anchor.id and _tasks_overlap(anchor, task)]
-        if not conflicts:
-            break
-
-        strongest = max(conflicts, key=lambda task: task_conflict_weight(task, now_ms))
-        anchor_weight = task_conflict_weight(anchor, now_ms)
-        if anchor_weight < task_conflict_weight(strongest, now_ms):
-            old_ms = anchor.scheduled_at
-            suggestion = suggest_slot_for_task(
-                anchor,
-                [task for task in tasks if task.id != anchor.id],
-                now_ms=max(now_ms, _task_end_ms(strongest) or now_ms),
-            )
-            new_ms = int(suggestion["scheduled_at"])
-            if new_ms == old_ms:
-                break
-            anchor.scheduled_at = new_ms
-            anchor.updated_at = now_utc
-            moved.append({
-                "task": anchor,
-                "from_ms": old_ms,
-                "to_ms": new_ms,
-                "reason": "lower_priority_than_conflict",
-                "rationale": suggestion.get("rationale", []),
-            })
-            moved_ids.add(anchor.id)
-            continue
-
-        moved_any = False
-        for conflict in sorted(conflicts, key=lambda task: task_conflict_weight(task, now_ms)):
-            old_ms = conflict.scheduled_at
-            suggestion = suggest_slot_for_task(
-                conflict,
-                tasks,
-                now_ms=max(now_ms, _task_end_ms(anchor) or now_ms),
-            )
-            new_ms = int(suggestion["scheduled_at"])
-            if old_ms is None or new_ms == old_ms:
-                continue
-            conflict.scheduled_at = new_ms
-            conflict.updated_at = now_utc
-            moved.append({
-                "task": conflict,
-                "from_ms": old_ms,
-                "to_ms": new_ms,
-                "reason": "conflict_with_higher_priority_task",
-                "rationale": suggestion.get("rationale", []),
-            })
-            moved_ids.add(conflict.id)
-            moved_any = True
-        if not moved_any:
-            break
-
-    for change in moved:
-        moved_task = change["task"]
-        db.add(TaskEvent(
-            user_id=user_id,
-            task_id=moved_task.id,
-            event_type="rescheduled",
-            occurred_at=now_utc,
-            metadata_json=json.dumps({
-                "reason": "auto_conflict_resolution",
-                "from_ms": change["from_ms"],
-                "to_ms": change["to_ms"],
-                "trigger_task_id": anchor.id,
-                "resolution": change["reason"],
-                "rationale": change["rationale"],
-            }),
-        ))
-
-    for task in tasks:
-        if task.id in moved_ids:
-            sync_recurring_definition(db, task)
-            _refresh_task_reminders(db, task)
-
-    return moved
-
-
 @router.get("")
 def list_tasks(
     completed: Optional[bool] = Query(None, description="Filter by completion status"),
@@ -735,7 +621,9 @@ def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session
     db.add(task)
     db.flush()
     _normalize_recurrence_time_ref(task)
-    sync_recurring_definition(db, task)
+    recurring_row = sync_recurring_definition(db, task)
+    if recurring_row or task.recurrence or task.rrule:
+        materialize_occurrences_for_user(db, user.id)
     _refresh_task_reminders(db, task)
     db.commit()
     db.refresh(task)
@@ -779,6 +667,8 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                         "delay_minutes": delay_mins,
                     }),
                 ))
+        if status == "rescheduled":
+            materialize_occurrences_for_user(db, user.id)
         db.commit()
         from_ms = min(occurrence_start, payload.scheduled_at or occurrence_start) - 60_000
         to_ms = max(occurrence_start, payload.scheduled_at or occurrence_start) + (payload.duration or recurring.duration or 30) * 60_000
@@ -862,7 +752,12 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
         and task.scheduled_at != old_scheduled_at
         and not task.completed
     ):
-        _auto_reschedule_conflicts(db, user.id, task, datetime.now(timezone.utc).replace(tzinfo=None))
+        resolve_schedule_conflicts(
+            db,
+            user.id,
+            task,
+            now_utc=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
 
     # Auto-log completion/uncompletion event
     if payload.completed is not None and payload.completed != was_completed:
@@ -976,7 +871,7 @@ def batch_update_tasks(
                 }),
             ))
             if payload.patch.auto_reschedule_conflicts and task.scheduled_at is not None and not task.completed:
-                _auto_reschedule_conflicts(db, user.id, task, now_utc)
+                resolve_schedule_conflicts(db, user.id, task, now_utc=now_utc)
 
         if task.completed != was_completed:
             event_type = "completed" if task.completed else "uncompleted"
@@ -1109,6 +1004,8 @@ def migrate_from_localstorage(
         db.flush()
         _normalize_recurrence_time_ref(task)
         sync_recurring_definition(db, task)
+        if task.recurrence or task.rrule:
+            materialize_occurrences_for_user(db, user.id)
         _refresh_task_reminders(db, task)
         created += 1
     db.commit()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from app.services.push import PushGoneError, send_web_push
 from app.services.virtual_recurrence import expand_virtual_occurrences
 
 logger = logging.getLogger(__name__)
+_IST = ZoneInfo("Asia/Kolkata")
 
 
 def _now_utc() -> datetime:
@@ -27,6 +29,32 @@ def _ms_from_dt(dt: datetime) -> int:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
+
+
+def _format_scheduled_time(ms: Optional[int]) -> str:
+    if not ms:
+        return "unscheduled"
+    dt = datetime.fromtimestamp(ms / 1000, tz=timezone.utc).astimezone(_IST)
+    hour = dt.hour % 12 or 12
+    suffix = "AM" if dt.hour < 12 else "PM"
+    return f"{hour}:{dt.minute:02d} {suffix} IST"
+
+
+def _compact_percent(value: Optional[float]) -> str:
+    value = 0.0 if value is None else max(0.0, min(1.0, float(value)))
+    return f"{round(value * 100)}%"
+
+
+def _task_parameter_summary(task: CircuitTask) -> str:
+    parts = [
+        f"imp {_compact_percent(task.importance)}",
+        f"urg {_compact_percent(task.urgency)}",
+        f"delay {_compact_percent(task.consequence_of_delay)}",
+        f"drain {_compact_percent(task.recovery_cost)}",
+    ]
+    if task.cognitive_load is not None and task.cognitive_load >= 0.65:
+        parts.append(f"load {_compact_percent(task.cognitive_load)}")
+    return " · ".join(parts)
 
 
 def reminder_offsets(task: Any) -> list[int]:
@@ -225,8 +253,8 @@ def _claim_due_reminders(db: Session, now: datetime, limit: int) -> list[Reminde
 def _payload_for(task: CircuitTask, reminder: Reminder) -> dict[str, Any]:
     occurrence_ms = reminder.occurrence_at_ms or task.scheduled_at
     return {
-        "title": f"Starting soon: {task.text}",
-        "body": "Tap to open Circuit",
+        "title": task.text,
+        "body": f"{_format_scheduled_time(occurrence_ms)} · {_task_parameter_summary(task)}",
         "tag": f"circuit-task-{task.id}-{int(reminder.remind_at.timestamp())}",
         "url": "/calendar",
         "taskId": task.id,

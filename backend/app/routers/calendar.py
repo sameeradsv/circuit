@@ -338,6 +338,15 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
     # rrule_dtstart_ms may be pre-set to the original DTSTART by the importer
     # (when scheduled_at has been advanced to the first future occurrence)
     rrule_dtstart = ev.get("rrule_dtstart_ms", ev["scheduled_at"]) if rrule else None
+    metadata = {
+        "ai_default_reasoning": suggested.get("reasoning", ""),
+        "calendar_description": ev.get("description", ""),
+        "calendar_name": ev.get("cal_name", ""),
+        "calendar_color": ev.get("color", ""),
+    }
+    if recurrence or rrule:
+        metadata["recurrence_time_ref_ms"] = rrule_dtstart or ev["scheduled_at"]
+
     return CircuitTask(
         user_id=user_id,
         client_id=client_id,
@@ -367,12 +376,7 @@ def _make_task(user_id: int, ev: dict, client_id: str) -> CircuitTask:
         skipped_count=0,
         required_resources=json.dumps(suggested.get("required_resources", [])),
         dependencies=json.dumps(suggested.get("dependencies", [])),
-        metadata_json=json.dumps({
-            "ai_default_reasoning": suggested.get("reasoning", ""),
-            "calendar_description": ev.get("description", ""),
-            "calendar_name": ev.get("cal_name", ""),
-            "calendar_color": ev.get("color", ""),
-        }),
+        metadata_json=json.dumps(metadata),
         blackout_skip_flags=json.dumps(suggested.get("blackout_skip_flags", [])) if suggested.get("blackout_skip_flags") else None,
         recurrence=recurrence,
         rrule=rrule,
