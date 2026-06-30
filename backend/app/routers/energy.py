@@ -18,6 +18,8 @@ _IST = ZoneInfo("Asia/Kolkata")
 
 router = APIRouter(prefix="/api/energy", tags=["energy"])
 
+_ENERGY_EVENT_TYPES = {"completed"}
+
 
 def _task_delta(event_type: str, task: CircuitTask, metadata_json: str | None = None) -> float:
     """
@@ -49,14 +51,6 @@ def _task_delta(event_type: str, task: CircuitTask, metadata_json: str | None = 
             delay_minutes = 0
         delay_penalty = min(0.18, (delay_minutes / 60) * 0.025) if delay_minutes > 30 else 0.0
         delta  = reward * 0.12 - cost - delay_penalty
-    elif event_type == "skipped":
-        base  = task.activation_energy * 0.025 + 0.01
-        delta = -min(0.06, base * min(1.2, dur_factor))
-    elif event_type == "rescheduled":
-        delta = 0.0 if metadata.get("reason") in {"blackout", "recurrence", "system"} else -0.01
-    elif event_type == "uncompleted":
-        base  = task.recovery_cost * 0.20 + 0.05
-        delta = -min(0.35, base * min(1.5, dur_factor))
     else:
         delta = 0.0
     return round(max(-0.85, min(0.15, delta)), 3)
@@ -108,6 +102,7 @@ def _timeline_rows(user_id: int, target: date_type, db: Session) -> list[tuple[T
         .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
         .filter(
             TaskEvent.user_id == user_id,
+            TaskEvent.event_type.in_(_ENERGY_EVENT_TYPES),
             or_(
                 and_(
                     TaskEvent.occurred_at >= day_start_utc,
@@ -239,15 +234,8 @@ def _task_drain(event_type: str, task: CircuitTask, metadata_json: str | None = 
     """Absolute drain cost for sync endpoint — kept for backward compat."""
     duration_mins = max(5, task.duration or 30)
     dur_factor = min(8.0, max(0.5, duration_mins / 60))
-    metadata = _event_metadata(metadata_json)
     if event_type == "completed":
         base = task.cognitive_load * 0.35 * (1.0 - task.energy_to_reward_ratio * 0.5) * dur_factor
-    elif event_type == "skipped":
-        base = task.activation_energy * 0.04 * min(1.2, dur_factor)
-    elif event_type == "rescheduled":
-        return 0.0 if metadata.get("reason") in {"blackout", "recurrence", "system"} else 0.01
-    elif event_type == "uncompleted":
-        base = task.recovery_cost * 0.30 * min(2.0, dur_factor)
     else:
         return 0.0
     return round(max(0.0, min(0.85, base)), 3)
@@ -285,6 +273,7 @@ def energy_sync(
         .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
         .filter(
             TaskEvent.user_id == user.id,
+            TaskEvent.event_type.in_(_ENERGY_EVENT_TYPES),
             or_(
                 and_(
                     TaskEvent.occurred_at >= day_start_utc,

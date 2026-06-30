@@ -112,10 +112,10 @@ def test_process_due_reminder_sends_to_all_devices(client, auth, monkeypatch):
         json={"text": "Call supplier", "scheduled_at": _ms(now.replace(tzinfo=timezone.utc)), "notification_offset_1_mins": 0},
         headers=auth,
     ).json()
-    sent: list[str] = []
+    sent: list[dict] = []
 
     def fake_send(sub, payload):
-        sent.append(sub.endpoint)
+        sent.append({"endpoint": sub.endpoint, "payload": payload})
         assert payload["taskId"] == task["id"]
 
     monkeypatch.setattr("app.services.reminders.send_web_push", fake_send)
@@ -127,7 +127,9 @@ def test_process_due_reminder_sends_to_all_devices(client, auth, monkeypatch):
         row = db.query(Reminder).filter(Reminder.task_id == task["id"]).one()
 
     assert stats["sent"] == 1
-    assert sorted(sent) == ["https://push.example/a", "https://push.example/b"]
+    assert sorted(item["endpoint"] for item in sent) == ["https://push.example/a", "https://push.example/b"]
+    assert sent[0]["payload"]["title"] == "Call supplier"
+    assert sent[0]["payload"]["body"] == "1:30 PM IST · imp 50% · urg 50% · delay 35% · drain 35%"
     assert row.status == "sent"
     assert row.sent_at is not None
 

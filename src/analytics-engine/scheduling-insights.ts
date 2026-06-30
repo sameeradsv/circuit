@@ -50,14 +50,5 @@ export function computeSchedulingInsights(tasks: Task[], nowMs = Date.now()): Sc
     });
   }
 
-  const highSkip = open.filter((t) => (t.skippedCount ?? 0) >= 2);
-  if (highSkip.length > 0) {
-    const t = highSkip.reduce((a, b) => ((a.skippedCount ?? 0) >= (b.skippedCount ?? 0) ? a : b));
-    insights.push({
-      type: "prediction",
-      message: `"${t.text}" keeps getting skipped — try a tiny step or reschedule out of peak hours.`,
-    });
-  }
-
   return insights.slice(0, 5);
 }

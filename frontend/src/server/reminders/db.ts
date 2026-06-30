@@ -48,4 +48,9 @@ export type TaskReminderSource = {
   notifications_enabled: boolean;
   notification_offset_1_mins: number | null;
   notification_offset_2_mins: number | null;
+  importance?: number | null;
+  urgency?: number | null;
+  consequence_of_delay?: number | null;
+  recovery_cost?: number | null;
+  cognitive_load?: number | null;
 };

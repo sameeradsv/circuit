@@ -22,9 +22,6 @@ export function computeAnalytics(tasks: Task[]): TaskAnalytics {
     completionRate: tasks.length ? completed.length / tasks.length : 0,
     byTag: completionRateByTag(tasks),
     totalPendingMinutes: pending.reduce((s, t) => s + t.duration, 0),
-    avgSkipCount:
-      pending.length === 0
-        ? 0
-        : pending.reduce((s, t) => s + t.skippedCount, 0) / pending.length,
+    avgSkipCount: 0,
   };
 }

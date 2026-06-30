@@ -20,6 +20,14 @@ Tasks and recurrence rules decide what should be reminded. `reminders` rows deci
 
 The backend materializes reminders only for a bounded upcoming window (`REMINDER_MATERIALIZE_DAYS`, default 7). Recurring tasks still remain recurrence definitions; Circuit does not generate infinite task rows.
 
+Delivered task reminder copy is intentionally minimal:
+
+- Notification title: the task text.
+- Notification body: scheduled IST time plus compact planning signals, for example `11:30 AM IST · imp 80% · urg 70% · delay 60% · drain 40%`.
+- `load NN%` is appended only for high cognitive-load tasks.
+
+Circuit does not call Groq while processing due reminders. The parameters are the saved task fields, including AI-filled defaults when a task was originally created or imported.
+
 ## Data model
 
 `push_subscriptions`
@@ -102,9 +110,15 @@ If an existing every-minute job already calls `POST /api/cron/sync-icloud-calend
 For fixed daily reminders, use the same Web Push subscription table and service worker, but skip the `reminders` table. cron-job.org should call one endpoint at fixed times:
 
 ```text
-09:00 POST /api/reminders/fixed?type=morning
-14:00 POST /api/reminders/fixed?type=afternoon
-20:00 POST /api/reminders/fixed?type=evening
+Canopy:
+11:00 POST /api/reminders/fixed?type=morning
+17:00 POST /api/reminders/fixed?type=afternoon
+22:00 POST /api/reminders/fixed?type=evening
+
+Chef:
+11:00 POST /api/reminders/fixed?type=breakfast
+15:00 POST /api/reminders/fixed?type=lunch
+22:00 POST /api/reminders/fixed?type=dinner
 ```
 
 Or use one parameterized Vercel route:
@@ -118,11 +132,16 @@ export async function POST(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const type = searchParams.get("type") ?? "morning";
-  const message = {
-    morning: "Start the day with a quick check-in.",
-    afternoon: "Take a moment to update your progress.",
-    evening: "Wrap up and reflect on the day.",
-  }[type] ?? "Time for a quick check-in.";
+  const messages = {
+    morning: ["Capture any important people moments from the morning."],
+    afternoon: ["Add what shifted with people since lunch."],
+    evening: ["Close the loop on the people moments from today."],
+    breakfast: ["Add breakfast while details are fresh."],
+    lunch: ["Log lunch while details are fresh."],
+    dinner: ["Add dinner before the day closes."],
+  }[type] ?? ["Time for a quick check-in."];
+  const dayIndex = Math.floor(Date.now() / 86_400_000) % messages.length;
+  const message = messages[dayIndex];
 
   const subscriptions = await db.pushSubscription.findMany({ where: { enabled: true } });
   await Promise.all(subscriptions.map((sub) => sendWebPush(sub, {
