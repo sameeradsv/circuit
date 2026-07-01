@@ -129,6 +129,10 @@ def import_data(
                     skipped += 1
                 continue
 
+        metadata = dict(task_data.get("metadata", {}) or {})
+        if task_data.get("scheduled_at") and task_data.get("recurrence") and not isinstance(metadata.get("recurrence_time_ref_ms"), int):
+            metadata["recurrence_time_ref_ms"] = task_data.get("scheduled_at")
+
         task = CircuitTask(
             user_id=user.id,
             client_id=client_id,
@@ -160,7 +164,7 @@ def import_data(
             task_decomposition_potential=task_data.get("task_decomposition_potential", 0.3),
             required_resources=json.dumps(task_data.get("required_resources", [])),
             dependencies=json.dumps(task_data.get("dependencies", [])),
-            metadata_json=json.dumps(task_data.get("metadata", {})),
+            metadata_json=json.dumps(metadata),
             preferred_execution_window=task_data.get("preferred_execution_window"),
             delay_pattern=task_data.get("delay_pattern"),
             location_dependency=task_data.get("location_dependency"),

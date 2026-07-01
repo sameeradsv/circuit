@@ -45,7 +45,7 @@ export function renderAnalyticsPage(tasks: Task[]): void {
       <div class="stat-card"><span class="stat-num">${analytics.pending}</span><span class="stat-lbl">Pending</span></div>
       <div class="stat-card"><span class="stat-num">${Math.round(analytics.completionRate * 100)}%</span><span class="stat-lbl">Complete</span></div>
       <div class="stat-card"><span class="stat-num">${analytics.totalPendingMinutes}m</span><span class="stat-lbl">Planned</span></div>
-      <div class="stat-card"><span class="stat-num">${analytics.avgSkipCount.toFixed(1)}</span><span class="stat-lbl">Avg skips</span></div>
+      <div class="stat-card"><span class="stat-num">${analytics.total}</span><span class="stat-lbl">Total</span></div>
     </div>
     <section class="analytics-section">
       <h3>Scheduling forecast</h3>

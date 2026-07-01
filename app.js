@@ -64,17 +64,10 @@
         continue;
       const age = now - task.createdAt;
       const stale = age > STALE_MS && !task.completed;
-      const skipped = task.skippedCount >= 2;
       if (stale) {
         insights.push({
           type: "procrastination",
           message: `"${task.text}" has been open for ${Math.floor(age / 864e5)} days \u2014 try a tiny step`,
-          taskId: task.id
-        });
-      } else if (skipped) {
-        insights.push({
-          type: "procrastination",
-          message: `"${task.text}" was skipped ${task.skippedCount} times`,
           taskId: task.id
         });
       }
@@ -1064,7 +1057,7 @@ Return exactly: ["suggestion 1", "suggestion 2"]`;
       completionRate: tasks2.length ? completed.length / tasks2.length : 0,
       byTag: completionRateByTag(tasks2),
       totalPendingMinutes: pending.reduce((s, t) => s + t.duration, 0),
-      avgSkipCount: pending.length === 0 ? 0 : pending.reduce((s, t) => s + t.skippedCount, 0) / pending.length
+      avgSkipCount: 0
     };
   }
 
@@ -1405,14 +1398,6 @@ Overdue: ${overdue}`;
         message: "Strong completion week \u2014 good window to schedule one ambitious task."
       });
     }
-    const highSkip = open.filter((t) => (t.skippedCount ?? 0) >= 2);
-    if (highSkip.length > 0) {
-      const t = highSkip.reduce((a, b) => (a.skippedCount ?? 0) >= (b.skippedCount ?? 0) ? a : b);
-      insights.push({
-        type: "prediction",
-        message: `"${t.text}" keeps getting skipped \u2014 try a tiny step or reschedule out of peak hours.`
-      });
-    }
     return insights.slice(0, 5);
   }
 
@@ -1445,7 +1430,7 @@ Overdue: ${overdue}`;
       <div class="stat-card"><span class="stat-num">${analytics.pending}</span><span class="stat-lbl">Pending</span></div>
       <div class="stat-card"><span class="stat-num">${Math.round(analytics.completionRate * 100)}%</span><span class="stat-lbl">Complete</span></div>
       <div class="stat-card"><span class="stat-num">${analytics.totalPendingMinutes}m</span><span class="stat-lbl">Planned</span></div>
-      <div class="stat-card"><span class="stat-num">${analytics.avgSkipCount.toFixed(1)}</span><span class="stat-lbl">Avg skips</span></div>
+      <div class="stat-card"><span class="stat-num">${analytics.total}</span><span class="stat-lbl">Total</span></div>
     </div>
     <section class="analytics-section">
       <h3>Scheduling forecast</h3>

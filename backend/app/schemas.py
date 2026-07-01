@@ -11,6 +11,8 @@ class TaskEventRead(BaseModel):
     event_type: str
     occurred_at: str
     metadata: dict[str, Any]
+    task_text: Optional[str] = None
+    undoable: bool = False
 
 
 class UserStateRead(BaseModel):

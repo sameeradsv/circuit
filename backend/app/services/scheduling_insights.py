@@ -64,14 +64,6 @@ def compute_scheduling_insights(db: Session, user_id: int) -> list[dict[str, str
             "message": "Strong completion week — good window to schedule one ambitious task.",
         })
 
-    high_skip = [t for t in open_tasks if (t.skipped_count or 0) >= 2]
-    if high_skip:
-        t = max(high_skip, key=lambda x: x.skipped_count or 0)
-        insights.append({
-            "type": "prediction",
-            "message": f'"{t.text}" keeps getting skipped — try a tiny step or reschedule out of peak hours.',
-        })
-
     delayed_rows = (
         db.query(TaskEvent, CircuitTask)
         .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)

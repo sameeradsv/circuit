@@ -179,7 +179,7 @@ export function parseTaskCommand(text: string, allTasks: ApiTask[]): TaskAction 
     return {
       ids: matched.map((t) => t.id),
       tasks: matched,
-      patch: { scheduled_at: date.ms },
+      patch: { scheduled_at: date.ms, auto_reschedule_conflicts: true },
       summary: `Reschedule ${matched.length} ${filter.label} to ${date.label}`,
       changeLabel: `→ ${date.label}`,
     };
@@ -266,7 +266,6 @@ The edit modal also has a quick-pick dropdown with the most common options.
 
 | Option | Meaning |
 |---|---|
-| Continue series | Skip missed events and continue the original series at its usual time |
 | Shift series to next slot | Move to the next valid recurrence date after the blackout and continue from there |
 | Resume immediately, keep series | Move the next event to the first available date after the blackout, preserving the original series |
 | Resume immediately, shift series | Move the next event to the first available date after the blackout and re-anchor the series |`;

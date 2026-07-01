@@ -92,14 +92,11 @@ def get_summary(
         task_end = task_start + (t.duration or 0) * 60_000
         overlap_ms = max(0, min(task_end, _day_end_ms) - max(task_start, _day_start_ms))
         total_pending_minutes += overlap_ms // 60_000
-    avg_skip = sum(t.skipped_count for t in open_tasks) / pending if pending else 0.0
     by_tag: dict[str, int] = {}
     for t in open_tasks:
         by_tag[t.tag] = by_tag.get(t.tag, 0) + 1
 
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    most_skipped = sorted(open_tasks, key=lambda t: t.skipped_count or 0, reverse=True)
-    most_skipped = [t for t in most_skipped if (t.skipped_count or 0) > 0][:5]
 
     stale_tasks: list[CircuitTask] = []
     attention_needed: list[AttentionItem] = []
@@ -115,13 +112,6 @@ def get_summary(
                     task_id=t.id,
                 )
             )
-        elif (t.skipped_count or 0) >= 2:
-            attention_needed.append(
-                AttentionItem(
-                    message=f'"{t.text}" was skipped {t.skipped_count} times',
-                    task_id=t.id,
-                )
-            )
 
     stale_tasks.sort(key=lambda t: t.created_at)
 
@@ -133,12 +123,9 @@ def get_summary(
         pending_tasks=pending,
         completion_rate=round(completed / total, 3) if total else 0.0,
         total_pending_minutes=total_pending_minutes,
-        avg_skip_count=round(avg_skip, 2),
+        avg_skip_count=0.0,
         by_tag=by_tag,
-        most_skipped=[
-            AnalyticsTaskBrief(id=t.id, text=t.text, skipped_count=t.skipped_count or 0)
-            for t in most_skipped
-        ],
+        most_skipped=[],
         stale_tasks=[
             AnalyticsTaskBrief(
                 id=t.id,

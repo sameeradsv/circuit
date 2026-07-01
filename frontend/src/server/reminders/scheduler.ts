@@ -13,10 +13,39 @@ export type ProcessReminderStats = {
   subscriptionsDisabled: number;
 };
 
-function reminderPayload(task: { id: number; text: string }, reminder: ReminderRow): PushPayload {
+function formatScheduledTime(ms: number | null): string {
+  if (!ms) return "unscheduled";
+  return new Intl.DateTimeFormat("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+    timeZoneName: "short",
+  }).format(new Date(ms));
+}
+
+function compactPercent(value: number | null | undefined): string {
+  const safe = Math.max(0, Math.min(1, value ?? 0));
+  return `${Math.round(safe * 100)}%`;
+}
+
+function parameterSummary(task: Pick<TaskReminderSource, "importance" | "urgency" | "consequence_of_delay" | "recovery_cost" | "cognitive_load">): string {
+  const parts = [
+    `imp ${compactPercent(task.importance)}`,
+    `urg ${compactPercent(task.urgency)}`,
+    `delay ${compactPercent(task.consequence_of_delay)}`,
+    `drain ${compactPercent(task.recovery_cost)}`,
+  ];
+  if ((task.cognitive_load ?? 0) >= 0.65) {
+    parts.push(`load ${compactPercent(task.cognitive_load)}`);
+  }
+  return parts.join(" · ");
+}
+
+function reminderPayload(task: Pick<TaskReminderSource, "id" | "text" | "importance" | "urgency" | "consequence_of_delay" | "recovery_cost" | "cognitive_load">, reminder: ReminderRow): PushPayload {
   return {
-    title: `Starting soon: ${task.text}`,
-    body: "Tap to open Circuit",
+    title: task.text,
+    body: `${formatScheduledTime(reminder.occurrence_at_ms)} · ${parameterSummary(task)}`,
     tag: `circuit-task-${task.id}-${Math.floor(new Date(reminder.remind_at).getTime() / 1000)}`,
     url: "/calendar",
     taskId: task.id,
@@ -29,7 +58,8 @@ export async function materializeUpcomingReminders(now = new Date(), userId?: nu
   const to = new Date(now.getTime() + reminderConfig.materializeDays() * 24 * 60 * 60_000);
   const tasks = await sql()`
     select id, user_id, text, scheduled_at, recurrence, recurrence_ends_at, completed,
-           notifications_enabled, notification_offset_1_mins, notification_offset_2_mins
+           notifications_enabled, notification_offset_1_mins, notification_offset_2_mins,
+           importance, urgency, consequence_of_delay, recovery_cost, cognitive_load
     from circuit_tasks
     where completed = false
       and scheduled_at is not null
@@ -92,12 +122,12 @@ export async function processDueReminders(now = new Date()): Promise<ProcessRemi
 
   for (const reminder of reminders) {
     const taskRows = await sql()`
-      select id, text, completed
+      select id, text, completed, importance, urgency, consequence_of_delay, recovery_cost, cognitive_load
       from circuit_tasks
       where id = ${reminder.task_id}
         and user_id = ${reminder.user_id}
       limit 1
-    ` as Array<{ id: number; text: string; completed: boolean }>;
+    ` as Array<Pick<TaskReminderSource, "id" | "text" | "importance" | "urgency" | "consequence_of_delay" | "recovery_cost" | "cognitive_load"> & { completed: boolean }>;
     const task = taskRows[0];
 
     if (!task || task.completed) {

@@ -15,7 +15,7 @@ const BLACKOUT_LABELS: Record<(typeof BLACKOUT_FLAGS)[number], string> = {
 export function TaskBlackoutSection({ merged, set }: TaskSectionProps) {
   return (
     <section className="space-y-3">
-      <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Skip this task when</p>
+      <p className="text-xs font-medium uppercase tracking-wider text-circuit-muted">Park this task during</p>
       {BLACKOUT_FLAGS.map((flag) => {
         const flags = merged.blackout_skip_flags ?? [];
         return (

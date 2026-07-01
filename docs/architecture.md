@@ -24,7 +24,7 @@ Both apps share **TypeScript engines** under `src/*-engine/` (scoring, recurrenc
 |-------|------|
 | `routers/` | HTTP endpoints — tasks, calendar, blackouts, sleep, energy, auth, agent, sync |
 | `models.py` | ORM: `CircuitTask`, `Blackout`, `SleepLog`, `UserState`, `TaskEvent`, … |
-| `services/blackout.py` | Blackout overlap checks, `adjust_for_blackouts`, proactive reschedule on blackout create |
+| `services/blackout.py` | Blackout overlap checks, `adjust_for_blackouts`, parked-task resume on blackout disable/remove |
 | `services/export_crypto.py` | Encrypted backup blobs |
 | `engines/recurrence.py` | Pattern → next occurrence (shared logic with frontend) |
 | `routers/calendar.py` | ICS parse/import/export, `_expand_rrule`, `_snap_start_to_cutoff`, `_first_future_ms` |

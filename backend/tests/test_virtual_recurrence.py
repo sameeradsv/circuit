@@ -313,6 +313,57 @@ def test_materialized_completion_keeps_original_weekday_time_after_weekend_overr
     assert (next_dt.weekday(), next_dt.hour, next_dt.minute) == (0, 8, 0)
 
 
+def test_completion_seeds_original_weekday_time_without_metadata(client, auth):
+    friday = datetime(2026, 1, 2, 8, 0, tzinfo=_IST)
+    task = _create_recurring_with_payload(
+        client,
+        auth,
+        {
+            "text": "Seeded weekend adjusted daily",
+            "scheduled_at": _ms(friday),
+            "duration": 30,
+            "recurrence": "daily",
+            "day_time_overrides": {"SA": "10:00", "SU": "10:00"},
+        },
+    )
+
+    for expected in [(5, 10, 0), (6, 10, 0), (0, 8, 0)]:
+        r = client.patch(f"/api/tasks/{task['id']}", json={"completed": True}, headers=auth)
+        assert r.status_code == 200
+        tasks = client.get("/api/tasks?completed=false", headers=auth).json()
+        task = next(i for i in tasks if i["text"] == "Seeded weekend adjusted daily")
+        next_dt = datetime.fromtimestamp(task["scheduled_at"] / 1000, tz=_IST)
+        assert (next_dt.weekday(), next_dt.hour, next_dt.minute) == expected
+
+
+def test_weekday_reschedule_updates_original_time_reference(client, auth):
+    monday = datetime(2026, 1, 5, 8, 0, tzinfo=_IST)
+    task = _create_recurring_with_payload(
+        client,
+        auth,
+        {
+            "text": "Edited weekday clock",
+            "scheduled_at": _ms(monday),
+            "duration": 30,
+            "recurrence": "daily",
+            "day_time_overrides": {"SA": "10:00", "SU": "10:00"},
+        },
+    )
+
+    tuesday_later = datetime(2026, 1, 6, 9, 30, tzinfo=_IST)
+    r = client.patch(f"/api/tasks/{task['id']}", json={"scheduled_at": _ms(tuesday_later)}, headers=auth)
+    assert r.status_code == 200
+
+    task = r.json()
+    for expected in [(2, 9, 30), (3, 9, 30), (4, 9, 30), (5, 10, 0), (6, 10, 0), (0, 9, 30)]:
+        r = client.patch(f"/api/tasks/{task['id']}", json={"completed": True}, headers=auth)
+        assert r.status_code == 200
+        tasks = client.get("/api/tasks?completed=false", headers=auth).json()
+        task = next(i for i in tasks if i["text"] == "Edited weekday clock")
+        next_dt = datetime.fromtimestamp(task["scheduled_at"] / 1000, tz=_IST)
+        assert (next_dt.weekday(), next_dt.hour, next_dt.minute) == expected
+
+
 def test_repeated_virtual_completions_do_not_leave_open_duplicates(client, auth):
     start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
     _create_recurring(client, auth, "Daily no dupes", start, "daily")

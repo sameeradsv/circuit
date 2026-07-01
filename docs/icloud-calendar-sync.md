@@ -104,6 +104,8 @@ materializationEnd = max(endOfCurrentMonth, today + 7 days)
 
 It also generates reminder rows for the next 7 days and processes due Web Push reminders. Future generated occurrence rows outside the current recurrence state are pruned only when they are pending generated rows. Completed, skipped, edited, and past recurring occurrence history is preserved in `occurrence_overrides`.
 
+Recurring occurrences use `metadata_json.recurrence_time_ref_ms` as the canonical weekday clock. Weekend `day_time_overrides` are applied while expanding/materializing Saturday and Sunday rows, but they do not replace the weekday time used when the series returns to Monday-Friday. Blackout resumes, recurrence-created next tasks, and smart conflict moves refresh the materialized window so mirrored events use the adjusted slot rather than a stale generated row.
+
 ### `POST /api/cron/sync-icloud-calendar`
 
 Runs materialization, processes due Web Push reminders, validates iCloud setup, discovers the `Circuit` iCloud calendar, reads current events for today through `ICLOUD_SYNC_WINDOW_DAYS`, diffs against Circuit occurrences, then creates, updates, or deletes mirror events. Set `ICLOUD_SYNC_ENABLED=true` to allow calendar writes.

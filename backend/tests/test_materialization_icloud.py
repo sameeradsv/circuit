@@ -15,7 +15,7 @@ from app.limiter import limiter
 from app.main import app
 from app.models import CalendarSyncLedger, CircuitTask, MaterializedOccurrence, OccurrenceOverride
 from app.services import icloud_calendar
-from app.services.icloud_calendar import CalendarEvent, DesiredEvent, _vevent, icloud_setup_check, sync_icloud_calendar
+from app.services.icloud_calendar import CalendarEvent, DesiredEvent, _vevent, desired_events_for_user, icloud_setup_check, sync_icloud_calendar
 from app.services.virtual_recurrence import materialize_occurrences_for_user, sync_recurring_definition
 
 _IST = ZoneInfo("Asia/Kolkata")
@@ -114,6 +114,42 @@ def test_recurrence_change_prunes_only_future_pending_generated_occurrences(clie
     assert _ms(datetime(2026, 1, 21, 9, 0, tzinfo=_IST)) not in starts
     assert _ms(datetime(2026, 1, 21, 18, 0, tzinfo=_IST)) in starts
     assert _ms(datetime(2026, 1, 23, 18, 0, tzinfo=_IST)) in starts
+
+
+def test_materialization_and_icloud_keep_weekday_clock_after_weekend_override(client, auth):
+    friday = datetime(2026, 1, 2, 8, 0, tzinfo=_IST)
+    saturday = datetime(2026, 1, 3, 10, 0, tzinfo=_IST)
+    sunday = datetime(2026, 1, 4, 10, 0, tzinfo=_IST)
+    monday = datetime(2026, 1, 5, 8, 0, tzinfo=_IST)
+
+    with client.testing_session() as db:
+        task = CircuitTask(
+            user_id=1,
+            text="Morning plan",
+            scheduled_at=_ms(friday),
+            duration=30,
+            recurrence="daily",
+            day_time_overrides='{"SA": "10:00", "SU": "10:00"}',
+            metadata_json=f'{{"recurrence_time_ref_ms": {_ms(friday)}}}',
+        )
+        db.add(task)
+        db.flush()
+        sync_recurring_definition(db, task)
+
+        materialize_occurrences_for_user(db, 1, now=friday)
+        materialized_starts = [
+            row.scheduled_start_ms
+            for row in db.query(MaterializedOccurrence).order_by(MaterializedOccurrence.scheduled_start_ms).all()
+        ]
+        desired_starts = [
+            event.start_ms
+            for event in desired_events_for_user(db, 1, _ms(friday), _ms(monday + timedelta(hours=1)))
+            if event.title == "Morning plan"
+        ]
+
+    expected = [_ms(friday), _ms(saturday), _ms(sunday), _ms(monday)]
+    assert materialized_starts[:4] == expected
+    assert desired_starts[:4] == expected
 
 
 def test_icloud_vevent_is_one_off_without_rrule():

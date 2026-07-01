@@ -256,8 +256,8 @@ Use `every:Nd` / `every:Nw` / `every:Nh` for intervals — e.g. every 4 days →
 
 | Option | Meaning |
 |--------|---------|
-| `resume` | Skip missed events and continue the original series at its usual time |
-| `catch_up` | Move to the next valid recurrence date after blackout; anchor the series from that date |
+| `resume` | Move to the next valid recurrence date after blackout; anchor the series from that date |
+| `catch_up` | Legacy alias for `resume` |
 | `catch_up_once` | Legacy alias for `resume` |
 | `catch_up_immediate` | Move the next event to the first available date after blackout; preserve the original series |
 | `catch_up_imm_shift` | Move the next event to the first available date after blackout; re-anchor the series |

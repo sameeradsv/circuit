@@ -18,6 +18,8 @@ _IST = ZoneInfo("Asia/Kolkata")
 
 router = APIRouter(prefix="/api/energy", tags=["energy"])
 
+_ENERGY_EVENT_TYPES = {"completed"}
+
 
 def _task_delta(event_type: str, task: CircuitTask, metadata_json: str | None = None) -> float:
     """
@@ -49,14 +51,6 @@ def _task_delta(event_type: str, task: CircuitTask, metadata_json: str | None = 
             delay_minutes = 0
         delay_penalty = min(0.18, (delay_minutes / 60) * 0.025) if delay_minutes > 30 else 0.0
         delta  = reward * 0.12 - cost - delay_penalty
-    elif event_type == "skipped":
-        base  = task.activation_energy * 0.025 + 0.01
-        delta = -min(0.06, base * min(1.2, dur_factor))
-    elif event_type == "rescheduled":
-        delta = 0.0 if metadata.get("reason") in {"blackout", "recurrence", "system"} else -0.01
-    elif event_type == "uncompleted":
-        base  = task.recovery_cost * 0.20 + 0.05
-        delta = -min(0.35, base * min(1.5, dur_factor))
     else:
         delta = 0.0
     return round(max(-0.85, min(0.15, delta)), 3)
@@ -108,6 +102,7 @@ def _timeline_rows(user_id: int, target: date_type, db: Session) -> list[tuple[T
         .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
         .filter(
             TaskEvent.user_id == user_id,
+            TaskEvent.event_type.in_(_ENERGY_EVENT_TYPES),
             or_(
                 and_(
                     TaskEvent.occurred_at >= day_start_utc,
@@ -146,6 +141,38 @@ def _end_energy_for_date(user_id: int, target: date_type, start_energy: float, d
     return running
 
 
+def _earliest_energy_event_date(user_id: int, db: Session) -> Optional[date_type]:
+    rows = (
+        db.query(TaskEvent, CircuitTask)
+        .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
+        .filter(
+            TaskEvent.user_id == user_id,
+            TaskEvent.event_type.in_(_ENERGY_EVENT_TYPES),
+        )
+        .all()
+    )
+    dates = [
+        effective_event_time(ev, task).replace(tzinfo=timezone.utc).astimezone(_IST).date()
+        for ev, task in rows
+    ]
+    return min(dates) if dates else None
+
+
+def _energy_eod_before_date(user_id: int, target: date_type, db: Session) -> float:
+    first = _earliest_energy_event_date(user_id, db)
+    if first is None or first >= target:
+        return 0.70
+
+    eod = 0.70
+    day = first
+    while day < target:
+        sleep_factor = _sleep_factor_for_date(user_id, day, db)
+        start = _start_energy_from_eod(eod, sleep_factor)
+        eod = _end_energy_for_date(user_id, day, start, db)
+        day += timedelta(days=1)
+    return eod
+
+
 def _timeline_start_energy(user_id: int, target: date_type, sleep_factor: float, state: Optional[UserState], db: Session) -> float:
     """
     Today's opening uses the live carry-over in user_state. Historical timelines
@@ -153,14 +180,38 @@ def _timeline_start_energy(user_id: int, target: date_type, sleep_factor: float,
     dates does not reuse or mutate today's carry-over.
     """
     today = datetime.now(_IST).date()
-    if target == today:
+    if target == today and state and state.energy_eod is not None:
         return _start_energy(state, sleep_factor)
 
-    previous_day = target - timedelta(days=1)
-    previous_sleep = _sleep_factor_for_date(user_id, previous_day, db)
-    previous_start = _start_energy_from_eod(0.70, previous_sleep)
-    previous_end = _end_energy_for_date(user_id, previous_day, previous_start, db)
-    return _start_energy_from_eod(previous_end, sleep_factor)
+    return _start_energy_from_eod(_energy_eod_before_date(user_id, target, db), sleep_factor)
+
+
+def recompute_energy_carryover_from(user_id: int, changed_at: datetime, db: Session) -> None:
+    """
+    Rebuild the cached previous-day close after a historical completion changes.
+
+    The only persisted carry-over is `UserState.energy_eod`, so changing an old
+    completion must replay day closes from that IST date through yesterday.
+    """
+    changed_date = changed_at.replace(tzinfo=timezone.utc).astimezone(_IST).date()
+    today = datetime.now(_IST).date()
+    yesterday = today - timedelta(days=1)
+    if changed_date > yesterday:
+        return
+
+    eod = _energy_eod_before_date(user_id, changed_date, db)
+    day = changed_date
+    while day <= yesterday:
+        sleep_factor = _sleep_factor_for_date(user_id, day, db)
+        start = _start_energy_from_eod(eod, sleep_factor)
+        eod = _end_energy_for_date(user_id, day, start, db)
+        day += timedelta(days=1)
+
+    state = db.query(UserState).filter_by(user_id=user_id).first()
+    if not state:
+        state = UserState(user_id=user_id)
+        db.add(state)
+    state.energy_eod = eod
 
 
 @router.get("/timeline")
@@ -226,28 +277,12 @@ def energy_timeline(
     }
 
 
-def _event_metadata(metadata_json: str | None) -> dict:
-    if not metadata_json:
-        return {}
-    try:
-        return json.loads(metadata_json)
-    except (TypeError, json.JSONDecodeError):
-        return {}
-
-
 def _task_drain(event_type: str, task: CircuitTask, metadata_json: str | None = None) -> float:
     """Absolute drain cost for sync endpoint — kept for backward compat."""
     duration_mins = max(5, task.duration or 30)
     dur_factor = min(8.0, max(0.5, duration_mins / 60))
-    metadata = _event_metadata(metadata_json)
     if event_type == "completed":
         base = task.cognitive_load * 0.35 * (1.0 - task.energy_to_reward_ratio * 0.5) * dur_factor
-    elif event_type == "skipped":
-        base = task.activation_energy * 0.04 * min(1.2, dur_factor)
-    elif event_type == "rescheduled":
-        return 0.0 if metadata.get("reason") in {"blackout", "recurrence", "system"} else 0.01
-    elif event_type == "uncompleted":
-        base = task.recovery_cost * 0.30 * min(2.0, dur_factor)
     else:
         return 0.0
     return round(max(0.0, min(0.85, base)), 3)
@@ -285,6 +320,7 @@ def energy_sync(
         .join(CircuitTask, TaskEvent.task_id == CircuitTask.id)
         .filter(
             TaskEvent.user_id == user.id,
+            TaskEvent.event_type.in_(_ENERGY_EVENT_TYPES),
             or_(
                 and_(
                     TaskEvent.occurred_at >= day_start_utc,

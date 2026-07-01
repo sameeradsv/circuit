@@ -112,11 +112,10 @@ export default function AnalyticsPage() {
             </section>
           )}
 
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <StatCard label="Completion rate" value={`${Math.round(summary.completion_rate * 100)}%`} accent />
             <StatCard label="Pending tasks" value={String(summary.pending_tasks)} />
             <StatCard label="Selected day" value={`${totalHours}h`} />
-            <StatCard label="Avg skips" value={summary.avg_skip_count.toFixed(1)} warn={summary.avg_skip_count > 1} />
           </div>
 
           {tags.length > 0 && (
@@ -149,20 +148,6 @@ export default function AnalyticsPage() {
                   <li key={ins.task_id} className="panel px-4 py-3 flex items-start gap-3">
                     <span className="text-amber-400 shrink-0">⚠</span>
                     <span className="text-sm text-circuit-muted">{ins.message}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {summary.most_skipped.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="text-sm font-medium text-circuit-muted uppercase tracking-wider">Most skipped</h2>
-              <ul className="space-y-2">
-                {summary.most_skipped.map((t) => (
-                  <li key={t.id} className="panel flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-sm text-circuit-text truncate">{t.text}</span>
-                    <span className="shrink-0 text-xs text-amber-400 sm:ml-4">skipped ×{t.skipped_count}</span>
                   </li>
                 ))}
               </ul>

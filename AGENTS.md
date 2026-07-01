@@ -326,6 +326,11 @@ Four modes — `normal | deep | low | social` — shift how the scoring algorith
 
 ## UI & Responsive Standards
 
+## Change workflow
+
+- Follow code changes with appropriate documentation edits in the same work session when behavior, architecture, commands, environment variables, or user-facing workflows change.
+- Once requested changes are complete, commit and push them without waiting for another prompt, unless the user explicitly asks to wait for approval or review.
+
 All UI changes must work correctly across **every** combination of these views before being considered done:
 
 | View | Width | Notes |

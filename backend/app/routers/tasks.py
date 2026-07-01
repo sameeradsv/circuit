@@ -19,10 +19,13 @@ from app.services.blackout import adjust_for_blackouts
 from app.services.adaptive_learning import apply_complete_learning, update_delay_pattern_on_skip
 from app.services.ai import suggest_task_defaults
 from app.services.suggest_slot import suggest_slot_for_task
+from app.services.reschedule import resolve_schedule_conflicts
+from app.routers.energy import recompute_energy_carryover_from
 from app.services.reminders import cancel_pending_reminders_for_task, materialize_reminders_for_task, materialize_reminders_for_user
 from app.services.virtual_recurrence import (
     expand_virtual_occurrences,
     is_virtual_id,
+    materialize_occurrences_for_user,
     materialization_window_ms,
     materialized_occurrences,
     parse_virtual_id,
@@ -30,7 +33,7 @@ from app.services.virtual_recurrence import (
     upsert_occurrence_override,
     virtual_busy_tasks,
 )
-from app.task_event_time import task_event_occurred_at
+from app.task_event_time import effective_event_time, task_event_occurred_at
 
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
@@ -89,6 +92,51 @@ def _metadata_with_recurrence_time_ref(task: CircuitTask, time_ref_ms: Optional[
     if time_ref_ms is not None:
         meta["recurrence_time_ref_ms"] = time_ref_ms
     return json.dumps(meta)
+
+
+def _is_weekend_override_slot(ms: Optional[int], overrides_json: Optional[str]) -> bool:
+    if not ms or not overrides_json:
+        return False
+    try:
+        overrides = json.loads(overrides_json)
+    except Exception:
+        return False
+    dt = datetime.fromtimestamp(ms / 1000, tz=_IST)
+    time_str = overrides.get(_WEEKDAY[dt.weekday()])
+    if not time_str:
+        return False
+    try:
+        h, m = map(int, time_str.split(":"))
+    except Exception:
+        return False
+    return dt.hour == h and dt.minute == m
+
+
+def _normalize_recurrence_time_ref(
+    task: CircuitTask,
+    previous_ref_ms: Optional[int] = None,
+    *,
+    scheduled_at_changed: bool = False,
+) -> None:
+    if not task.scheduled_at or not (task.recurrence or task.rrule):
+        return
+
+    meta = _metadata_dict(task)
+    existing = meta.get("recurrence_time_ref_ms")
+    if isinstance(existing, int) and not scheduled_at_changed:
+        return
+
+    if scheduled_at_changed and not _is_weekend_override_slot(task.scheduled_at, task.day_time_overrides):
+        meta["recurrence_time_ref_ms"] = task.scheduled_at
+    elif previous_ref_ms is not None:
+        meta["recurrence_time_ref_ms"] = previous_ref_ms
+    elif isinstance(existing, int):
+        meta["recurrence_time_ref_ms"] = existing
+    elif not _is_weekend_override_slot(task.scheduled_at, task.day_time_overrides):
+        meta["recurrence_time_ref_ms"] = task.scheduled_at
+    else:
+        meta["recurrence_time_ref_ms"] = task.recurrence_anchor_ms or task.scheduled_at
+    task.metadata_json = json.dumps(meta)
 
 
 def _create_next_occurrence_for_completed_task(db: Session, user_id: int, task: CircuitTask) -> None:
@@ -201,6 +249,14 @@ def _create_next_occurrence_for_completed_task(db: Session, user_id: int, task: 
             import_review_pending=False,
         )
         db.add(next_task)
+        db.flush()
+        resolve_schedule_conflicts(
+            db,
+            user_id,
+            next_task,
+            event_reason="recurrence_conflict_resolution",
+        )
+        materialize_occurrences_for_user(db, user_id)
     except Exception:
         pass
 
@@ -303,7 +359,9 @@ class TaskPatch(BaseModel):
     recurrence_anchor_ms: Optional[int] = None
     import_review_pending: Optional[bool] = None
     propagate_group: Optional[bool] = True
+    auto_reschedule_conflicts: Optional[bool] = False
     completion_occurred_at: Optional[int] = None
+    history_event_type: Optional[str] = None
 
 
 _AI_DEFAULT_FIELDS = {
@@ -564,7 +622,10 @@ def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session
     )
     db.add(task)
     db.flush()
-    sync_recurring_definition(db, task)
+    _normalize_recurrence_time_ref(task)
+    recurring_row = sync_recurring_definition(db, task)
+    if recurring_row or task.recurrence or task.rrule:
+        materialize_occurrences_for_user(db, user.id)
     _refresh_task_reminders(db, task)
     db.commit()
     db.refresh(task)
@@ -596,7 +657,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                 source.historical_completion_rate = record_completion_rate(source.historical_completion_rate)
                 completed_at = payload.completion_occurred_at or occurrence_start
                 delay_mins = round((completed_at - occurrence_start) / 60_000)
-                db.add(TaskEvent(
+                event = TaskEvent(
                     user_id=user.id,
                     task_id=source.id,
                     event_type="completed",
@@ -607,7 +668,12 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                         "actual_completed_at_ms": completed_at,
                         "delay_minutes": delay_mins,
                     }),
-                ))
+                )
+                db.add(event)
+                db.flush()
+                recompute_energy_carryover_from(user.id, effective_event_time(event, source), db)
+        if status == "rescheduled":
+            materialize_occurrences_for_user(db, user.id)
         db.commit()
         from_ms = min(occurrence_start, payload.scheduled_at or occurrence_start) - 60_000
         to_ms = max(occurrence_start, payload.scheduled_at or occurrence_start) + (payload.duration or recurring.duration or 30) * 60_000
@@ -629,9 +695,13 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
     was_completed = task.completed
     old_scheduled_at = task.scheduled_at
     old_skipped = task.skipped_count or 0
+    old_recurrence_time_ref_ms = _recurrence_time_ref_ms(task)
     _JSON_FIELDS = {"required_resources", "dependencies"}
 
-    for field, value in payload.model_dump(exclude_unset=True, exclude={"propagate_group", "completion_occurred_at"}).items():
+    for field, value in payload.model_dump(
+        exclude_unset=True,
+        exclude={"propagate_group", "auto_reschedule_conflicts", "completion_occurred_at", "history_event_type"},
+    ).items():
         if field == "metadata":
             task.metadata_json = json.dumps(value)
         elif field in _JSON_FIELDS:
@@ -644,11 +714,29 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             setattr(task, field, value)
 
     task.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    _normalize_recurrence_time_ref(
+        task,
+        old_recurrence_time_ref_ms,
+        scheduled_at_changed=payload.scheduled_at is not None and task.scheduled_at != old_scheduled_at,
+    )
 
     if payload.skipped_count is not None and payload.skipped_count > old_skipped:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         task.last_skipped_at = now_ms
         task.delay_pattern = update_delay_pattern_on_skip(task, now_ms)
+        history_event_type = payload.history_event_type if payload.history_event_type in {"skipped", "rescheduled"} else "skipped"
+        db.add(TaskEvent(
+            user_id=user.id,
+            task_id=task.id,
+            event_type=history_event_type,
+            occurred_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            metadata_json=json.dumps({
+                "reason": "manual",
+                "from_ms": old_scheduled_at,
+                "to_ms": task.scheduled_at,
+                "incremented_skip": True,
+            }),
+        ))
 
     # Group propagation: shift all linked tasks by the same delta when scheduled_at changes
     if (
@@ -675,6 +763,37 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                 member.scheduled_at += delta_ms
                 member.updated_at = now_utc
 
+    if (
+        payload.auto_reschedule_conflicts
+        and payload.scheduled_at is not None
+        and task.scheduled_at is not None
+        and task.scheduled_at != old_scheduled_at
+        and not task.completed
+    ):
+        resolve_schedule_conflicts(
+            db,
+            user.id,
+            task,
+            now_utc=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+
+    if (
+        payload.scheduled_at is not None
+        and task.scheduled_at != old_scheduled_at
+        and payload.skipped_count is None
+    ):
+        db.add(TaskEvent(
+            user_id=user.id,
+            task_id=task.id,
+            event_type="rescheduled",
+            occurred_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            metadata_json=json.dumps({
+                "reason": "manual",
+                "from_ms": old_scheduled_at,
+                "to_ms": task.scheduled_at,
+            }),
+        ))
+
     # Auto-log completion/uncompletion event
     if payload.completed is not None and payload.completed != was_completed:
         if payload.completed:
@@ -687,7 +806,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             if task.scheduled_at is not None:
                 metadata["scheduled_at_ms"] = task.scheduled_at
                 metadata["delay_minutes"] = round((payload.completion_occurred_at - task.scheduled_at) / 60_000)
-        db.add(TaskEvent(
+        event = TaskEvent(
             user_id=user.id,
             task_id=task_int_id,
             event_type=event_type,
@@ -696,7 +815,11 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                 explicit_ms=payload.completion_occurred_at if payload.completed else None,
             ),
             metadata_json=json.dumps(metadata),
-        ))
+        )
+        db.add(event)
+        db.flush()
+        if event_type == "completed":
+            recompute_energy_carryover_from(user.id, effective_event_time(event, task), db)
 
         # If task is being completed, create next occurrence if recurring
         if payload.completed and task.scheduled_at:
@@ -730,12 +853,16 @@ def batch_update_tasks(
         .all()
     )
     _JSON_FIELDS = {"required_resources", "dependencies"}
-    patch_data = payload.patch.model_dump(exclude_unset=True, exclude={"propagate_group", "completion_occurred_at"})
+    patch_data = payload.patch.model_dump(
+        exclude_unset=True,
+        exclude={"propagate_group", "auto_reschedule_conflicts", "completion_occurred_at", "history_event_type"},
+    )
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     for task in tasks:
         was_completed = task.completed
         old_scheduled_at = task.scheduled_at
         old_skipped = task.skipped_count or 0
+        old_recurrence_time_ref_ms = _recurrence_time_ref_ms(task)
         for field, value in patch_data.items():
             if field == "metadata":
                 task.metadata_json = json.dumps(value)
@@ -747,6 +874,12 @@ def batch_update_tasks(
                 task.day_time_overrides = json.dumps(value) if value else None
             else:
                 setattr(task, field, value)
+
+        _normalize_recurrence_time_ref(
+            task,
+            old_recurrence_time_ref_ms,
+            scheduled_at_changed=payload.patch.scheduled_at is not None and task.scheduled_at != old_scheduled_at,
+        )
 
         if payload.patch.skipped_count is not None and payload.patch.skipped_count > old_skipped:
             skip_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -761,6 +894,7 @@ def batch_update_tasks(
                     "reason": "batch",
                     "from_ms": old_scheduled_at,
                     "to_ms": task.scheduled_at,
+                    "incremented_skip": True,
                 }),
             ))
 
@@ -776,10 +910,12 @@ def batch_update_tasks(
                     "to_ms": task.scheduled_at,
                 }),
             ))
+            if payload.patch.auto_reschedule_conflicts and task.scheduled_at is not None and not task.completed:
+                resolve_schedule_conflicts(db, user.id, task, now_utc=now_utc)
 
         if task.completed != was_completed:
             event_type = "completed" if task.completed else "uncompleted"
-            db.add(TaskEvent(
+            event = TaskEvent(
                 user_id=user.id,
                 task_id=task.id,
                 event_type=event_type,
@@ -788,7 +924,11 @@ def batch_update_tasks(
                     explicit_ms=payload.patch.completion_occurred_at if task.completed else None,
                 ),
                 metadata_json=json.dumps({"reason": "batch"}),
-            ))
+            )
+            db.add(event)
+            db.flush()
+            if event_type == "completed":
+                recompute_energy_carryover_from(user.id, effective_event_time(event, task), db)
 
         if patch_data.get("completed") is True and not was_completed:
             task.historical_completion_rate = record_completion_rate(task.historical_completion_rate)
@@ -906,7 +1046,10 @@ def migrate_from_localstorage(
         )
         db.add(task)
         db.flush()
+        _normalize_recurrence_time_ref(task)
         sync_recurring_definition(db, task)
+        if task.recurrence or task.rrule:
+            materialize_occurrences_for_user(db, user.id)
         _refresh_task_reminders(db, task)
         created += 1
     db.commit()
