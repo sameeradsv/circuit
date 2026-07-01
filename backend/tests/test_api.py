@@ -511,6 +511,39 @@ def test_energy_ignores_skip_and_reschedule_events(client, auth):
     assert _task_delta("uncompleted", CircuitTask(text="Audit task")) == 0.0
 
 
+def test_undo_old_completion_recomputes_today_energy(client, auth):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    ist = ZoneInfo("Asia/Kolkata")
+    old_slot = (datetime.now(ist) - timedelta(days=2)).replace(hour=10, minute=0, second=0, microsecond=0)
+    old_ms = int(old_slot.timestamp() * 1000)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "Old heavy completion",
+            "scheduled_at": old_ms,
+            "duration": 180,
+            "cognitive_load": 1.0,
+            "energy_to_reward_ratio": 0.0,
+        },
+        headers=auth,
+    ).json()
+    client.patch(f"/api/tasks/{task['id']}", json={"completed": True}, headers=auth)
+
+    before = client.get("/api/energy/sync", headers=auth).json()["start_energy"]
+    events = client.get(f"/api/history/events?task_id={task['id']}", headers=auth).json()
+    completed = next(e for e in events if e["event_type"] == "completed")
+    assert completed["undoable"] is True
+    assert completed["task_text"] == "Old heavy completion"
+
+    r = client.post(f"/api/history/events/{completed['id']}/undo", headers=auth)
+    assert r.status_code == 200
+    assert r.json()["task_completed"] is False
+    after = client.get("/api/energy/sync", headers=auth).json()["start_energy"]
+    assert after > before
+
+
 def test_historical_energy_start_ignores_live_carryover():
     engine = create_engine(
         TEST_DB_URL,

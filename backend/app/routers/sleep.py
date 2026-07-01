@@ -533,6 +533,7 @@ def _get_work_signals(user_id: int, db: Session, target_date: Optional[date] = N
         db.query(TaskEvent.occurred_at)
         .filter(
             TaskEvent.user_id == user_id,
+            TaskEvent.event_type == "completed",
             TaskEvent.occurred_at >= yesterday_start_utc,
             TaskEvent.occurred_at < today_start_utc,
         )
@@ -554,6 +555,7 @@ def _get_work_signals(user_id: int, db: Session, target_date: Optional[date] = N
         db.query(TaskEvent.occurred_at)
         .filter(
             TaskEvent.user_id == user_id,
+            TaskEvent.event_type == "completed",
             TaskEvent.occurred_at >= today_start_utc,
             TaskEvent.occurred_at < tomorrow_start_utc,
         )

@@ -280,16 +280,14 @@ export default function TasksPage() {
     const now = Date.now();
     const { scheduledAt } = suggestSlot(task, tasks, now);
     const newPattern = updateDelayPattern(task, now);
-    const [updated] = await Promise.all([
-      api.updateTask(task.id, {
-        scheduled_at: scheduledAt,
-        skipped_count: (task.skipped_count ?? 0) + 1,
-        last_skipped_at: now,
-        auto_reschedule_conflicts: true,
-        ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
-      }),
-      api.logEvent(task.id, "skipped", { reason: "manual", rescheduled_to: scheduledAt }).catch(() => {}),
-    ]);
+    const updated = await api.updateTask(task.id, {
+      scheduled_at: scheduledAt,
+      skipped_count: (task.skipped_count ?? 0) + 1,
+      last_skipped_at: now,
+      auto_reschedule_conflicts: true,
+      history_event_type: "skipped",
+      ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
+    });
     updateTaskInCache(updated);
     setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
   }
@@ -298,17 +296,15 @@ export default function TasksPage() {
     if (typeof task.id !== "number") return;
     const now = Date.now();
     const newPattern = updateDelayPattern(task, now);
-    const [updated] = await Promise.all([
-      api.updateTask(task.id, {
-        scheduled_at: scheduledAt,
-        skipped_count: (task.skipped_count ?? 0) + 1,
-        last_skipped_at: now,
-        propagate_group: moveGroup,
-        auto_reschedule_conflicts: moveConflicts,
-        ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
-      }),
-      api.logEvent(task.id, "rescheduled", { reason: "manual", scheduled_to: scheduledAt, move_group: moveGroup, move_conflicts: moveConflicts }).catch(() => {}),
-    ]);
+    const updated = await api.updateTask(task.id, {
+      scheduled_at: scheduledAt,
+      skipped_count: (task.skipped_count ?? 0) + 1,
+      last_skipped_at: now,
+      propagate_group: moveGroup,
+      auto_reschedule_conflicts: moveConflicts,
+      history_event_type: "rescheduled",
+      ...(newPattern !== task.delay_pattern ? { delay_pattern: newPattern } : {}),
+    });
     updateTaskInCache(updated);
     const fresh = await api.listTasks({ completed: false }).catch(() => null);
     if (fresh) setTasks(fresh);

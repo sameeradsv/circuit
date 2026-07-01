@@ -225,3 +225,11 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Reason:** Recurring and frequently delayed tasks need feedback loops based on when work really happens, not only when it was planned.
 
 **Implication:** Recurring and virtual recurring completions create energy-costing `TaskEvent` rows. Energy drain applies a small capped delay penalty, and analytics can suggest a more realistic hour for tasks repeatedly completed late. Skip, reschedule, occurrence override, and uncompletion events are audit history only for energy/analytics.
+
+## Global history undo and energy replay (2026-07-01)
+
+**Decision:** Authenticated pages expose a global History drawer with selective undo for task completion, uncompletion, skip, and reschedule events.
+
+**Reason:** Quick reversals should not require finding the task's original page or manually reconstructing a previous schedule.
+
+**Implication:** Adding or undoing an older completion replays daily energy closes from that IST date through yesterday and updates `UserState.energy_eod`, so today's opening energy changes cumulatively.

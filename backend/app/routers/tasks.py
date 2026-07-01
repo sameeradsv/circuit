@@ -20,6 +20,7 @@ from app.services.adaptive_learning import apply_complete_learning, update_delay
 from app.services.ai import suggest_task_defaults
 from app.services.suggest_slot import suggest_slot_for_task
 from app.services.reschedule import resolve_schedule_conflicts
+from app.routers.energy import recompute_energy_carryover_from
 from app.services.reminders import cancel_pending_reminders_for_task, materialize_reminders_for_task, materialize_reminders_for_user
 from app.services.virtual_recurrence import (
     expand_virtual_occurrences,
@@ -32,7 +33,7 @@ from app.services.virtual_recurrence import (
     upsert_occurrence_override,
     virtual_busy_tasks,
 )
-from app.task_event_time import task_event_occurred_at
+from app.task_event_time import effective_event_time, task_event_occurred_at
 
 _IST = ZoneInfo("Asia/Kolkata")
 _WEEKDAY = {0: "MO", 1: "TU", 2: "WE", 3: "TH", 4: "FR", 5: "SA", 6: "SU"}
@@ -360,6 +361,7 @@ class TaskPatch(BaseModel):
     propagate_group: Optional[bool] = True
     auto_reschedule_conflicts: Optional[bool] = False
     completion_occurred_at: Optional[int] = None
+    history_event_type: Optional[str] = None
 
 
 _AI_DEFAULT_FIELDS = {
@@ -655,7 +657,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                 source.historical_completion_rate = record_completion_rate(source.historical_completion_rate)
                 completed_at = payload.completion_occurred_at or occurrence_start
                 delay_mins = round((completed_at - occurrence_start) / 60_000)
-                db.add(TaskEvent(
+                event = TaskEvent(
                     user_id=user.id,
                     task_id=source.id,
                     event_type="completed",
@@ -666,7 +668,10 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                         "actual_completed_at_ms": completed_at,
                         "delay_minutes": delay_mins,
                     }),
-                ))
+                )
+                db.add(event)
+                db.flush()
+                recompute_energy_carryover_from(user.id, effective_event_time(event, source), db)
         if status == "rescheduled":
             materialize_occurrences_for_user(db, user.id)
         db.commit()
@@ -695,7 +700,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
 
     for field, value in payload.model_dump(
         exclude_unset=True,
-        exclude={"propagate_group", "auto_reschedule_conflicts", "completion_occurred_at"},
+        exclude={"propagate_group", "auto_reschedule_conflicts", "completion_occurred_at", "history_event_type"},
     ).items():
         if field == "metadata":
             task.metadata_json = json.dumps(value)
@@ -719,6 +724,19 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         task.last_skipped_at = now_ms
         task.delay_pattern = update_delay_pattern_on_skip(task, now_ms)
+        history_event_type = payload.history_event_type if payload.history_event_type in {"skipped", "rescheduled"} else "skipped"
+        db.add(TaskEvent(
+            user_id=user.id,
+            task_id=task.id,
+            event_type=history_event_type,
+            occurred_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            metadata_json=json.dumps({
+                "reason": "manual",
+                "from_ms": old_scheduled_at,
+                "to_ms": task.scheduled_at,
+                "incremented_skip": True,
+            }),
+        ))
 
     # Group propagation: shift all linked tasks by the same delta when scheduled_at changes
     if (
@@ -759,6 +777,23 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             now_utc=datetime.now(timezone.utc).replace(tzinfo=None),
         )
 
+    if (
+        payload.scheduled_at is not None
+        and task.scheduled_at != old_scheduled_at
+        and payload.skipped_count is None
+    ):
+        db.add(TaskEvent(
+            user_id=user.id,
+            task_id=task.id,
+            event_type="rescheduled",
+            occurred_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            metadata_json=json.dumps({
+                "reason": "manual",
+                "from_ms": old_scheduled_at,
+                "to_ms": task.scheduled_at,
+            }),
+        ))
+
     # Auto-log completion/uncompletion event
     if payload.completed is not None and payload.completed != was_completed:
         if payload.completed:
@@ -771,7 +806,7 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
             if task.scheduled_at is not None:
                 metadata["scheduled_at_ms"] = task.scheduled_at
                 metadata["delay_minutes"] = round((payload.completion_occurred_at - task.scheduled_at) / 60_000)
-        db.add(TaskEvent(
+        event = TaskEvent(
             user_id=user.id,
             task_id=task_int_id,
             event_type=event_type,
@@ -780,7 +815,11 @@ def update_task(task_id: str, payload: TaskPatch, user: User = Depends(require_u
                 explicit_ms=payload.completion_occurred_at if payload.completed else None,
             ),
             metadata_json=json.dumps(metadata),
-        ))
+        )
+        db.add(event)
+        db.flush()
+        if event_type == "completed":
+            recompute_energy_carryover_from(user.id, effective_event_time(event, task), db)
 
         # If task is being completed, create next occurrence if recurring
         if payload.completed and task.scheduled_at:
@@ -816,7 +855,7 @@ def batch_update_tasks(
     _JSON_FIELDS = {"required_resources", "dependencies"}
     patch_data = payload.patch.model_dump(
         exclude_unset=True,
-        exclude={"propagate_group", "auto_reschedule_conflicts", "completion_occurred_at"},
+        exclude={"propagate_group", "auto_reschedule_conflicts", "completion_occurred_at", "history_event_type"},
     )
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     for task in tasks:
@@ -855,6 +894,7 @@ def batch_update_tasks(
                     "reason": "batch",
                     "from_ms": old_scheduled_at,
                     "to_ms": task.scheduled_at,
+                    "incremented_skip": True,
                 }),
             ))
 
@@ -875,7 +915,7 @@ def batch_update_tasks(
 
         if task.completed != was_completed:
             event_type = "completed" if task.completed else "uncompleted"
-            db.add(TaskEvent(
+            event = TaskEvent(
                 user_id=user.id,
                 task_id=task.id,
                 event_type=event_type,
@@ -884,7 +924,11 @@ def batch_update_tasks(
                     explicit_ms=payload.patch.completion_occurred_at if task.completed else None,
                 ),
                 metadata_json=json.dumps({"reason": "batch"}),
-            ))
+            )
+            db.add(event)
+            db.flush()
+            if event_type == "completed":
+                recompute_energy_carryover_from(user.id, effective_event_time(event, task), db)
 
         if patch_data.get("completed") is True and not was_completed:
             task.historical_completion_rate = record_completion_rate(task.historical_completion_rate)

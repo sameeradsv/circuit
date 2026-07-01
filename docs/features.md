@@ -34,6 +34,7 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 - **Review suggested values** — Home and Tasks quick-add can open the new task directly in `TaskDetailModal` so generated parameters can be overridden before the user continues.
 - **Tasks search** — debounced `GET /api/search` when the search box is active
 - **TaskDetailModal** (`components/task-detail/`) — sectioned editor with hover tooltips on every field
+- **Global history + undo** - the floating History control appears on every authenticated page and lists recent task events with selective Undo for completions, uncompletions, skips, and reschedules.
 - **Per-task reminders** — scheduled tasks can enable/disable browser notifications and choose two reminder timings in Time & focus; the global sidebar bell still controls browser permission/overall enablement
 - **TerminalChat** — natural-language batch reschedule/complete/prioritize with approval preview
 - **Smart reschedules** — manual reschedules, blackout resumes, and recurrence-created next tasks can ask the backend to move conflicting events. Circuit compares importance, urgency, consequence of delay, time sensitivity, momentum, deadline pressure, and effort; the highest-weight task keeps the contested slot while lower-weight conflicts move to deterministic suggested slots that avoid overlaps and overloaded days. This is fixed backend logic, not a Groq call, so schedule changes stay explainable.
@@ -80,6 +81,7 @@ Set date ranges in **Account → Blackouts** (`travelling`, `period`, `sickness`
 - **Energy mode:** `UserState.focus_mode` synced via `use-energy-mode.ts`; switchable on Tasks header.
 - **Task ranking:** Home and Tasks use shared `lib/task-ranking.ts` → engine `scoreTasks` (energy mode + available minutes aware). Home limits ranked picks to unscheduled tasks or tasks due within the next 3 days so suggestions stay actionable.
 - **Circuit task energy on the timeline** is anchored to each completed task's **scheduled time** (when the work was planned), not when you tapped complete. Only actual completion/work events affect energy and analytics. App-handled skips, reschedules, occurrence overrides, and uncompletion audit events remain in history but do not drain energy or appear as analytics signals. Optional completion time stores actual completion metadata and delay minutes; delayed completions apply a small capped extra drain and feed scheduling insights.
+- **Historical energy replay**: adding or undoing an older completion recomputes `energy_eod` forward from that IST date through yesterday, so today's opening energy reflects the changed past event.
 
 ## Account and sync
 
