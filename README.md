@@ -93,7 +93,7 @@ Next.js 15 + Tailwind under `frontend/src/`. Uses `@shared/cortex` (installed fr
 | **ICS import** | Upload `.ics` from iCloud or any calendar; recurring series → one template at **next occurrence on or after today** plus a virtual recurrence definition. Calendar start/end time, duration, UID, and RRULE stay authoritative while Groq fills Circuit planning fields around the event. |
 | **Hideable mobile nav** | Mobile uses a slide-in vertical sidebar with a menu button instead of bottom tabs |
 | **Selected-day analytics load** | Analytics workload can be switched by date and totals scheduled minutes overlapping the selected IST day, including Sleep blocks |
-| **Per-task reminders** | Task detail supports two browser notification timings per scheduled task, gated by the global sidebar bell |
+| **Per-task reminders** | Task detail supports two browser notification timings per scheduled task, gated by the global sidebar bell; no-reminder scheduled tasks auto-complete at block end and feed energy history |
 | **Biometric sign-in** | Moved from a post-login banner to a persistent toggle in Account → Security |
 | **Safe-area insets** | `viewport-fit=cover` + `env(safe-area-inset-*)` on fixed sidenav/drawer; correct 100dvh sizing |
 

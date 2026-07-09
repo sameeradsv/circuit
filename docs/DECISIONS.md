@@ -233,3 +233,11 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Reason:** Quick reversals should not require finding the task's original page or manually reconstructing a previous schedule.
 
 **Implication:** Adding or undoing an older completion replays daily energy closes from that IST date through yesterday and updates `UserState.energy_eod`, so today's opening energy changes cumulatively.
+
+## No-reminder task auto-completion (2026-07-09)
+
+**Decision:** Scheduled tasks with no reminder offsets auto-complete when their scheduled block ends. The shared cron writes a normal `completed` `TaskEvent` with `reason: auto_no_reminder`.
+
+**Reason:** A scheduled block with no reminder is treated as passive calendar truth, so it should affect completion state and energy without waiting for a manual Tasks-page tap.
+
+**Implication:** Auto-completed tasks immediately participate in energy drain/replay. Corrections happen through History undo/edit instead of preventing the initial completion.

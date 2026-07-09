@@ -18,6 +18,8 @@ flowchart LR
 
 Tasks and recurrence rules decide what should be reminded. `reminders` rows decide when the reminder is eligible for delivery. `push_subscriptions` rows decide where it is delivered.
 
+Scheduled tasks with no reminders are treated as time-blocked work that happened unless corrected later: when the shared cron sees the task's scheduled block has ended, it marks the task complete and writes a normal `completed` history event with `reason: auto_no_reminder`. This completion participates in the energy timeline immediately. If the task did not actually happen, undo or edit it from History.
+
 The backend materializes reminders only for a bounded upcoming window (`REMINDER_MATERIALIZE_DAYS`, default 7). Recurring tasks still remain recurrence definitions; Circuit does not generate infinite task rows.
 
 Delivered task reminder copy is intentionally minimal:
@@ -74,7 +76,7 @@ The extra operational columns support retries, logging, and virtual recurring oc
 Authorization: Bearer ${REMINDER_CRON_SECRET}
 ```
 
-The shared backend cron endpoints use `CRON_SECRET`. They now materialize upcoming reminder rows and process due reminder deliveries as part of their normal response, returning reminder counts such as `reminders_generated_count`, `claimed`, `sent`, `failed`, and `cancelled`.
+The shared backend cron endpoints use `CRON_SECRET`. They now materialize upcoming reminder rows, auto-complete due no-reminder tasks, and process due reminder deliveries as part of their normal response, returning counts such as `reminders_generated_count`, `auto_completed_count`, `claimed`, `sent`, `failed`, and `cancelled`.
 
 ## Service worker scope
 

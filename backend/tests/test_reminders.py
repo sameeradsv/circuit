@@ -12,7 +12,8 @@ from app.config import settings
 from app.database import Base, get_db
 from app.limiter import limiter
 from app.main import app
-from app.models import PushSubscription, Reminder
+from app.models import CircuitTask, PushSubscription, Reminder, TaskEvent
+from app.services.auto_complete import auto_complete_due_no_reminder_tasks
 from app.services.push import PushGoneError
 from app.services.reminders import materialize_reminders_for_user, process_due_reminders
 
@@ -105,6 +106,29 @@ def test_materialize_reminders_for_upcoming_task(client, auth):
     assert all(row.status == "pending" for row in rows)
 
 
+def test_null_reminder_offsets_do_not_materialize_reminders(client, auth):
+    now = datetime(2026, 1, 1, 8, 0, tzinfo=timezone.utc)
+    task_time = now + timedelta(minutes=30)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "No reminder focus block",
+            "scheduled_at": _ms(task_time),
+            "notification_offset_1_mins": None,
+            "notification_offset_2_mins": None,
+        },
+        headers=auth,
+    ).json()
+
+    with client.testing_session() as db:
+        created = materialize_reminders_for_user(db, 1, now=now.replace(tzinfo=None), horizon_days=1)
+        db.commit()
+        rows = db.query(Reminder).filter(Reminder.task_id == task["id"]).all()
+
+    assert created == 0
+    assert rows == []
+
+
 def test_process_due_reminder_sends_to_all_devices(client, auth, monkeypatch):
     now = datetime(2026, 1, 1, 8, 0, tzinfo=timezone.utc).replace(tzinfo=None)
     task = client.post(
@@ -132,6 +156,69 @@ def test_process_due_reminder_sends_to_all_devices(client, auth, monkeypatch):
     assert sent[0]["payload"]["body"] == "1:30 PM IST · imp 50% · urg 50% · delay 35% · drain 35%"
     assert row.status == "sent"
     assert row.sent_at is not None
+
+
+def test_auto_complete_due_no_reminder_task_logs_energy_event(client, auth):
+    now = datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc)
+    scheduled = now - timedelta(minutes=45)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "Auto complete focus block",
+            "scheduled_at": _ms(scheduled),
+            "duration": 30,
+            "notifications_enabled": False,
+            "cognitive_load": 0.8,
+            "energy_to_reward_ratio": 0.1,
+        },
+        headers=auth,
+    ).json()
+
+    with client.testing_session() as db:
+        stats = auto_complete_due_no_reminder_tasks(db, now=now.replace(tzinfo=None))
+        db.commit()
+        updated = db.get(CircuitTask, task["id"])
+        event = db.query(TaskEvent).filter(TaskEvent.task_id == task["id"], TaskEvent.event_type == "completed").one()
+
+    completion_time = scheduled + timedelta(minutes=30)
+    assert stats["auto_completed_count"] == 1
+    assert updated is not None and updated.completed is True
+    assert event.occurred_at == completion_time.replace(tzinfo=None)
+    metadata = event.metadata_json
+    assert "auto_no_reminder" in metadata
+
+    from zoneinfo import ZoneInfo
+
+    target_date = completion_time.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
+    r = client.get(f"/api/energy/timeline?date={target_date}", headers=auth)
+    assert r.status_code == 200
+    assert any("Auto complete focus block" in e["note"] for e in r.json()["events"])
+
+
+def test_auto_complete_keeps_reminder_enabled_task_open(client, auth):
+    now = datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc)
+    scheduled = now - timedelta(hours=2)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "Manual reminder task",
+            "scheduled_at": _ms(scheduled),
+            "duration": 30,
+            "notification_offset_1_mins": 10,
+        },
+        headers=auth,
+    ).json()
+
+    with client.testing_session() as db:
+        stats = auto_complete_due_no_reminder_tasks(db, now=now.replace(tzinfo=None))
+        db.commit()
+        updated = db.get(CircuitTask, task["id"])
+        events = db.query(TaskEvent).filter(TaskEvent.task_id == task["id"]).all()
+
+    assert stats["auto_completed_count"] == 0
+    assert stats["auto_complete_skipped_with_reminders_count"] == 1
+    assert updated is not None and updated.completed is False
+    assert events == []
 
 
 def test_cron_materialization_processes_due_reminders(client, auth, monkeypatch):
@@ -166,6 +253,33 @@ def test_cron_materialization_processes_due_reminders(client, auth, monkeypatch)
     with client.testing_session() as db:
         reminder = db.query(Reminder).filter(Reminder.task_id == task["id"]).one()
         assert reminder.status == "sent"
+
+
+def test_cron_auto_completes_due_no_reminder_tasks(client, auth, monkeypatch):
+    monkeypatch.setattr(settings, "cron_secret", "secret")
+    now = datetime.now(timezone.utc)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "Cron completes this",
+            "scheduled_at": _ms(now - timedelta(minutes=10)),
+            "duration": 5,
+            "notification_offset_1_mins": None,
+            "notification_offset_2_mins": None,
+        },
+        headers=auth,
+    ).json()
+
+    response = client.post("/api/cron/materialize-occurrences", headers={"Authorization": "Bearer secret"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["auto_completed_count"] == 1
+    with client.testing_session() as db:
+        updated = db.get(CircuitTask, task["id"])
+        event = db.query(TaskEvent).filter(TaskEvent.task_id == task["id"], TaskEvent.event_type == "completed").one()
+    assert updated is not None and updated.completed is True
+    assert "auto_no_reminder" in event.metadata_json
 
 
 def test_process_due_reminder_disables_invalid_subscription(client, auth, monkeypatch):

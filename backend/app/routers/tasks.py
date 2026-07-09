@@ -609,6 +609,14 @@ def list_tasks(
 @router.post("", status_code=201)
 def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session = Depends(get_db)):
     payload = _apply_ai_defaults(payload)
+    explicit_null_reminder_1 = (
+        "notification_offset_1_mins" in payload.model_fields_set
+        and payload.notification_offset_1_mins is None
+    )
+    explicit_null_reminder_2 = (
+        "notification_offset_2_mins" in payload.model_fields_set
+        and payload.notification_offset_2_mins is None
+    )
     _exclude = {"metadata", "required_resources", "dependencies", "blackout_skip_flags", "day_time_overrides"}
     task = CircuitTask(
         user_id=user.id,
@@ -622,6 +630,12 @@ def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session
     )
     db.add(task)
     db.flush()
+    if explicit_null_reminder_1:
+        task.notification_offset_1_mins = None
+    if explicit_null_reminder_2:
+        task.notification_offset_2_mins = None
+    if explicit_null_reminder_1 or explicit_null_reminder_2:
+        db.flush()
     _normalize_recurrence_time_ref(task)
     recurring_row = sync_recurring_definition(db, task)
     if recurring_row or task.recurrence or task.rrule:

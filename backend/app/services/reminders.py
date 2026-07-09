@@ -63,7 +63,7 @@ def reminder_offsets(task: Any) -> list[int]:
     if isinstance(task, dict):
         raw = [task.get("notification_offset_1_mins", 10), task.get("notification_offset_2_mins")]
     else:
-        raw = [task.notification_offset_1_mins if task.notification_offset_1_mins is not None else 10, task.notification_offset_2_mins]
+        raw = [task.notification_offset_1_mins, task.notification_offset_2_mins]
     out: list[int] = []
     for item in raw:
         if item is None:

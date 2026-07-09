@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import CircuitTask
+from app.services.auto_complete import auto_complete_due_no_reminder_tasks
 from app.services.icloud_calendar import ICloudCalendarSetupError, cleanup_icloud_calendar, sync_icloud_calendar
 from app.services.reminders import materialize_reminders_for_user, process_due_reminders
 from app.services.virtual_recurrence import materialize_occurrences_for_all_users
@@ -34,8 +35,10 @@ def _materialize_reminders_for_all_task_users(db: Session) -> int:
 
 def _run_reminder_job(db: Session) -> dict[str, int]:
     generated = _materialize_reminders_for_all_task_users(db)
+    auto_complete_stats = auto_complete_due_no_reminder_tasks(db)
     stats = process_due_reminders(db)
     stats["reminders_generated_count"] = generated
+    stats.update(auto_complete_stats)
     return stats
 
 
