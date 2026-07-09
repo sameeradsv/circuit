@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiBlackout, ApiSettings, ApiSleepLog, ApiUserState } from "@/lib/api";
 import { useAuth } from "@shared/cortex";

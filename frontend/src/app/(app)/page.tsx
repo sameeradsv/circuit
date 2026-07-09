@@ -369,7 +369,7 @@ function HomeQuickCapture({ onCreated }: { onCreated: (task: ApiTask, review: bo
 export default function HomePage() {
   const { user } = useAuth();
   const [mode] = useEnergyMode();
-  const { value: energy, source, loading: energyLoading, userState } = useEffectiveEnergy();
+  const { value: energy, source, loading: energyLoading } = useEffectiveEnergy();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [fetching, setFetching] = useState(false);
   const [detailTask, setDetailTask] = useState<ApiTask | null>(null);

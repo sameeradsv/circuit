@@ -16,7 +16,7 @@ import { buildTaskFromInput, initTaskInput, resetTaskInput } from './app/task-in
 import { getPasscodeForSession, initAuthUI, storageNamespace } from './app/auth';
 import { copySyncBundleToClipboard, downloadSyncBundle, parseSyncBundle, readSyncBundleFromClipboard } from './app/sync-bundle';
 import { getCloudEndpoint, pullFromCloud, pushToCloud, setCloudEndpoint } from './app/cloud-sync';
-import { getAIKey, setAIKey, getAIProvider, setAIProvider, isAIConfigured, type AIProvider } from './app/ai-config';
+import { getAIKey, setAIKey, isAIConfigured } from './app/ai-config';
 import { initTheme } from './app/themes';
 import { showToast } from './app/toast';
 import { parseIcs, syncFromCalendar, tasksToIcs } from './calendar-sync';
@@ -29,7 +29,7 @@ import {
   setTaskStorageNamespace,
   type TaskFilter,
 } from './task-engine';
-import type { ScheduleContext, ScoredTask, Task, TaskTag } from './types';
+import type { ScoredTask, Task, TaskTag } from './types';
 
 let tasks: Task[] = [];
 let currentFilter: TaskFilter = 'all';
@@ -43,23 +43,6 @@ const input = document.getElementById('task-input') as HTMLInputElement;
 const list = document.getElementById('task-list') as HTMLUListElement;
 const filterButtons = document.querySelectorAll('.filters button');
 const tagButtons = document.querySelectorAll('.tag-btn');
-
-function scheduleContext(): ScheduleContext {
-  return {
-    mode: getMode(),
-    now: Date.now(),
-    availableMinutes: 240,
-    completedToday: tasks.filter(
-      (t) => t.completed && t.updatedAt > startOfDay(Date.now()),
-    ).length,
-  };
-}
-
-function startOfDay(ts: number): number {
-  const d = new Date(ts);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
 
 function refreshSchedule(): void {
   lastPlan = buildDashboardState(tasks, getMode());

@@ -12,7 +12,6 @@ export function resolveConflicts(scored: ScoredTask[]): ScoredTask[] {
     }
   }
 
-  const winners = new Set([...byWindow.values()].map((s) => s.task.id));
   const resolved: ScoredTask[] = [];
   const seen = new Set<string>();
 

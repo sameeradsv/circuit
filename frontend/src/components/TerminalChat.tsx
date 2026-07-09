@@ -74,7 +74,6 @@ function isStoredBatchTask(t: ApiTask): t is ApiTask & { id: number } {
 
 function resolveDate(text: string): DateTarget | null {
   const now = new Date();
-  const DAY = 86_400_000;
 
   const tomorrow = new Date(now);
   tomorrow.setDate(now.getDate() + 1);
@@ -125,7 +124,7 @@ function resolveDate(text: string): DateTarget | null {
   return null;
 }
 
-function resolveFilter(text: string, allTasks: ApiTask[]): FilterDef | null {
+function resolveFilter(text: string): FilterDef | null {
   const lower = text.toLowerCase();
   const nowMs = Date.now();
 
@@ -169,7 +168,7 @@ export function parseTaskCommand(text: string, allTasks: ApiTask[]): TaskAction 
 
   // ── Reschedule / defer ────────────────────────────────────────────────────
   if (/\b(push|move|reschedule|defer|delay|shift|bump|send)\b/i.test(lower)) {
-    const filter = resolveFilter(lower, open) ?? { fn: () => true, label: "all open tasks" };
+    const filter = resolveFilter(lower) ?? { fn: () => true, label: "all open tasks" };
     const date   = resolveDate(lower);
     if (!date) return null;
 
@@ -187,7 +186,7 @@ export function parseTaskCommand(text: string, allTasks: ApiTask[]): TaskAction 
 
   // ── Mark complete ─────────────────────────────────────────────────────────
   if (/\b(complete|finish|done|close|mark)\b.*(overdue|today)/i.test(lower)) {
-    const filter = resolveFilter(lower, open) ?? { fn: (t) => !!(t.scheduled_at && t.scheduled_at < Date.now()), label: "overdue tasks" };
+    const filter = resolveFilter(lower) ?? { fn: (t) => !!(t.scheduled_at && t.scheduled_at < Date.now()), label: "overdue tasks" };
     const matched = open.filter(filter.fn).filter(isStoredBatchTask);
     if (!matched.length) return null;
 
@@ -202,7 +201,7 @@ export function parseTaskCommand(text: string, allTasks: ApiTask[]): TaskAction 
 
   // ── Reprioritize ──────────────────────────────────────────────────────────
   if (/\b(priorit(is|iz)|boost|elevat|surface|raise)\b.*(urgency|importance|priority)/i.test(lower)) {
-    const filter = resolveFilter(lower, open);
+    const filter = resolveFilter(lower);
     if (!filter) return null;
     const matched = open.filter(filter.fn).filter(isStoredBatchTask);
     if (!matched.length) return null;
