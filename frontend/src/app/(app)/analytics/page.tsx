@@ -6,6 +6,7 @@ import { api, ApiSummary } from "@/lib/api";
 import { useAuth } from "@shared/cortex";
 import { WorkloadBar } from "@/components/WorkloadBar";
 import { BehavioralInsights } from "@/components/BehavioralInsights";
+import { HistoryUndoPanel } from "@/components/HistoryUndoPanel";
 import { apiTaskToTask } from "@/lib/engine-adapter";
 import { analyzeBehavior } from "@/engines/src/behavioral-engine";
 import type { BehavioralInsight } from "@/engines/src/types/task";
@@ -65,6 +66,7 @@ export default function AnalyticsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-xl font-medium text-circuit-text">Analytics</h1>
         <div className="flex flex-wrap items-center gap-2">
+          <HistoryUndoPanel />
           <button type="button" className="btn" onClick={() => setDate((d) => offsetDate(d, -1))}>
             Previous
           </button>

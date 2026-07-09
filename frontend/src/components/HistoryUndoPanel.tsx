@@ -59,7 +59,7 @@ export function HistoryUndoPanel() {
     <>
       <button
         type="button"
-        className="history-fab"
+        className="btn history-trigger"
         onClick={() => setOpen(true)}
         title="History and undo"
       >

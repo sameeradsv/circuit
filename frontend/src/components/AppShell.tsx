@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
-import { HistoryUndoPanel } from "./HistoryUndoPanel";
 import { useAuth } from "@shared/cortex";
 
 const ICS_EXPIRES_KEY = "circuit-ics-expires";
@@ -123,7 +122,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
       {navOpen && <button type="button" className="mobile-nav-backdrop" aria-label="Close navigation" onClick={() => setNavOpen(false)} />}
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
-      <HistoryUndoPanel />
       <main className="app-content">
         {banner && (() => {
           const expired = banner.daysLeft <= 0;
