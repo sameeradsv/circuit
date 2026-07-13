@@ -38,9 +38,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-@app.exception_handler(OperationalError)
-async def database_operational_error_handler(request: Request, exc: OperationalError):
-    log.exception("Database operation failed for %s %s", request.method, request.url.path)
+def _database_unavailable_response() -> JSONResponse:
     return JSONResponse(
         status_code=503,
         content={
@@ -49,6 +47,12 @@ async def database_operational_error_handler(request: Request, exc: OperationalE
         },
         headers={"Retry-After": "60"},
     )
+
+
+@app.exception_handler(OperationalError)
+async def database_operational_error_handler(request: Request, exc: OperationalError):
+    log.exception("Database operation failed for %s %s", request.method, request.url.path)
+    return _database_unavailable_response()
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
@@ -80,7 +84,11 @@ app.include_router(admin_router)
 
 @app.middleware("http")
 async def add_cache_control(request: Request, call_next):
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except OperationalError:
+        log.exception("Database operation failed for %s %s", request.method, request.url.path)
+        return _database_unavailable_response()
     if (
         request.method == "GET"
         and response.status_code == 200

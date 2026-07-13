@@ -73,6 +73,35 @@ def test_database_operational_error_returns_503(client):
     }
 
 
+def test_database_operational_error_in_dependency_returns_503(client):
+    class OfflineSession:
+        def scalar(self, *_args, **_kwargs):
+            raise OperationalError("SELECT auth_sessions", {}, Exception("database offline"))
+
+        def close(self):
+            pass
+
+    def override_offline_db():
+        yield OfflineSession()
+
+    previous_override = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = override_offline_db
+    try:
+        r = client.get("/api/tasks", headers={"Authorization": "Bearer test-token"})
+    finally:
+        if previous_override is None:
+            app.dependency_overrides.pop(get_db, None)
+        else:
+            app.dependency_overrides[get_db] = previous_override
+
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "60"
+    assert r.json() == {
+        "detail": "Database temporarily unavailable",
+        "code": "database_unavailable",
+    }
+
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 
