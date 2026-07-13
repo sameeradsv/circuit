@@ -9,7 +9,8 @@ flowchart LR
   Task["Task or recurrence rule"] --> Materializer["Reminder materializer"]
   Materializer --> Reminder["reminders rows"]
   Device["Installed PWA device"] --> Sub["push_subscriptions rows"]
-  Cron["cron-job.org every 5 minutes"] --> Processor["POST /api/cron/materialize-occurrences\nor POST /api/notifications/process"]
+  ReminderCron["cron-job.org every minute"] --> Processor["POST /api/notifications/process"]
+  MaterializeCron["cron-job.org daily"] --> Materializer
   Processor --> Reminder
   Processor --> Sub
   Processor --> Push["Web Push service"]
@@ -98,14 +99,23 @@ REMINDER_MAX_ATTEMPTS=3
 
 Generate VAPID keys with a Web Push key generator, for example `npx web-push generate-vapid-keys`, then copy the public and private keys into Vercel.
 
-Recommended low-quota cadence: call one shared Circuit cron every 5 minutes. This is frequent enough for task reminders while reducing Neon connection/query traffic compared with an every-minute job.
+Current low-quota production cadence:
 
 ```text
+Daily:
 POST https://<api-host>/api/cron/materialize-occurrences
+Authorization: Bearer <CRON_SECRET>
+
+Every minute:
+POST https://<api-host>/api/notifications/process
+Authorization: Bearer <REMINDER_CRON_SECRET>
+
+Every 30 minutes, when iCloud sync is enabled:
+POST https://<api-host>/api/cron/sync-icloud-calendar
 Authorization: Bearer <CRON_SECRET>
 ```
 
-If an existing job already calls `POST /api/cron/sync-icloud-calendar`, that job also processes due reminders. Prefer every 15 minutes for iCloud sync when conserving Neon transfer quota; use every 5 minutes only if near-real-time calendar mirroring matters. A separate `POST /api/notifications/process` job is only needed when reminders should run independently from the shared Circuit cron job, and should also use a 5-minute cadence unless you intentionally need tighter reminder timing.
+This cadence is good enough for the current architecture. `POST /api/notifications/process` is intentionally small: it materializes reminder rows for users with enabled push subscriptions and sends due reminders, so minute-level reminder delivery does not require running the heavier shared cron every minute. The daily `materialize-occurrences` job is enough because recurring rows are materialized across a rolling window, and normal task/recurrence edits refresh affected rows. The 30-minute iCloud sync also runs the shared reminder/auto-completion job, so no-reminder scheduled blocks are auto-completed within about 30 minutes instead of waiting for the daily materialization job.
 
 ## Canopy and Chef lightweight reminders
 

@@ -252,8 +252,8 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 ## Quota-aware API bootstraps and cron cadence (2026-07-13)
 
-**Decision:** Authenticated frontend page loads use additive `/api/bootstrap/*` endpoints and slim command summaries instead of unbounded or multi-request boot paths. Reminder cron should run every 5 minutes, and iCloud calendar sync every 15 minutes unless near-real-time mirroring is explicitly needed.
+**Decision:** Authenticated frontend page loads use additive `/api/bootstrap/*` endpoints and slim command summaries instead of unbounded or multi-request boot paths. Production cron cadence is daily `materialize-occurrences`, every-30-minute `sync-icloud-calendar`, and every-minute lightweight `notifications/process`.
 
 **Reason:** Neon transfer quota can be exhausted by repeated protected reads, large task payloads, and frequent cron jobs. Coalescing page boot data and narrowing task payloads reduces DB sessions, auth-session lookups, and response transfer.
 
-**Implication:** Keep existing full endpoints stable for sibling apps and edit/detail surfaces, but new page-load features should prefer bootstrap endpoints. Do not restore every-minute shared cron jobs without checking quota impact.
+**Implication:** Keep existing full endpoints stable for sibling apps and edit/detail surfaces, but new page-load features should prefer bootstrap endpoints. Do not run the heavier shared cron endpoints every few minutes unless materialization or sync freshness actually requires it.
