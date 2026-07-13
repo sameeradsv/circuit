@@ -98,7 +98,7 @@ Current low-quota production cadence:
 
 - `POST /api/cron/materialize-occurrences`: once daily. This refreshes the rolling recurrence/materialized-occurrence window.
 - `POST /api/cron/sync-icloud-calendar`: every 30 minutes when `ICLOUD_SYNC_ENABLED=true`. This is frequent enough for the one-way iCloud mirror and also runs reminder generation, due reminder delivery, and no-reminder auto-completion.
-- `POST /api/notifications/process`: every minute. This is the lightweight reminder processor; it does not sync iCloud or materialize all recurring occurrences.
+- `POST /api/notifications/process`: every minute. This is the lightweight reminder processor; it does not sync iCloud or materialize all recurring occurrences. Reminder-row materialization inside this endpoint is throttled by `REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES` (default 30) on warm function instances.
 - Do not run `materialize-occurrences` every few minutes unless recurrence materialization falls behind. Daily materialization plus 30-minute iCloud sync is lower traffic than running the heavier shared cron frequently.
 
 ### `POST /api/cron/materialize-occurrences`

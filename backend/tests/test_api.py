@@ -22,6 +22,11 @@ def _test_db_operational_error():
     raise OperationalError("SELECT 1", {}, Exception("database offline"))
 
 
+@app.get("/_test/db-transfer-quota-error", include_in_schema=False)
+def _test_db_transfer_quota_error():
+    raise OperationalError("SELECT 1", {}, Exception("Your project has exceeded the data transfer quota."))
+
+
 @pytest.fixture(scope="module")
 def client():
     # StaticPool ensures all connections share the same in-memory database
@@ -71,6 +76,21 @@ def test_database_operational_error_returns_503(client):
         "detail": "Database temporarily unavailable",
         "code": "database_unavailable",
     }
+
+
+def test_database_transfer_quota_error_returns_backoff_503(client):
+    from app import main as app_main
+
+    try:
+        r = client.get("/_test/db-transfer-quota-error")
+        assert r.status_code == 503
+        assert r.headers["Retry-After"] == "300"
+        assert r.json() == {
+            "detail": "Database temporarily unavailable",
+            "code": "database_unavailable",
+        }
+    finally:
+        app_main._database_backoff_until = 0.0
 
 
 def test_database_operational_error_in_dependency_returns_503(client):

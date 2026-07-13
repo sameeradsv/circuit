@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,27 +34,48 @@ from app.routers.admin import router as admin_router
 from app.routers.bootstrap import router as bootstrap_router
 
 log = logging.getLogger(__name__)
+_database_backoff_until = 0.0
+_DATABASE_BACKOFF_SECONDS = 300
 
 app = FastAPI(title="Circuit API", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-def _database_unavailable_response() -> JSONResponse:
+def _database_unavailable_response(retry_after: int = 60) -> JSONResponse:
     return JSONResponse(
         status_code=503,
         content={
             "detail": "Database temporarily unavailable",
             "code": "database_unavailable",
         },
-        headers={"Retry-After": "60"},
+        headers={"Retry-After": str(retry_after)},
     )
+
+
+def _is_transfer_quota_error(exc: OperationalError) -> bool:
+    return "exceeded the data transfer quota" in str(exc).lower()
+
+
+def _handle_database_operational_error(request: Request, exc: OperationalError) -> JSONResponse:
+    global _database_backoff_until
+    if _is_transfer_quota_error(exc):
+        _database_backoff_until = max(_database_backoff_until, time.monotonic() + _DATABASE_BACKOFF_SECONDS)
+        log.warning(
+            "Database transfer quota exceeded for %s %s; backing off for %ss",
+            request.method,
+            request.url.path,
+            _DATABASE_BACKOFF_SECONDS,
+        )
+        return _database_unavailable_response(_DATABASE_BACKOFF_SECONDS)
+
+    log.exception("Database operation failed for %s %s", request.method, request.url.path)
+    return _database_unavailable_response()
 
 
 @app.exception_handler(OperationalError)
 async def database_operational_error_handler(request: Request, exc: OperationalError):
-    log.exception("Database operation failed for %s %s", request.method, request.url.path)
-    return _database_unavailable_response()
+    return _handle_database_operational_error(request, exc)
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
@@ -86,11 +108,13 @@ app.include_router(bootstrap_router)
 
 @app.middleware("http")
 async def add_cache_control(request: Request, call_next):
+    if request.url.path not in ("/health", "/api/health") and time.monotonic() < _database_backoff_until:
+        retry_after = max(1, int(_database_backoff_until - time.monotonic()))
+        return _database_unavailable_response(retry_after)
     try:
         response = await call_next(request)
-    except OperationalError:
-        log.exception("Database operation failed for %s %s", request.method, request.url.path)
-        return _database_unavailable_response()
+    except OperationalError as exc:
+        return _handle_database_operational_error(request, exc)
     if (
         request.method == "GET"
         and response.status_code == 200

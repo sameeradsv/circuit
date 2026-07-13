@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -18,6 +19,8 @@ from app.services.reminders import (
 )
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+_last_process_materialized_at: datetime | None = None
+_db_outage_until: datetime | None = None
 
 
 class PushKeys(BaseModel):
@@ -107,12 +110,36 @@ def process_reminders(
     authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
+    global _last_process_materialized_at, _db_outage_until
     if not settings.reminder_cron_secret:
         raise HTTPException(status_code=503, detail="Reminder processing is not configured")
     expected = f"Bearer {settings.reminder_cron_secret}"
     if authorization != expected:
         raise HTTPException(status_code=401, detail="Invalid reminder processor token")
-    materialized = materialize_reminders_for_enabled_push_users(db)
-    result = process_due_reminders(db)
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if _db_outage_until and now < _db_outage_until:
+        retry_after = max(1, int((_db_outage_until - now).total_seconds()))
+        raise HTTPException(
+            status_code=503,
+            detail={"detail": "Database temporarily unavailable", "code": "database_unavailable"},
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    interval = max(1, settings.reminder_process_materialize_interval_minutes)
+    should_materialize = (
+        _last_process_materialized_at is None
+        or now - _last_process_materialized_at >= timedelta(minutes=interval)
+    )
+    materialized = 0
+    try:
+        if should_materialize:
+            materialized = materialize_reminders_for_enabled_push_users(db)
+            _last_process_materialized_at = now
+        result = process_due_reminders(db)
+    except OperationalError:
+        _db_outage_until = now + timedelta(minutes=5)
+        raise
     result["materialized"] = materialized
+    result["materialization_skipped"] = not should_materialize
     return result

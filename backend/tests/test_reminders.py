@@ -26,6 +26,10 @@ def _ms(dt: datetime) -> int:
 
 @pytest.fixture()
 def client():
+    from app.routers import notifications
+
+    notifications._last_process_materialized_at = None
+    notifications._db_outage_until = None
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -47,6 +51,8 @@ def client():
     with TestClient(app) as c:
         c.testing_session = TestingSessionLocal
         yield c
+    notifications._last_process_materialized_at = None
+    notifications._db_outage_until = None
     limiter.enabled = old_enabled
     app.dependency_overrides.clear()
 
@@ -253,6 +259,38 @@ def test_cron_materialization_processes_due_reminders(client, auth, monkeypatch)
     with client.testing_session() as db:
         reminder = db.query(Reminder).filter(Reminder.task_id == task["id"]).one()
         assert reminder.status == "sent"
+
+
+def test_notification_process_throttles_materialization(client, monkeypatch):
+    from app.routers import notifications
+
+    monkeypatch.setattr(settings, "reminder_cron_secret", "secret")
+    monkeypatch.setattr(settings, "reminder_process_materialize_interval_minutes", 30)
+    notifications._last_process_materialized_at = None
+    notifications._db_outage_until = None
+    calls = {"materialize": 0, "process": 0}
+
+    def fake_materialize(_db):
+        calls["materialize"] += 1
+        return 2
+
+    def fake_process(_db):
+        calls["process"] += 1
+        return {"claimed": 0, "sent": 0, "failed": 0, "cancelled": 0, "subscriptions_disabled": 0}
+
+    monkeypatch.setattr(notifications, "materialize_reminders_for_enabled_push_users", fake_materialize)
+    monkeypatch.setattr(notifications, "process_due_reminders", fake_process)
+
+    first = client.post("/api/notifications/process", headers={"Authorization": "Bearer secret"})
+    second = client.post("/api/notifications/process", headers={"Authorization": "Bearer secret"})
+
+    assert first.status_code == 200
+    assert first.json()["materialized"] == 2
+    assert first.json()["materialization_skipped"] is False
+    assert second.status_code == 200
+    assert second.json()["materialized"] == 0
+    assert second.json()["materialization_skipped"] is True
+    assert calls == {"materialize": 1, "process": 2}
 
 
 def test_cron_auto_completes_due_no_reminder_tasks(client, auth, monkeypatch):

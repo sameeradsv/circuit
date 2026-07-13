@@ -252,8 +252,8 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 ## Quota-aware API bootstraps and cron cadence (2026-07-13)
 
-**Decision:** Authenticated frontend page loads use additive `/api/bootstrap/*` endpoints and slim command summaries instead of unbounded or multi-request boot paths. Production cron cadence is daily `materialize-occurrences`, every-30-minute `sync-icloud-calendar`, and every-minute lightweight `notifications/process`.
+**Decision:** Authenticated frontend page loads use additive `/api/bootstrap/*` endpoints and slim command summaries instead of unbounded or multi-request boot paths. Production cron cadence is daily `materialize-occurrences`, every-30-minute `sync-icloud-calendar`, and every-minute lightweight `notifications/process`; the minute processor throttles reminder-row materialization with `REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES`.
 
 **Reason:** Neon transfer quota can be exhausted by repeated protected reads, large task payloads, and frequent cron jobs. Coalescing page boot data and narrowing task payloads reduces DB sessions, auth-session lookups, and response transfer.
 
-**Implication:** Keep existing full endpoints stable for sibling apps and edit/detail surfaces, but new page-load features should prefer bootstrap endpoints. Do not run the heavier shared cron endpoints every few minutes unless materialization or sync freshness actually requires it.
+**Implication:** Keep existing full endpoints stable for sibling apps and edit/detail surfaces, but new page-load features should prefer bootstrap endpoints. Do not run the heavier shared cron endpoints every few minutes unless materialization or sync freshness actually requires it. Expected Neon transfer-quota outages return `503 database_unavailable` with a short process-local backoff instead of logging a full stack trace on every cron tick.
