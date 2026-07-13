@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -13,8 +14,10 @@ from app.models import AuthSession, User
 
 PBKDF2_ITERATIONS = 100_000
 SESSION_DAYS = 30
+TOKEN_CACHE_SECONDS = 45
 
 log = logging.getLogger(__name__)
+_token_cache: dict[str, tuple[float, int]] = {}
 
 
 def hash_password(password: str) -> str:
@@ -43,12 +46,24 @@ def create_session(db: Session, user: User) -> AuthSession:
     db.add(session)
     db.commit()
     db.refresh(session)
+    _token_cache[token] = (time.monotonic() + TOKEN_CACHE_SECONDS, user.id)
     return session
 
 
 def get_user_for_token(db: Session, token: str | None) -> User | None:
     if not token:
         return None
+    now = time.monotonic()
+    cached = _token_cache.get(token)
+    if cached:
+        expires_at, user_id = cached
+        if expires_at > now:
+            user = db.get(User, user_id)
+            if user:
+                return user
+        else:
+            _token_cache.pop(token, None)
+
     # 1. Check local sessions first
     session = db.scalar(
         select(AuthSession).where(
@@ -57,6 +72,7 @@ def get_user_for_token(db: Session, token: str | None) -> User | None:
         )
     )
     if session:
+        _token_cache[token] = (now + TOKEN_CACHE_SECONDS, session.user_id)
         return db.get(User, session.user_id)
 
     # 2. Fall back to Cortex Auth Server if configured
@@ -107,4 +123,5 @@ def _validate_cortex_token(db: Session, token: str) -> User | None:
         db.add(local_session)
         db.commit()
 
+    _token_cache[token] = (time.monotonic() + TOKEN_CACHE_SECONDS, user.id)
     return user

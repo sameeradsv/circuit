@@ -9,7 +9,7 @@ flowchart LR
   Task["Task or recurrence rule"] --> Materializer["Reminder materializer"]
   Materializer --> Reminder["reminders rows"]
   Device["Installed PWA device"] --> Sub["push_subscriptions rows"]
-  Cron["cron-job.org every minute"] --> Processor["POST /api/cron/materialize-occurrences\nor POST /api/notifications/process"]
+  Cron["cron-job.org every 5 minutes"] --> Processor["POST /api/cron/materialize-occurrences\nor POST /api/notifications/process"]
   Processor --> Reminder
   Processor --> Sub
   Processor --> Push["Web Push service"]
@@ -98,14 +98,14 @@ REMINDER_MAX_ATTEMPTS=3
 
 Generate VAPID keys with a Web Push key generator, for example `npx web-push generate-vapid-keys`, then copy the public and private keys into Vercel.
 
-Configure cron-job.org to call every minute:
+Recommended low-quota cadence: call one shared Circuit cron every 5 minutes. This is frequent enough for task reminders while reducing Neon connection/query traffic compared with an every-minute job.
 
 ```text
 POST https://<api-host>/api/cron/materialize-occurrences
 Authorization: Bearer <CRON_SECRET>
 ```
 
-If an existing every-minute job already calls `POST /api/cron/sync-icloud-calendar`, that job also processes due reminders. A separate `POST /api/notifications/process` job is only needed when reminders should run independently from the shared Circuit cron job.
+If an existing job already calls `POST /api/cron/sync-icloud-calendar`, that job also processes due reminders. Prefer every 15 minutes for iCloud sync when conserving Neon transfer quota; use every 5 minutes only if near-real-time calendar mirroring matters. A separate `POST /api/notifications/process` job is only needed when reminders should run independently from the shared Circuit cron job, and should also use a 5-minute cadence unless you intentionally need tighter reminder timing.
 
 ## Canopy and Chef lightweight reminders
 

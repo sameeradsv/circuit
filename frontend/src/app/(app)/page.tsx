@@ -377,25 +377,32 @@ export default function HomePage() {
   const [nextMeeting, setNextMeeting] = useState<ApiTask | null>(null);
   const [currentMeeting, setCurrentMeeting] = useState<ApiTask | null>(null);
   const [timeAvail, setTimeAvail] = useState<number | null>(null);
+  const [completedToday, setCompletedToday] = useState(0);
 
   useEffect(() => {
     if (!user) return;
     setFetching(true);
-    Promise.all([
-      api.listTasks().then((list) => {
+    api.getHomeBootstrap()
+      .then((data) => {
+        const list = data.tasks;
         setTasks(list);
         setNextMeeting(pickNextScheduledTask(list));
         setCurrentMeeting(pickCurrentScheduledTask(list));
-      }).catch(() => {}),
-      api.getCalendarExpiry().then(setCalendarExpiry).catch(() => {}),
-    ]).finally(() => setFetching(false));
+        setCalendarExpiry(data.calendar_expiry);
+        setCompletedToday(data.completed_today);
+      })
+      .catch(() => {})
+      .finally(() => setFetching(false));
   }, [user]);
 
   async function refreshTasks() {
-    const list = await api.listTasks();
+    const data = await api.getHomeBootstrap();
+    const list = data.tasks;
     setTasks(list);
     setNextMeeting(pickNextScheduledTask(list));
     setCurrentMeeting(pickCurrentScheduledTask(list));
+    setCalendarExpiry(data.calendar_expiry);
+    setCompletedToday(data.completed_today);
   }
 
   function seriesDeleteId(task: ApiTask): ApiTask["id"] {
@@ -442,12 +449,6 @@ export default function HomePage() {
   const next: ScoredTask[] = [];
   const ranked: ScoredTask[] = [];
   async function snoozeTask(_task: ApiTask) {}
-  const completedToday = tasks.filter((t) => {
-    if (!t.completed) return false;
-    const sod = new Date(); sod.setHours(0, 0, 0, 0);
-    return new Date(t.updated_at).getTime() > sod.getTime();
-  }).length;
-
   const now = new Date();
   const dateLabel = now.toLocaleDateString("en-IN", { weekday: "long", month: "long", day: "numeric", timeZone: "Asia/Kolkata" });
   const timeLabel = now.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });

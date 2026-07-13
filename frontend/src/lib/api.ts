@@ -296,6 +296,50 @@ export interface ApiTaskPage {
   pages: number;
 }
 
+export type ApiTaskCommandSummary = Pick<ApiTask,
+  | "id"
+  | "text"
+  | "tag"
+  | "completed"
+  | "effort"
+  | "scheduled_at"
+  | "cognitive_load"
+  | "activation_energy"
+  | "focus_type"
+  | "is_recurring_template"
+>;
+
+export interface HomeBootstrap {
+  tasks: ApiTask[];
+  completed_today: number;
+  calendar_expiry: { expires_at_ms: number | null; expires_at_iso: string | null; days_until_expiry: number | null };
+  today_range: { from_ms: number; to_ms: number };
+}
+
+export interface AccountBootstrap {
+  settings: ApiSettings;
+  user_state: ApiUserState;
+  blackouts: ApiBlackout[];
+  sleep_factor: ApiSleepFactor;
+  sleep_override_total: number;
+}
+
+export interface CalendarBootstrap {
+  tasks: ApiTask[];
+  blackouts: ApiBlackout[] | null;
+}
+
+export interface TasksBootstrap {
+  tasks: ApiTask[];
+  done_total: number;
+  active_blackouts: ApiBlackout[];
+}
+
+export interface AnalyticsBootstrap {
+  summary: ApiSummary;
+  tasks: ApiTask[];
+}
+
 export type ListTasksOpts = {
   completed?: boolean;
   scheduled_from_ms?: number;
@@ -334,6 +378,7 @@ export const api = {
     params.set("limit", String(opts.limit ?? 20));
     return req<ApiTaskPage>("GET", `/api/tasks?${params}`);
   },
+  listTaskCommandSummary: () => req<ApiTaskCommandSummary[]>("GET", "/api/tasks/command-summary"),
   createTask: (payload: TaskIn) => req<ApiTask>("POST", "/api/tasks", payload),
   migrateTasks: (payload: TaskIn[]) =>
     req<{ created: number; skipped: number }>("POST", "/api/tasks/migrate", payload),
@@ -374,6 +419,21 @@ export const api = {
   setUserState: (state: Partial<Omit<ApiUserState, "updated_at">>) =>
     req<ApiUserState>("POST", "/api/user/state", state),
   deleteUserData: () => req<void>("DELETE", "/api/user/data"),
+
+  // page bootstraps
+  getHomeBootstrap: () => req<HomeBootstrap>("GET", "/api/bootstrap/home"),
+  getAccountBootstrap: () => req<AccountBootstrap>("GET", "/api/bootstrap/account"),
+  getCalendarBootstrap: (fromMs: number, toMs: number, includeBlackouts = true) => {
+    const params = new URLSearchParams({
+      from_ms: String(fromMs),
+      to_ms: String(toMs),
+      include_blackouts: String(includeBlackouts),
+    });
+    return req<CalendarBootstrap>("GET", `/api/bootstrap/calendar?${params}`);
+  },
+  getTasksBootstrap: () => req<TasksBootstrap>("GET", "/api/bootstrap/tasks"),
+  getAnalyticsBootstrap: (date?: string) =>
+    req<AnalyticsBootstrap>("GET", `/api/bootstrap/analytics${date ? `?date=${encodeURIComponent(date)}` : ""}`),
 
   // sync / export-import
   exportData: (passphrase: string) =>

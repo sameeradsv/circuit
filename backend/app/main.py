@@ -30,6 +30,7 @@ from app.routers.agent import router as agent_router
 from app.routers.notifications import router as notifications_router
 from app.routers.cron import router as cron_router
 from app.routers.admin import router as admin_router
+from app.routers.bootstrap import router as bootstrap_router
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ app.include_router(agent_router)
 app.include_router(notifications_router)
 app.include_router(cron_router)
 app.include_router(admin_router)
+app.include_router(bootstrap_router)
 
 
 @app.middleware("http")

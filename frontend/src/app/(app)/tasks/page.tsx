@@ -119,27 +119,18 @@ export default function TasksPage() {
   useEffect(() => {
     if (!user) return;
     const cached = getTaskCache();
-    const nowMs = Date.now();
     if (cached) {
       setTasks(cached.filter((t) => !t.completed));
-      api.listTasksPage({ completed: true, page: 1, limit: 1 })
-        .then((res) => setDoneTotal(res.total))
-        .catch(() => {});
-      api.listBlackouts().then((blackouts) => {
-        setActiveBlackouts(blackouts.filter(b => b.is_active && b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
-      }).catch(() => {});
-      return;
     }
     setFetching(true);
-    Promise.all([
-      api.listTasks({ completed: false }),
-      api.listTasksPage({ completed: true, page: 1, limit: 1 }),
-      api.listBlackouts(),
-    ]).then(([openList, doneMeta, blackouts]) => {
-      setTasks(openList);
-      setDoneTotal(doneMeta.total);
-      setActiveBlackouts(blackouts.filter(b => b.is_active && b.start_date_ms <= nowMs && nowMs <= b.end_date_ms));
-    }).catch(() => {}).finally(() => setFetching(false));
+    api.getTasksBootstrap()
+      .then((data) => {
+        setTasks(data.tasks);
+        setDoneTotal(data.done_total);
+        setActiveBlackouts(data.active_blackouts);
+      })
+      .catch(() => {})
+      .finally(() => setFetching(false));
   }, [user]);
 
   useEffect(() => {

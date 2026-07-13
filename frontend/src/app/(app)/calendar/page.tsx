@@ -943,15 +943,13 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (!user) return;
-    api.listBlackouts().then(setBlackouts).catch(() => {});
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
     const { from, to } = visibleRangeMs(view, focusDate);
     setFetching(true);
-    api.listTasks({ completed: false, scheduled_from_ms: from, scheduled_to_ms: to, include_unscheduled: true })
-      .then(setTasks)
+    api.getCalendarBootstrap(from, to, true)
+      .then((data) => {
+        setTasks(data.tasks);
+        if (data.blackouts) setBlackouts(data.blackouts);
+      })
       .catch(() => {})
       .finally(() => setFetching(false));
   }, [user, view, focusDate]);

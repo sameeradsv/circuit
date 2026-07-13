@@ -33,6 +33,20 @@ Both apps share **TypeScript engines** under `src/*-engine/` (scoring, recurrenc
 
 Key routers: see `AGENTS.md` / the repository instructions router table.
 
+### DB Traffic Controls
+
+Authenticated page loads should prefer reduced bootstrap endpoints over several independent protected reads:
+
+- `GET /api/bootstrap/home` - actionable open tasks only (unscheduled or scheduled through the next 3 days), completed-today count, and calendar expiry metadata.
+- `GET /api/bootstrap/tasks` - open task list, completed count metadata, and currently active blackouts.
+- `GET /api/bootstrap/calendar?from_ms=&to_ms=` - visible calendar range plus blackouts.
+- `GET /api/bootstrap/account` - settings, user state, blackouts, today's sleep factor, and sleep override count.
+- `GET /api/bootstrap/analytics?date=YYYY-MM-DD` - analytics summary plus open tasks for local behavioral insights.
+
+For command parsing, `GET /api/tasks/command-summary` returns a slim open-task shape instead of the full task detail model. Keep the older full endpoints stable for sibling apps such as Conduit and for detail/edit surfaces that need every task field.
+
+Auth token validation uses a short in-process cache (`TOKEN_CACHE_SECONDS`, currently 45 seconds) so repeated page boot requests do not all hit `auth_sessions`. The cache is intentionally brief; logout/revocation can lag by at most that window on a warm function instance.
+
 ## Frontend (`frontend/src/`)
 
 | Area | Role |
@@ -104,6 +118,8 @@ DATABASE_URL="postgresql://..." python -m app.database
 
 Keep using PostgreSQL/Neon for production; SQLite is only for local development.
 When the production database is temporarily unreachable, for example because the Neon project has exhausted its transfer quota, the API returns `503` with `code: "database_unavailable"` and `Retry-After: 60` instead of leaking the raw SQLAlchemy connection error.
+
+To reduce Neon transfer pressure, avoid unbounded page-load reads (`GET /api/tasks` with no filters) in frontend boot paths, prefer the bootstrap endpoints above, and keep cron jobs on the cadence in `docs/notifications.md` / `docs/icloud-calendar-sync.md`.
 
 ## Docs
 

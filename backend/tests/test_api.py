@@ -145,6 +145,28 @@ def test_list_tasks(client, auth):
     assert len(r.json()) >= 1
 
 
+def test_bootstrap_and_command_summary_endpoints(client, auth):
+    summary = client.get("/api/tasks/command-summary", headers=auth)
+    assert summary.status_code == 200
+    summary_items = summary.json()
+    assert isinstance(summary_items, list)
+    assert summary_items
+    assert "metadata" not in summary_items[0]
+    assert {"id", "text", "scheduled_at", "cognitive_load"} <= set(summary_items[0])
+
+    home = client.get("/api/bootstrap/home", headers=auth)
+    assert home.status_code == 200
+    home_data = home.json()
+    assert "tasks" in home_data
+    assert "completed_today" in home_data
+    assert "calendar_expiry" in home_data
+
+    account = client.get("/api/bootstrap/account", headers=auth)
+    assert account.status_code == 200
+    account_data = account.json()
+    assert {"settings", "user_state", "blackouts", "sleep_factor", "sleep_override_total"} <= set(account_data)
+
+
 def test_list_tasks_paginated(client, auth):
     r = client.get("/api/tasks?completed=true&page=1&limit=5", headers=auth)
     assert r.status_code == 200

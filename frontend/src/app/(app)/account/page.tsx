@@ -230,20 +230,18 @@ export default function AccountPage() {
   useEffect(() => {
     if (!user) return;
     setPrefsLoading(true);
-    Promise.all([api.getSettings(), api.getUserState(), api.listBlackouts(), api.getSleepFactor()])
-      .then(([s, st, bl, factor]) => {
-        setSettings(s);
-        setState(st);
-        setBlackouts(bl);
-        const today = factor.sleep_log;
+    api.getAccountBootstrap()
+      .then((data) => {
+        setSettings(data.settings);
+        setState(data.user_state);
+        setBlackouts(data.blackouts);
+        setSleepOverrideTotal(data.sleep_override_total);
+        const today = data.sleep_factor.sleep_log;
         setTodaySleep(today);
         if (!editingSleepDate) applySleepFormFromLog(today);
       })
       .catch(() => {})
       .finally(() => setPrefsLoading(false));
-    api.listSleepOverrides(1, 1)
-      .then((d) => setSleepOverrideTotal(d.total))
-      .catch(() => {});
   }, [user]);
 
   useEffect(() => {

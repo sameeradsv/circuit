@@ -606,6 +606,47 @@ def list_tasks(
     return items
 
 
+@router.get("/command-summary")
+def list_task_command_summary(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Slim open-task shape for client-side batch command parsing."""
+    rows = (
+        db.query(
+            CircuitTask.id,
+            CircuitTask.text,
+            CircuitTask.tag,
+            CircuitTask.completed,
+            CircuitTask.effort,
+            CircuitTask.scheduled_at,
+            CircuitTask.cognitive_load,
+            CircuitTask.activation_energy,
+            CircuitTask.focus_type,
+            CircuitTask.is_recurring_template,
+        )
+        .filter(CircuitTask.user_id == user.id, CircuitTask.completed.is_(False))
+        .order_by(CircuitTask.scheduled_at.asc().nulls_last(), CircuitTask.id.desc())
+        .limit(250)
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "text": row.text,
+            "tag": row.tag,
+            "completed": row.completed,
+            "effort": row.effort,
+            "scheduled_at": row.scheduled_at,
+            "cognitive_load": row.cognitive_load,
+            "activation_energy": row.activation_energy,
+            "focus_type": row.focus_type,
+            "is_recurring_template": bool(row.is_recurring_template),
+        }
+        for row in rows
+    ]
+
+
 @router.post("", status_code=201)
 def create_task(payload: TaskIn, user: User = Depends(require_user), db: Session = Depends(get_db)):
     payload = _apply_ai_defaults(payload)

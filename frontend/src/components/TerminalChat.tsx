@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { api, ApiTask } from "@/lib/api";
+import { api, ApiTaskCommandSummary } from "@/lib/api";
 
 // ── Circuit native agent ──────────────────────────────────────────────────────
 
@@ -57,18 +57,18 @@ async function* agentStream(
 
 export interface TaskAction {
   ids: number[];
-  tasks: ApiTask[];
+  tasks: ApiTaskCommandSummary[];
   patch: Record<string, unknown>;
   summary: string;         // "Push 5 high cognitive-load tasks to tomorrow"
   changeLabel: string;     // "→ tomorrow 9 AM"
 }
 
-type FilterFn = (t: ApiTask) => boolean;
+type FilterFn = (t: ApiTaskCommandSummary) => boolean;
 
 interface FilterDef { fn: FilterFn; label: string; }
 interface DateTarget { ms: number; label: string; }
 
-function isStoredBatchTask(t: ApiTask): t is ApiTask & { id: number } {
+function isStoredBatchTask(t: ApiTaskCommandSummary): t is ApiTaskCommandSummary & { id: number } {
   return typeof t.id === "number" && !t.is_recurring_template;
 }
 
@@ -162,7 +162,7 @@ function resolveFilter(text: string): FilterDef | null {
   return null;
 }
 
-export function parseTaskCommand(text: string, allTasks: ApiTask[]): TaskAction | null {
+export function parseTaskCommand(text: string, allTasks: ApiTaskCommandSummary[]): TaskAction | null {
   const lower = text.toLowerCase();
   const open  = allTasks.filter((t) => !t.completed);
 
@@ -286,7 +286,7 @@ export function TerminalChat() {
   ]);
   const [value, setValue]     = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [tasks, setTasks]     = useState<ApiTask[]>([]);
+  const [tasks, setTasks]     = useState<ApiTaskCommandSummary[]>([]);
   const feedRef   = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
   const abortRef  = useRef<AbortController | null>(null);
@@ -298,7 +298,7 @@ export function TerminalChat() {
   }, [msgs]);
 
   useEffect(() => {
-    api.listTasks().then(setTasks).catch(() => {});
+    api.listTaskCommandSummary().then(setTasks).catch(() => {});
   }, []);
 
   const push = useCallback((m: Omit<Msg, "id">): string => {
@@ -311,7 +311,7 @@ export function TerminalChat() {
     setMsgs((prev) => prev.map((m) => m.id === msgId ? { ...m, actionState: "applied" } : m));
     try {
       await api.batchUpdate(action.ids, action.patch as Parameters<typeof api.batchUpdate>[1]);
-      const updated = await api.listTasks();
+      const updated = await api.listTaskCommandSummary();
       setTasks(updated);
       push({ role: "system", content: `Done — ${action.summary.toLowerCase()}.` });
     } catch (e) {

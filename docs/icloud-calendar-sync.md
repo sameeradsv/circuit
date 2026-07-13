@@ -94,6 +94,12 @@ Cron endpoints require:
 Authorization: Bearer <CRON_SECRET>
 ```
 
+Recommended low-quota cadence:
+
+- `POST /api/cron/materialize-occurrences`: every 5 minutes. This materializes occurrences, processes Web Push reminders, and auto-completes due no-reminder blocks.
+- `POST /api/cron/sync-icloud-calendar`: every 15 minutes when `ICLOUD_SYNC_ENABLED=true`. Use every 5 minutes only if near-real-time iCloud mirroring is more important than conserving Neon transfer quota.
+- Do not run both shared cron endpoints on overlapping short intervals unless there is a specific operational reason; both process reminders and consume database connections.
+
 ### `POST /api/cron/materialize-occurrences`
 
 Expands recurrence definitions into the rolling materialized window:

@@ -44,10 +44,10 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (!user) return;
     setFetching(true);
-    Promise.all([api.getSummary(date), api.listTasks({ completed: false })])
-      .then(([s, tasks]) => {
-        setSummary(s);
-        const engineTasks = tasks.map(apiTaskToTask);
+    api.getAnalyticsBootstrap(date)
+      .then((data) => {
+        setSummary(data.summary);
+        const engineTasks = data.tasks.map(apiTaskToTask);
         setInsights(analyzeBehavior(engineTasks, mode));
       })
       .catch(() => {})
