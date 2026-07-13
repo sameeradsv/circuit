@@ -103,6 +103,7 @@ DATABASE_URL="postgresql://..." python -m app.database
 ```
 
 Keep using PostgreSQL/Neon for production; SQLite is only for local development.
+When the production database is temporarily unreachable, for example because the Neon project has exhausted its transfer quota, the API returns `503` with `code: "database_unavailable"` and `Retry-After: 60` instead of leaking the raw SQLAlchemy connection error.
 
 ## Docs
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -14,6 +15,11 @@ from app.routers.energy import _task_delta, _timeline_start_energy
 from app.routers.sleep import _get_work_signals
 
 TEST_DB_URL = "sqlite:///:memory:"
+
+
+@app.get("/_test/db-operational-error", include_in_schema=False)
+def _test_db_operational_error():
+    raise OperationalError("SELECT 1", {}, Exception("database offline"))
 
 
 @pytest.fixture(scope="module")
@@ -55,6 +61,16 @@ def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_database_operational_error_returns_503(client):
+    r = client.get("/_test/db-operational-error")
+    assert r.status_code == 503
+    assert r.headers["Retry-After"] == "60"
+    assert r.json() == {
+        "detail": "Database temporarily unavailable",
+        "code": "database_unavailable",
+    }
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────

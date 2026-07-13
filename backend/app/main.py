@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import OperationalError
 
 from app.config import settings
 from app.limiter import limiter
@@ -27,9 +31,24 @@ from app.routers.notifications import router as notifications_router
 from app.routers.cron import router as cron_router
 from app.routers.admin import router as admin_router
 
+log = logging.getLogger(__name__)
+
 app = FastAPI(title="Circuit API", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(OperationalError)
+async def database_operational_error_handler(request: Request, exc: OperationalError):
+    log.exception("Database operation failed for %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Database temporarily unavailable",
+            "code": "database_unavailable",
+        },
+        headers={"Retry-After": "60"},
+    )
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
