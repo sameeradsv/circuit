@@ -241,3 +241,11 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Reason:** A scheduled block with no reminder is treated as passive calendar truth, so it should affect completion state and energy without waiting for a manual Tasks-page tap.
 
 **Implication:** Auto-completed tasks immediately participate in energy drain/replay. Corrections happen through History undo/edit instead of preventing the initial completion.
+
+## Default-branch push policy (2026-07-13)
+
+**Decision:** Completed work must be committed and pushed to the remote default branch. For Circuit, the remote default branch is `main`.
+
+**Reason:** Agent-created branches are easy to strand when work is complete but not merged, which makes the deployed/default line drift from the actual finished state.
+
+**Implication:** If work is pushed to any branch other than `main` before it is merged, move/cherry-pick or merge it onto `main`, push `main`, and verify the default branch contains the change before closing the task.

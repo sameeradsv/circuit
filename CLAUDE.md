@@ -321,6 +321,13 @@ Four modes — `normal | deep | low | social` — shift how the scoring algorith
 - **Sleep factor is advisory** — a low `sleep_factor` should surface warnings and de-prioritize demanding tasks, but must never block the user from doing anything.
 - **`slowapi` + FastAPI body injection incompatibility**: `@limiter.limit` wraps the route function, hiding Pydantic model type annotations from FastAPI's dependency injector — FastAPI treats the parameter as a query param and returns 422 "Field required". Using `= Body()` as default is worse: FastAPI injects the raw `FieldInfo` object, causing `AttributeError` that escapes past `CORSMiddleware` to `ServerErrorMiddleware` (outside CORS) → 500 with no CORS headers → "Failed to fetch" in browser. **Fix**: all rate-limited endpoints that take a JSON body must use `async def` + `await request.json()` + `Model.model_validate()` via the `_parse_body` helper in `routers/auth.py`. Never add a typed Pydantic parameter to a `@limiter.limit`-decorated route.
 
+## Change workflow
+
+- Follow code changes with appropriate documentation edits in the same work session when behavior, architecture, commands, environment variables, or user-facing workflows change.
+- Always commit and push completed changes to the remote default branch. In this repository, the remote default branch is `main`; do not leave finished work only on feature, Codex, Claude, or other agent-created branches.
+- If changes are accidentally pushed to any branch other than the remote default and are not yet merged into `main`, move/cherry-pick or merge that work onto `main`, push `main`, and verify `main` contains the changes before considering the task complete.
+- Once requested changes are complete, commit and push them without waiting for another prompt, unless the user explicitly asks to wait for approval or review.
+
 ## UI & Responsive Standards
 
 All UI changes must work correctly across **every** combination of these views before being considered done:
