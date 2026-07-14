@@ -19,6 +19,8 @@ flowchart LR
 
 Tasks and recurrence rules decide what should be reminded. `reminders` rows decide when the reminder is eligible for delivery. `push_subscriptions` rows decide where it is delivered.
 
+Registering a device re-enables or creates the current browser endpoint and disables older enabled endpoints with the same `device_name` and `platform`. Unsubscribing sends the same device profile and also retires matching stale endpoints. This keeps legitimate multi-device delivery while preventing duplicate reminders when a browser rotates its Web Push endpoint and the UI is enabled again.
+
 Scheduled tasks with no reminders are treated as time-blocked work that happened unless corrected later: when the shared cron sees the task's scheduled block has ended, it marks the task complete and writes a normal `completed` history event with `reason: auto_no_reminder`. This completion participates in the energy timeline immediately. If the task did not actually happen, undo or edit it from History.
 
 The backend materializes reminders only for a bounded upcoming window (`REMINDER_MATERIALIZE_DAYS`, default 7). Recurring tasks still remain recurrence definitions; Circuit does not generate infinite task rows.

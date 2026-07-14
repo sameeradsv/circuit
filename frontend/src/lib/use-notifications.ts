@@ -179,7 +179,7 @@ export function useNotificationToggle() {
     try {
       const existing = await getExistingSubscription();
       if (existing) {
-        await api.unsubscribeNotifications(existing.endpoint).catch(() => undefined);
+        await api.unsubscribeNotifications(subscriptionToPayload(existing)).catch(() => undefined);
         await existing.unsubscribe().catch(() => false);
       }
       localStorage.setItem(STORAGE_KEY, "false");

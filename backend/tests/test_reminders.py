@@ -85,6 +85,40 @@ def test_subscribe_device_upserts_push_subscription(client, auth, monkeypatch):
         assert rows[0].device_name == "Laptop"
 
 
+def test_subscribe_device_disables_stale_matching_endpoint(client, auth):
+    first = client.post(
+        "/api/notifications/subscribe",
+        json={
+            "endpoint": "https://push.example/device-old",
+            "keys": {"p256dh": "old", "auth": "old"},
+            "device_name": "Laptop",
+            "platform": "Windows",
+        },
+        headers=auth,
+    )
+    second = client.post(
+        "/api/notifications/subscribe",
+        json={
+            "endpoint": "https://push.example/device-new",
+            "keys": {"p256dh": "new", "auth": "new"},
+            "device_name": "Laptop",
+            "platform": "Windows",
+        },
+        headers=auth,
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    with client.testing_session() as db:
+        rows = {
+            row.endpoint: row.enabled
+            for row in db.query(PushSubscription).order_by(PushSubscription.endpoint).all()
+        }
+
+    assert rows["https://push.example/device-old"] is False
+    assert rows["https://push.example/device-new"] is True
+
+
 def test_materialize_reminders_for_upcoming_task(client, auth):
     now = datetime(2026, 1, 1, 8, 0, tzinfo=timezone.utc)
     task_time = now + timedelta(minutes=30)

@@ -37,6 +37,35 @@ class SubscribePayload(BaseModel):
 
 class UnsubscribePayload(BaseModel):
     endpoint: str = Field(min_length=1)
+    device_name: Optional[str] = None
+    platform: Optional[str] = None
+
+
+def _disable_matching_device_subscriptions(
+    db: Session,
+    *,
+    user_id: int,
+    current_endpoint: str,
+    device_name: Optional[str],
+    platform: Optional[str],
+    now: datetime,
+) -> None:
+    if not device_name or not platform:
+        return
+    rows = (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == user_id,
+            PushSubscription.device_name == device_name,
+            PushSubscription.platform == platform,
+            PushSubscription.endpoint != current_endpoint,
+            PushSubscription.enabled == True,  # noqa: E712
+        )
+        .all()
+    )
+    for row in rows:
+        row.enabled = False
+        row.updated_at = now
 
 
 @router.get("/vapid-public-key")
@@ -85,6 +114,14 @@ def subscribe(payload: SubscribePayload, user: User = Depends(require_user), db:
     row.platform = payload.platform
     row.enabled = True
     row.updated_at = now
+    _disable_matching_device_subscriptions(
+        db,
+        user_id=user.id,
+        current_endpoint=payload.endpoint,
+        device_name=payload.device_name,
+        platform=payload.platform,
+        now=now,
+    )
     materialize_reminders_for_user(db, user.id)
     db.commit()
     db.refresh(row)
@@ -100,7 +137,16 @@ def unsubscribe(payload: UnsubscribePayload, user: User = Depends(require_user),
     )
     if row:
         row.enabled = False
-        row.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        row.updated_at = now
+        _disable_matching_device_subscriptions(
+            db,
+            user_id=user.id,
+            current_endpoint=payload.endpoint,
+            device_name=payload.device_name,
+            platform=payload.platform,
+            now=now,
+        )
         db.commit()
     return {"status": "ok"}
 

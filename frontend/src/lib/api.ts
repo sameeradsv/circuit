@@ -524,6 +524,6 @@ export const api = {
   getVapidPublicKey: () => req<{ public_key: string }>("GET", "/api/notifications/vapid-public-key"),
   subscribeNotifications: (payload: PushSubscriptionPayload) =>
     req<{ id: number; enabled: boolean }>("POST", "/api/notifications/subscribe", payload),
-  unsubscribeNotifications: (endpoint: string) =>
-    req<{ status: string }>("POST", "/api/notifications/unsubscribe", { endpoint }),
+  unsubscribeNotifications: (payload: { endpoint: string; device_name?: string; platform?: string }) =>
+    req<{ status: string }>("POST", "/api/notifications/unsubscribe", payload),
 };
