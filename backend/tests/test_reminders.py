@@ -327,6 +327,35 @@ def test_notification_process_throttles_materialization(client, monkeypatch):
     assert calls == {"materialize": 1, "process": 2}
 
 
+def test_notification_process_skips_claiming_before_next_due(client, monkeypatch):
+    from app.routers import notifications
+
+    monkeypatch.setattr(settings, "reminder_cron_secret", "secret")
+    monkeypatch.setattr(settings, "reminder_process_materialize_interval_minutes", 30)
+    monkeypatch.setattr(settings, "reminder_process_lookahead_seconds", 75)
+    notifications._last_process_materialized_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    notifications._db_outage_until = None
+    calls = {"process": 0}
+
+    def fake_next_due(_db, *, now=None):
+        return now + timedelta(minutes=10)
+
+    def fake_process(_db):
+        calls["process"] += 1
+        return {"claimed": 0, "sent": 0, "failed": 0, "cancelled": 0, "subscriptions_disabled": 0}
+
+    monkeypatch.setattr(notifications, "next_pending_reminder_at", fake_next_due)
+    monkeypatch.setattr(notifications, "process_due_reminders", fake_process)
+
+    response = client.post("/api/notifications/process", headers={"Authorization": "Bearer secret"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["processing_skipped"] is True
+    assert data["seconds_until_next_due"] >= 500
+    assert calls == {"process": 0}
+
+
 def test_cron_auto_completes_due_no_reminder_tasks(client, auth, monkeypatch):
     monkeypatch.setattr(settings, "cron_secret", "secret")
     now = datetime.now(timezone.utc)

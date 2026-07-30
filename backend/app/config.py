@@ -23,6 +23,7 @@ class Settings(BaseSettings):
         default=30,
         validation_alias="REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES",
     )
+    reminder_process_lookahead_seconds: int = Field(default=75, validation_alias="REMINDER_PROCESS_LOOKAHEAD_SECONDS")
     reminder_batch_size: int = Field(default=100, validation_alias="REMINDER_BATCH_SIZE")
     reminder_max_attempts: int = Field(default=3, validation_alias="REMINDER_MAX_ATTEMPTS")
     icloud_apple_id: str = Field(default="", validation_alias="ICLOUD_APPLE_ID")

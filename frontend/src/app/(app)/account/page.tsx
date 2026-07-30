@@ -76,6 +76,7 @@ export default function AccountPage() {
   const [newBlackoutStartTime, setNewBlackoutStartTime] = useState("00:00");
   const [newBlackoutEnd, setNewBlackoutEnd] = useState(today);
   const [newBlackoutEndTime, setNewBlackoutEndTime] = useState("23:59");
+  const [newBlackoutIndefinite, setNewBlackoutIndefinite] = useState(false);
   const [addingBlackout, setAddingBlackout] = useState(false);
   const [blackoutMsg, setBlackoutMsg] = useState<string | null>(null);
   const [blackoutErr, setBlackoutErr] = useState<string | null>(null);
@@ -87,6 +88,7 @@ export default function AccountPage() {
   const [editBlackoutStartTime, setEditBlackoutStartTime] = useState("00:00");
   const [editBlackoutEnd, setEditBlackoutEnd] = useState(today);
   const [editBlackoutEndTime, setEditBlackoutEndTime] = useState("23:59");
+  const [editBlackoutIndefinite, setEditBlackoutIndefinite] = useState(false);
   const [savingBlackout, setSavingBlackout] = useState(false);
   const BLACKOUT_PAGE_SIZE = 5;
   const { energy: combinedEnergy } = useCombinedEnergy();
@@ -249,13 +251,13 @@ export default function AccountPage() {
   }, [state]);
 
   async function handleAddBlackout() {
-    if (!newBlackoutStart || !newBlackoutEnd) return;
+    if (!newBlackoutStart || (!newBlackoutIndefinite && !newBlackoutEnd)) return;
     setAddingBlackout(true);
     setBlackoutErr(null);
     setBlackoutMsg(null);
     try {
       const startMs = dateTimeStrToISTMs(newBlackoutStart, newBlackoutStartTime);
-      const endMs = dateTimeStrToISTMs(newBlackoutEnd, newBlackoutEndTime);
+      const endMs = newBlackoutIndefinite ? null : dateTimeStrToISTMs(newBlackoutEnd, newBlackoutEndTime);
       const b = await api.createBlackout({ blackout_type: newBlackoutType, start_date_ms: startMs, end_date_ms: endMs });
       setBlackouts((prev) => [...prev, b].sort((a, b) => a.start_date_ms - b.start_date_ms));
       invalidateTaskCache();
@@ -275,6 +277,7 @@ export default function AccountPage() {
     setBlackoutMsg(null);
     if (value === "period" && newBlackoutStart) {
       setNewBlackoutEnd(addDaysDateStr(newBlackoutStart, 5));
+      setNewBlackoutIndefinite(false);
     }
   }
 
@@ -302,24 +305,27 @@ export default function AccountPage() {
     setEditingBlackoutId(b.id);
     setEditBlackoutType(b.blackout_type);
     const startStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(b.start_date_ms));
-    const endStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(b.end_date_ms));
+    const endStr = b.end_date_ms
+      ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(b.end_date_ms))
+      : today;
     setEditBlackoutStart(startStr);
     setEditBlackoutStartTime(timeInputIST(b.start_date_ms));
     setEditBlackoutEnd(endStr);
-    setEditBlackoutEndTime(timeInputIST(b.end_date_ms));
+    setEditBlackoutEndTime(b.end_date_ms ? timeInputIST(b.end_date_ms) : "23:59");
+    setEditBlackoutIndefinite(Boolean(b.indefinite));
     setBlackoutErr(null);
     setBlackoutMsg(null);
   }
 
   async function handleSaveBlackout(id: number) {
-    if (!editBlackoutStart || !editBlackoutEnd) return;
+    if (!editBlackoutStart || (!editBlackoutIndefinite && !editBlackoutEnd)) return;
     setSavingBlackout(true);
     setBlackoutErr(null);
     try {
       const updated = await api.updateBlackout(id, {
         blackout_type: editBlackoutType,
         start_date_ms: dateTimeStrToISTMs(editBlackoutStart, editBlackoutStartTime),
-        end_date_ms: dateTimeStrToISTMs(editBlackoutEnd, editBlackoutEndTime),
+        end_date_ms: editBlackoutIndefinite ? null : dateTimeStrToISTMs(editBlackoutEnd, editBlackoutEndTime),
       });
       setBlackouts((prev) => prev.map((b) => b.id === id ? updated : b).sort((a, b) => a.start_date_ms - b.start_date_ms));
       setEditingBlackoutId(null);
@@ -697,6 +703,7 @@ export default function AccountPage() {
                 type="date"
                 value={newBlackoutEnd}
                 onChange={(e) => { setNewBlackoutEnd(e.target.value); setBlackoutMsg(null); }}
+                disabled={newBlackoutIndefinite}
                 className="input-field"
               />
             </label>
@@ -706,12 +713,22 @@ export default function AccountPage() {
                 type="time"
                 value={newBlackoutEndTime}
                 onChange={(e) => { setNewBlackoutEndTime(e.target.value); setBlackoutMsg(null); }}
+                disabled={newBlackoutIndefinite}
                 className="input-field"
               />
             </label>
+            <label className="flex min-h-[44px] items-center gap-2 text-xs text-circuit-muted">
+              <input
+                type="checkbox"
+                checked={newBlackoutIndefinite}
+                disabled={newBlackoutType === "period"}
+                onChange={(e) => { setNewBlackoutIndefinite(e.target.checked); setBlackoutMsg(null); }}
+              />
+              Until disabled
+            </label>
             <button
               onClick={handleAddBlackout}
-              disabled={addingBlackout || !newBlackoutStart || !newBlackoutEnd}
+              disabled={addingBlackout || !newBlackoutStart || (!newBlackoutIndefinite && !newBlackoutEnd)}
               className="btn btn-primary"
             >
               {addingBlackout ? "Adding…" : "Add"}
@@ -744,7 +761,9 @@ export default function AccountPage() {
                   </p>
                   {blackouts.slice((blackoutListPage - 1) * BLACKOUT_PAGE_SIZE, blackoutListPage * BLACKOUT_PAGE_SIZE).map((b) => {
                     const start = fmtDateIST(b.start_date_ms, { month: "short", day: "numeric", year: "numeric" });
-                    const end = fmtDateIST(b.end_date_ms, { month: "short", day: "numeric", year: "numeric" });
+                    const end = b.end_date_ms
+                      ? fmtDateIST(b.end_date_ms, { month: "short", day: "numeric", year: "numeric" })
+                      : "Until disabled";
                     const label = b.blackout_type.charAt(0).toUpperCase() + b.blackout_type.slice(1);
                     const isEditing = editingBlackoutId === b.id;
                     return (
@@ -754,7 +773,10 @@ export default function AccountPage() {
                             <div className="flex flex-wrap gap-2 items-end">
                               <select
                                 value={editBlackoutType}
-                                onChange={(e) => setEditBlackoutType(e.target.value)}
+                                onChange={(e) => {
+                                  setEditBlackoutType(e.target.value);
+                                  if (e.target.value === "period") setEditBlackoutIndefinite(false);
+                                }}
                                 className="input-field text-xs"
                               >
                                 <option value="travelling">Travelling</option>
@@ -765,8 +787,17 @@ export default function AccountPage() {
                               </select>
                               <input type="date" value={editBlackoutStart} onChange={(e) => setEditBlackoutStart(e.target.value)} className="input-field text-xs" />
                               <input type="time" value={editBlackoutStartTime} onChange={(e) => setEditBlackoutStartTime(e.target.value)} className="input-field text-xs" />
-                              <input type="date" value={editBlackoutEnd} onChange={(e) => setEditBlackoutEnd(e.target.value)} className="input-field text-xs" />
-                              <input type="time" value={editBlackoutEndTime} onChange={(e) => setEditBlackoutEndTime(e.target.value)} className="input-field text-xs" />
+                              <input type="date" value={editBlackoutEnd} disabled={editBlackoutIndefinite} onChange={(e) => setEditBlackoutEnd(e.target.value)} className="input-field text-xs" />
+                              <input type="time" value={editBlackoutEndTime} disabled={editBlackoutIndefinite} onChange={(e) => setEditBlackoutEndTime(e.target.value)} className="input-field text-xs" />
+                              <label className="flex min-h-[44px] items-center gap-2 text-circuit-muted">
+                                <input
+                                  type="checkbox"
+                                  checked={editBlackoutIndefinite}
+                                  disabled={editBlackoutType === "period"}
+                                  onChange={(e) => setEditBlackoutIndefinite(e.target.checked)}
+                                />
+                                Until disabled
+                              </label>
                             </div>
                             <div className="flex gap-3">
                               <button onClick={() => void handleSaveBlackout(b.id)} disabled={savingBlackout} className="btn btn-primary text-xs py-1">
@@ -785,7 +816,9 @@ export default function AccountPage() {
                                 {b.is_active ? "Active" : "Disabled"}
                               </span>
                               <span className="text-circuit-muted ml-2">{start} — {end}</span>
-                              <span className="block text-circuit-muted">{fmtTimeIST(b.start_date_ms)} - {fmtTimeIST(b.end_date_ms)}</span>
+                              <span className="block text-circuit-muted">
+                                {fmtTimeIST(b.start_date_ms)} - {b.end_date_ms ? fmtTimeIST(b.end_date_ms) : "until disabled"}
+                              </span>
                             </span>
                             <div className="flex gap-3 shrink-0">
                               {b.is_active && (

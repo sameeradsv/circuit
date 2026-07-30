@@ -96,6 +96,7 @@ VAPID_SUBJECT=mailto:you@example.com
 REMINDER_CRON_SECRET=...
 REMINDER_MATERIALIZE_DAYS=7
 REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES=30
+REMINDER_PROCESS_LOOKAHEAD_SECONDS=75
 REMINDER_BATCH_SIZE=100
 REMINDER_MAX_ATTEMPTS=3
 ```
@@ -118,7 +119,7 @@ POST https://<api-host>/api/cron/sync-icloud-calendar
 Authorization: Bearer <CRON_SECRET>
 ```
 
-This cadence is good enough for the current architecture. `POST /api/notifications/process` is intentionally small: it sends due reminders every minute, but reminder row materialization is throttled by `REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES` (default 30) on warm function instances. Minute-level reminder delivery therefore does not require running the heavier shared cron every minute. The daily `materialize-occurrences` job is enough because recurring rows are materialized across a rolling window, and normal task/recurrence edits refresh affected rows. The 30-minute iCloud sync also runs the shared reminder/auto-completion job, so no-reminder scheduled blocks are auto-completed within about 30 minutes instead of waiting for the daily materialization job.
+This cadence is good enough for the current architecture. `POST /api/notifications/process` is intentionally small: reminder row materialization is throttled by `REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES` (default 30) on warm function instances, and due-reminder claiming is skipped when the next pending reminder is farther away than `REMINDER_PROCESS_LOOKAHEAD_SECONDS` (default 75). The response includes `next_due_at` and `seconds_until_next_due`, so an external scheduler can wake the app closer to the next reminder instead of polling every minute. Vercel cron itself is fixed-schedule, so exact dynamic wakeups require a scheduler outside Vercel cron. The daily `materialize-occurrences` job is enough because recurring rows are materialized across a rolling window, and normal task/recurrence edits refresh affected rows. The 30-minute iCloud sync also runs the shared reminder/auto-completion job, so no-reminder scheduled blocks are auto-completed within about 30 minutes instead of waiting for the daily materialization job.
 
 ## Canopy and Chef lightweight reminders
 

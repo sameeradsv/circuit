@@ -6,6 +6,7 @@ from typing import Any, Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -217,6 +218,19 @@ def materialize_reminders_for_enabled_push_users(db: Session) -> int:
         created += materialize_reminders_for_user(db, int(user_id))
     db.commit()
     return created
+
+
+def next_pending_reminder_at(db: Session, *, now: Optional[datetime] = None) -> Optional[datetime]:
+    now_dt = now or _now_utc()
+    return (
+        db.query(func.min(Reminder.remind_at))
+        .filter(
+            Reminder.status.in_(["pending", "failed"]),
+            Reminder.attempts < settings.reminder_max_attempts,
+            Reminder.remind_at >= now_dt,
+        )
+        .scalar()
+    )
 
 
 def _claim_due_reminders(db: Session, now: datetime, limit: int) -> list[Reminder]:

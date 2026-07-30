@@ -406,7 +406,9 @@ export default function TasksPage() {
         <div style={{ padding: "8px 14px", background: "var(--paper-2)", borderRadius: 6, fontSize: 13, color: "var(--ink-2)", border: "1px solid var(--line)" }}>
           {activeBlackouts.map(b => {
             const label = BLACKOUT_LABELS[b.blackout_type] ?? b.blackout_type;
-            const until = new Date(b.end_date_ms).toLocaleDateString("en-IN", { month: "short", day: "numeric", timeZone: "Asia/Kolkata" });
+            const until = b.end_date_ms
+              ? new Date(b.end_date_ms).toLocaleDateString("en-IN", { month: "short", day: "numeric", timeZone: "Asia/Kolkata" })
+              : "disabled";
             return <span key={b.id} style={{ marginRight: 12 }}>{label} until {until}</span>;
           })}
           {onHold.length > 0 && (

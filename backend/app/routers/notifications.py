@@ -15,6 +15,7 @@ from app.models import PushSubscription, User
 from app.services.reminders import (
     materialize_reminders_for_enabled_push_users,
     materialize_reminders_for_user,
+    next_pending_reminder_at,
     process_due_reminders,
 )
 
@@ -182,7 +183,25 @@ def process_reminders(
         if should_materialize:
             materialized = materialize_reminders_for_enabled_push_users(db)
             _last_process_materialized_at = now
-        result = process_due_reminders(db)
+        next_due = next_pending_reminder_at(db, now=now)
+        lookahead = max(0, settings.reminder_process_lookahead_seconds)
+        if next_due and next_due > now + timedelta(seconds=lookahead):
+            result = {
+                "claimed": 0,
+                "sent": 0,
+                "failed": 0,
+                "cancelled": 0,
+                "subscriptions_disabled": 0,
+                "processing_skipped": True,
+                "next_due_at": next_due.isoformat(),
+                "seconds_until_next_due": max(0, int((next_due - now).total_seconds())),
+            }
+        else:
+            result = process_due_reminders(db)
+            next_after = next_pending_reminder_at(db, now=now)
+            result["processing_skipped"] = False
+            result["next_due_at"] = next_after.isoformat() if next_after else None
+            result["seconds_until_next_due"] = max(0, int((next_after - now).total_seconds())) if next_after else None
     except OperationalError:
         _db_outage_until = now + timedelta(minutes=5)
         raise

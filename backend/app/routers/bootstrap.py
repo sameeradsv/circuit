@@ -148,7 +148,7 @@ def tasks_bootstrap(
     )
     active_blackouts = [
         b for b in _blackouts(db, user.id)
-        if b["is_active"] and b["start_date_ms"] <= now_ms <= b["end_date_ms"]
+        if b["is_active"] and b["start_date_ms"] <= now_ms <= (b["end_date_ms"] or 253_402_300_799_999)
     ]
     return {
         "tasks": list_tasks(completed=False, page=None, limit=None, user=user, db=db),

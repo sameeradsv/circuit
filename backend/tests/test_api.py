@@ -198,6 +198,35 @@ def test_list_tasks_paginated(client, auth):
     assert data["limit"] == 5
 
 
+def test_indefinite_blackout_can_be_disabled(client, auth):
+    start_ms = 1_700_000_000_000
+    create = client.post(
+        "/api/blackouts",
+        json={"blackout_type": "sickness", "start_date_ms": start_ms, "end_date_ms": None},
+        headers=auth,
+    )
+    assert create.status_code == 201
+    created = create.json()
+    assert created["end_date_ms"] is None
+    assert created["indefinite"] is True
+
+    update = client.patch(
+        f"/api/blackouts/{created['id']}",
+        json={
+            "blackout_type": "sickness",
+            "start_date_ms": start_ms,
+            "end_date_ms": None,
+            "is_active": False,
+        },
+        headers=auth,
+    )
+    assert update.status_code == 200
+    updated = update.json()
+    assert updated["is_active"] is False
+    assert updated["indefinite"] is False
+    assert isinstance(updated["end_date_ms"], int)
+
+
 def test_list_tasks_completed_filter(client, auth):
     r = client.get("/api/tasks?completed=false", headers=auth)
     assert r.status_code == 200

@@ -17,13 +17,24 @@ router = APIRouter(prefix="/api/blackouts", tags=["blackouts"])
 
 _VALID_TYPES = {"travelling", "period", "sickness", "leave", "wfh"}
 _HOUR_MS = 3_600_000
+_INDEFINITE_END_MS = 253_402_300_799_999  # 9999-12-31T23:59:59.999Z
 
 
 class BlackoutIn(BaseModel):
     blackout_type: str
     start_date_ms: int
-    end_date_ms: int
+    end_date_ms: Optional[int] = None
     is_active: Optional[bool] = None
+
+
+def _is_indefinite(end_date_ms: Optional[int]) -> bool:
+    return end_date_ms is None or end_date_ms >= _INDEFINITE_END_MS
+
+
+def _stored_end_ms(payload: BlackoutIn) -> int:
+    if payload.end_date_ms is None:
+        return _INDEFINITE_END_MS
+    return payload.end_date_ms
 
 
 def _to_dict(b: Blackout, tasks_rescheduled: int = 0) -> dict:
@@ -31,7 +42,8 @@ def _to_dict(b: Blackout, tasks_rescheduled: int = 0) -> dict:
         "id": b.id,
         "blackout_type": b.blackout_type,
         "start_date_ms": b.start_date_ms,
-        "end_date_ms": b.end_date_ms,
+        "end_date_ms": None if _is_indefinite(b.end_date_ms) else b.end_date_ms,
+        "indefinite": _is_indefinite(b.end_date_ms),
         "is_active": b.is_active,
         "created_at": b.created_at.isoformat(),
         "tasks_rescheduled": tasks_rescheduled,
@@ -131,13 +143,16 @@ def list_blackouts(user: User = Depends(require_user), db: Session = Depends(get
 def create_blackout(payload: BlackoutIn, user: User = Depends(require_user), db: Session = Depends(get_db)):
     if payload.blackout_type not in _VALID_TYPES:
         raise HTTPException(400, f"blackout_type must be one of: {', '.join(sorted(_VALID_TYPES))}")
-    if payload.end_date_ms <= payload.start_date_ms:
+    if payload.blackout_type == "period" and payload.end_date_ms is None:
+        raise HTTPException(400, "Period blackouts need an end date")
+    end_date_ms = _stored_end_ms(payload)
+    if end_date_ms <= payload.start_date_ms:
         raise HTTPException(400, "end_date_ms must be after start_date_ms")
     b = Blackout(
         user_id=user.id,
         blackout_type=payload.blackout_type,
         start_date_ms=payload.start_date_ms,
-        end_date_ms=payload.end_date_ms,
+        end_date_ms=end_date_ms,
         is_active=payload.is_active if payload.is_active is not None else True,
     )
     db.add(b)
@@ -156,12 +171,15 @@ def update_blackout(blackout_id: int, payload: BlackoutIn, user: User = Depends(
         raise HTTPException(404, "Blackout not found")
     if payload.blackout_type not in _VALID_TYPES:
         raise HTTPException(400, f"blackout_type must be one of: {', '.join(sorted(_VALID_TYPES))}")
-    if payload.end_date_ms <= payload.start_date_ms:
+    if payload.blackout_type == "period" and payload.end_date_ms is None:
+        raise HTTPException(400, "Period blackouts need an end date")
+    end_date_ms = _stored_end_ms(payload)
+    if end_date_ms <= payload.start_date_ms:
         raise HTTPException(400, "end_date_ms must be after start_date_ms")
     was_active = b.is_active
     b.blackout_type = payload.blackout_type
     b.start_date_ms = payload.start_date_ms
-    b.end_date_ms = payload.end_date_ms
+    b.end_date_ms = end_date_ms
     wants_active = payload.is_active if payload.is_active is not None else b.is_active
     moved = 0
     if was_active and not wants_active:

@@ -191,7 +191,7 @@ IST timezone note: `_first_future_ms()` validates the IST weekday of each candid
 
 ### Blackout system
 
-Users mark date ranges in Account → Blackouts. Types: `travelling`, `period`, `sickness`, `leave`, `wfh`.
+Users mark date ranges in Account → Blackouts. Types: `travelling`, `period`, `sickness`, `leave`, `wfh`. Non-period blackouts can be open-ended via "Until disabled"; the API accepts `end_date_ms: null`, stores a far-future sentinel internally, and returns `indefinite: true` / `end_date_ms: null` to clients. Disabling an active open-ended blackout closes it at the disable time and resumes parked tasks.
 
 Tasks carry `blackout_skip_flags` specifying which types cause them to be skipped. All blackout types (`travelling`, `period`, `sickness`, `leave`, `wfh`) require explicit per-task opt-in via the skip flags — task `tag` does not auto-apply any blackout.
 
@@ -201,7 +201,7 @@ Tasks carry `blackout_skip_flags` specifying which types cause them to be skippe
 
 **On blackout create**: `POST /api/blackouts` calls `services/blackout.py → reschedule_tasks_for_blackout()` — affected open tasks scheduled inside the range are moved per each task's `post_blackout_behavior`. Response includes `tasks_rescheduled` count. `PATCH /api/blackouts/{id}` updates type/dates without re-running rescheduling.
 
-**Date storage**: blackout `start_date_ms` / `end_date_ms` are stored as **IST midnight** and **IST 23:59:59.999** respectively. The frontend uses `dateStrToISTMs` / `dateStrToISTEndMs` from `lib/tz.ts` when building these from date-picker strings — never `new Date("YYYY-MM-DD").getTime()` (which gives UTC midnight and bleeds into the next IST day).
+**Date storage**: blackout `start_date_ms` / `end_date_ms` are stored as **IST midnight** and **IST 23:59:59.999** respectively for bounded blackouts. Open-ended blackouts are represented on the API as `end_date_ms: null` and internally as a far-future sentinel. The frontend uses `dateStrToISTMs` / `dateStrToISTEndMs` from `lib/tz.ts` when building bounded values from date-picker strings — never `new Date("YYYY-MM-DD").getTime()` (which gives UTC midnight and bleeds into the next IST day).
 
 **Post-blackout behavior** (per task, set in TaskDetailModal → task-detail sections):
 - `"resume"` — skips ahead through the recurrence pattern until an occurrence falls after all blackouts; the series continues from that occurrence on the original schedule (no catch-up)
