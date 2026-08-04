@@ -13,14 +13,12 @@ from app.database import get_db
 from app.deps.auth import require_user
 from app.models import PushSubscription, User
 from app.services.reminders import (
-    materialize_reminders_for_enabled_push_users,
     materialize_reminders_for_user,
     next_pending_reminder_at,
     process_due_reminders,
 )
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
-_last_process_materialized_at: datetime | None = None
 _db_outage_until: datetime | None = None
 
 
@@ -157,7 +155,7 @@ def process_reminders(
     authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
-    global _last_process_materialized_at, _db_outage_until
+    global _db_outage_until
     if not settings.reminder_cron_secret:
         raise HTTPException(status_code=503, detail="Reminder processing is not configured")
     expected = f"Bearer {settings.reminder_cron_secret}"
@@ -173,16 +171,7 @@ def process_reminders(
             headers={"Retry-After": str(retry_after)},
         )
 
-    interval = max(1, settings.reminder_process_materialize_interval_minutes)
-    should_materialize = (
-        _last_process_materialized_at is None
-        or now - _last_process_materialized_at >= timedelta(minutes=interval)
-    )
-    materialized = 0
     try:
-        if should_materialize:
-            materialized = materialize_reminders_for_enabled_push_users(db)
-            _last_process_materialized_at = now
         next_due = next_pending_reminder_at(db, now=now)
         lookahead = max(0, settings.reminder_process_lookahead_seconds)
         if next_due and next_due > now + timedelta(seconds=lookahead):
@@ -191,6 +180,7 @@ def process_reminders(
                 "sent": 0,
                 "failed": 0,
                 "cancelled": 0,
+                "stale_cancelled": 0,
                 "subscriptions_disabled": 0,
                 "processing_skipped": True,
                 "next_due_at": next_due.isoformat(),
@@ -205,6 +195,4 @@ def process_reminders(
     except OperationalError:
         _db_outage_until = now + timedelta(minutes=5)
         raise
-    result["materialized"] = materialized
-    result["materialization_skipped"] = not should_materialize
     return result

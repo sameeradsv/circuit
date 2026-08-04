@@ -252,8 +252,16 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 
 ## Quota-aware API bootstraps and cron cadence (2026-07-13)
 
-**Decision:** Authenticated frontend page loads use additive `/api/bootstrap/*` endpoints and slim command summaries instead of unbounded or multi-request boot paths. Production cron cadence is daily `materialize-occurrences`, every-30-minute `sync-icloud-calendar`, and every-minute lightweight `notifications/process`; the minute processor throttles reminder-row materialization with `REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES`.
+**Decision:** Authenticated frontend page loads use additive `/api/bootstrap/*` endpoints and slim command summaries instead of unbounded or multi-request boot paths. Production cron cadence is daily `materialize-occurrences`, every-30-minute `sync-icloud-calendar`, and reminder processing through the lightweight `notifications/process` endpoint.
 
 **Reason:** Neon transfer quota can be exhausted by repeated protected reads, large task payloads, and frequent cron jobs. Coalescing page boot data and narrowing task payloads reduces DB sessions, auth-session lookups, and response transfer.
 
 **Implication:** Keep existing full endpoints stable for sibling apps and edit/detail surfaces, but new page-load features should prefer bootstrap endpoints. Do not run the heavier shared cron endpoints every few minutes unless materialization or sync freshness actually requires it. Expected Neon transfer-quota outages return `503 database_unavailable` with a short process-local backoff instead of logging a full stack trace on every cron tick.
+
+## Decoupled cron jobs (2026-08-04)
+
+**Decision:** Background work is split by endpoint: occurrence materialization, reminder row materialization, reminder delivery, no-reminder auto-completion, and iCloud sync each run independently. Shared endpoints must not silently call reminder delivery as a side effect. Reminder delivery also cancels stale pending rows older than `REMINDER_STALE_AFTER_HOURS` instead of delivering an outage backlog.
+
+**Reason:** Neon free-tier compute and transfer limits can be exceeded by frequent bundled cron work, and a recovered daily materialization job can otherwise dump stale Web Push notifications after an outage.
+
+**Implication:** Production schedulers can use sparse cadences for materialization and iCloud sync, while a scheduler that supports delayed jobs can wake the reminder processor near `next_due_at`. Fixed cron providers cannot create true ad-hoc wakeups from an API response without an additional scheduler service.

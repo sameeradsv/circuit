@@ -19,13 +19,10 @@ class Settings(BaseSettings):
     cron_secret: str = Field(default="", validation_alias="CRON_SECRET")
     reminder_cron_secret: str = Field(default="", validation_alias="REMINDER_CRON_SECRET")
     reminder_materialize_days: int = Field(default=7, validation_alias="REMINDER_MATERIALIZE_DAYS")
-    reminder_process_materialize_interval_minutes: int = Field(
-        default=30,
-        validation_alias="REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES",
-    )
     reminder_process_lookahead_seconds: int = Field(default=75, validation_alias="REMINDER_PROCESS_LOOKAHEAD_SECONDS")
     reminder_batch_size: int = Field(default=100, validation_alias="REMINDER_BATCH_SIZE")
     reminder_max_attempts: int = Field(default=3, validation_alias="REMINDER_MAX_ATTEMPTS")
+    reminder_stale_after_hours: int = Field(default=6, validation_alias="REMINDER_STALE_AFTER_HOURS")
     icloud_apple_id: str = Field(default="", validation_alias="ICLOUD_APPLE_ID")
     icloud_app_specific_password: str = Field(default="", validation_alias="ICLOUD_APP_SPECIFIC_PASSWORD")
     icloud_caldav_base_url: str = Field(default="https://caldav.icloud.com", validation_alias="ICLOUD_CALDAV_BASE_URL")

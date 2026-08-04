@@ -1,4 +1,5 @@
 node_modules/
+.venv/
 playwright-report/
 test-results/
 .DS_Store

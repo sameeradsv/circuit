@@ -9,8 +9,8 @@ flowchart LR
   Task["Task or recurrence rule"] --> Materializer["Reminder materializer"]
   Materializer --> Reminder["reminders rows"]
   Device["Installed PWA device"] --> Sub["push_subscriptions rows"]
-  ReminderCron["cron-job.org every minute"] --> Processor["POST /api/notifications/process"]
-  MaterializeCron["cron-job.org daily"] --> Materializer
+  ReminderMaterializeCron["cron-job.org rolling window"] --> Materializer
+  ReminderCron["cron-job.org due delivery"] --> Processor["POST /api/notifications/process"]
   Processor --> Reminder
   Processor --> Sub
   Processor --> Push["Web Push service"]
@@ -71,6 +71,9 @@ The extra operational columns support retries, logging, and virtual recurring oc
 - `POST /api/notifications/unsubscribe`
 - `POST /api/notifications/process`
 - `POST /api/cron/materialize-occurrences`
+- `POST /api/cron/materialize-reminders`
+- `POST /api/cron/process-reminders`
+- `POST /api/cron/auto-complete-no-reminder-tasks`
 - `POST /api/cron/sync-icloud-calendar`
 
 `/api/notifications/process` is the reminder-only processor and requires:
@@ -79,7 +82,7 @@ The extra operational columns support retries, logging, and virtual recurring oc
 Authorization: Bearer ${REMINDER_CRON_SECRET}
 ```
 
-The shared backend cron endpoints use `CRON_SECRET`. They now materialize upcoming reminder rows, auto-complete due no-reminder tasks, and process due reminder deliveries as part of their normal response, returning counts such as `reminders_generated_count`, `auto_completed_count`, `claimed`, `sent`, `failed`, and `cancelled`.
+The shared backend cron endpoints use `CRON_SECRET`, but each endpoint now does only the work named in its path. `materialize-occurrences` refreshes recurring occurrence rows only. `sync-icloud-calendar` syncs only the iCloud mirror. Reminder row generation, reminder delivery, and no-reminder auto-completion are separate cron calls so production can tune each cadence independently.
 
 ## Service worker scope
 
@@ -95,10 +98,10 @@ VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:you@example.com
 REMINDER_CRON_SECRET=...
 REMINDER_MATERIALIZE_DAYS=7
-REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES=30
 REMINDER_PROCESS_LOOKAHEAD_SECONDS=75
 REMINDER_BATCH_SIZE=100
 REMINDER_MAX_ATTEMPTS=3
+REMINDER_STALE_AFTER_HOURS=6
 ```
 
 Generate VAPID keys with a Web Push key generator, for example `npx web-push generate-vapid-keys`, then copy the public and private keys into Vercel.
@@ -110,16 +113,24 @@ Daily:
 POST https://<api-host>/api/cron/materialize-occurrences
 Authorization: Bearer <CRON_SECRET>
 
-Every minute:
+Daily or after task/recurrence bulk changes:
+POST https://<api-host>/api/cron/materialize-reminders
+Authorization: Bearer <CRON_SECRET>
+
+At the next due reminder time, or on a sparse fallback poll:
 POST https://<api-host>/api/notifications/process
 Authorization: Bearer <REMINDER_CRON_SECRET>
 
 Every 30 minutes, when iCloud sync is enabled:
 POST https://<api-host>/api/cron/sync-icloud-calendar
 Authorization: Bearer <CRON_SECRET>
+
+Every 30-60 minutes if no-reminder calendar blocks should auto-complete:
+POST https://<api-host>/api/cron/auto-complete-no-reminder-tasks
+Authorization: Bearer <CRON_SECRET>
 ```
 
-This cadence is good enough for the current architecture. `POST /api/notifications/process` is intentionally small: reminder row materialization is throttled by `REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES` (default 30) on warm function instances, and due-reminder claiming is skipped when the next pending reminder is farther away than `REMINDER_PROCESS_LOOKAHEAD_SECONDS` (default 75). The response includes `next_due_at` and `seconds_until_next_due`, so an external scheduler can wake the app closer to the next reminder instead of polling every minute. Vercel cron itself is fixed-schedule, so exact dynamic wakeups require a scheduler outside Vercel cron. The daily `materialize-occurrences` job is enough because recurring rows are materialized across a rolling window, and normal task/recurrence edits refresh affected rows. The 30-minute iCloud sync also runs the shared reminder/auto-completion job, so no-reminder scheduled blocks are auto-completed within about 30 minutes instead of waiting for the daily materialization job.
+`POST /api/notifications/process` is intentionally small and no longer materializes reminder rows. Due-reminder claiming is skipped when the next pending reminder is farther away than `REMINDER_PROCESS_LOOKAHEAD_SECONDS` (default 75). The response includes `next_due_at` and `seconds_until_next_due`, so an external scheduler that supports one-off scheduled calls can wake the app closer to the next reminder instead of polling every minute. Vercel cron and cron-job.org fixed jobs cannot dynamically reschedule themselves from this response; use a scheduler with delayed jobs, such as Upstash QStash, Trigger.dev, Cloudflare Queues plus a Worker cron, or a tiny long-lived worker, if exact ad-hoc wakeups matter. `REMINDER_STALE_AFTER_HOURS` cancels old pending reminder rows instead of delivering an outage backlog.
 
 ## Canopy and Chef lightweight reminders
 

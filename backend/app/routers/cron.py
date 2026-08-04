@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -11,7 +12,7 @@ from app.database import get_db
 from app.models import CircuitTask
 from app.services.auto_complete import auto_complete_due_no_reminder_tasks
 from app.services.icloud_calendar import ICloudCalendarSetupError, cleanup_icloud_calendar, sync_icloud_calendar
-from app.services.reminders import materialize_reminders_for_user, process_due_reminders
+from app.services.reminders import materialize_reminders_for_user, next_pending_reminder_at, process_due_reminders
 from app.services.virtual_recurrence import materialize_occurrences_for_all_users
 
 logger = logging.getLogger(__name__)
@@ -33,13 +34,13 @@ def _materialize_reminders_for_all_task_users(db: Session) -> int:
     return generated
 
 
-def _run_reminder_job(db: Session) -> dict[str, int]:
-    generated = _materialize_reminders_for_all_task_users(db)
-    auto_complete_stats = auto_complete_due_no_reminder_tasks(db)
-    stats = process_due_reminders(db)
-    stats["reminders_generated_count"] = generated
-    stats.update(auto_complete_stats)
-    return stats
+def _next_due_payload(db: Session) -> dict[str, Optional[str] | Optional[int]]:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    next_due = next_pending_reminder_at(db, now=now)
+    return {
+        "next_due_at": next_due.isoformat() if next_due else None,
+        "seconds_until_next_due": max(0, int((next_due - now).total_seconds())) if next_due else None,
+    }
 
 
 @router.post("/materialize-occurrences")
@@ -49,7 +50,6 @@ def materialize_occurrences(
 ):
     _require_cron(authorization)
     occurrence_stats = materialize_occurrences_for_all_users(db)
-    reminder_stats = _run_reminder_job(db)
     db.commit()
     result = {
         "materialized_count": occurrence_stats["materialized"],
@@ -58,9 +58,48 @@ def materialize_occurrences(
         "deleted_count": occurrence_stats["deleted"],
         "skipped_count": occurrence_stats["skipped"],
         "failed_count": occurrence_stats["failed"],
-        **reminder_stats,
     }
     logger.info("Cron materialized occurrences", extra=result)
+    return result
+
+
+@router.post("/materialize-reminders")
+def materialize_reminders(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _require_cron(authorization)
+    generated = _materialize_reminders_for_all_task_users(db)
+    db.commit()
+    result = {
+        "reminders_generated_count": generated,
+        **_next_due_payload(db),
+    }
+    logger.info("Cron materialized reminders", extra=result)
+    return result
+
+
+@router.post("/process-reminders")
+def process_reminder_deliveries(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _require_cron(authorization)
+    result = process_due_reminders(db)
+    result.update(_next_due_payload(db))
+    logger.info("Cron processed reminders", extra=result)
+    return result
+
+
+@router.post("/auto-complete-no-reminder-tasks")
+def auto_complete_no_reminder_tasks(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    _require_cron(authorization)
+    result = auto_complete_due_no_reminder_tasks(db)
+    db.commit()
+    logger.info("Cron auto-completed no-reminder tasks", extra=result)
     return result
 
 
@@ -70,14 +109,11 @@ def sync_calendar(
     db: Session = Depends(get_db),
 ):
     _require_cron(authorization)
-    reminder_stats = _run_reminder_job(db)
     try:
         stats = sync_icloud_calendar(db)
     except ICloudCalendarSetupError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    stats["reminders_generated_count"] = int(stats.get("reminders_generated_count", 0)) + reminder_stats.pop("reminders_generated_count", 0)
-    stats.update(reminder_stats)
     db.commit()
     logger.info("Cron synced iCloud calendar", extra=stats)
     return stats

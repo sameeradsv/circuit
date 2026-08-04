@@ -28,7 +28,6 @@ def _ms(dt: datetime) -> int:
 def client():
     from app.routers import notifications
 
-    notifications._last_process_materialized_at = None
     notifications._db_outage_until = None
     engine = create_engine(
         "sqlite:///:memory:",
@@ -51,7 +50,6 @@ def client():
     with TestClient(app) as c:
         c.testing_session = TestingSessionLocal
         yield c
-    notifications._last_process_materialized_at = None
     notifications._db_outage_until = None
     limiter.enabled = old_enabled
     app.dependency_overrides.clear()
@@ -261,7 +259,7 @@ def test_auto_complete_keeps_reminder_enabled_task_open(client, auth):
     assert events == []
 
 
-def test_cron_materialization_processes_due_reminders(client, auth, monkeypatch):
+def test_cron_materialization_does_not_process_due_reminders(client, auth, monkeypatch):
     monkeypatch.setattr(settings, "cron_secret", "secret")
     now = datetime.now(timezone.utc)
     task = client.post(
@@ -287,6 +285,75 @@ def test_cron_materialization_processes_due_reminders(client, auth, monkeypatch)
 
     assert response.status_code == 200
     body = response.json()
+    assert "claimed" not in body
+    assert "sent" not in body
+    assert sent == []
+    with client.testing_session() as db:
+        reminder = db.query(Reminder).filter(Reminder.task_id == task["id"]).one()
+        assert reminder.status == "pending"
+
+
+def test_cron_materialize_reminders_only_generates_rows(client, auth, monkeypatch):
+    monkeypatch.setattr(settings, "cron_secret", "secret")
+    now = datetime.now(timezone.utc)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "Leave for appointment",
+            "scheduled_at": _ms(now - timedelta(seconds=1)),
+            "notification_offset_1_mins": 0,
+        },
+        headers=auth,
+    ).json()
+    sent: list[int] = []
+
+    def fake_send(_sub, payload):
+        sent.append(payload["taskId"])
+
+    monkeypatch.setattr("app.services.reminders.send_web_push", fake_send)
+    with client.testing_session() as db:
+        db.add(PushSubscription(user_id=1, endpoint="https://push.example/cron", p256dh="a", auth="a"))
+        db.query(Reminder).filter(Reminder.task_id == task["id"]).delete()
+        db.commit()
+
+    response = client.post("/api/cron/materialize-reminders", headers={"Authorization": "Bearer secret"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reminders_generated_count"] == 1
+    assert sent == []
+    with client.testing_session() as db:
+        reminder = db.query(Reminder).filter(Reminder.task_id == task["id"]).one()
+        assert reminder.status == "pending"
+
+
+def test_cron_process_reminders_sends_due_rows(client, auth, monkeypatch):
+    monkeypatch.setattr(settings, "cron_secret", "secret")
+    now = datetime.now(timezone.utc)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "Leave for appointment",
+            "scheduled_at": _ms(now - timedelta(seconds=1)),
+            "notification_offset_1_mins": 0,
+        },
+        headers=auth,
+    ).json()
+    sent: list[int] = []
+
+    def fake_send(_sub, payload):
+        sent.append(payload["taskId"])
+
+    monkeypatch.setattr("app.services.reminders.send_web_push", fake_send)
+    with client.testing_session() as db:
+        db.add(PushSubscription(user_id=1, endpoint="https://push.example/cron", p256dh="a", auth="a"))
+        materialize_reminders_for_user(db, 1)
+        db.commit()
+
+    response = client.post("/api/cron/process-reminders", headers={"Authorization": "Bearer secret"})
+
+    assert response.status_code == 200
+    body = response.json()
     assert body["claimed"] == 1
     assert body["sent"] == 1
     assert sent == [task["id"]]
@@ -295,45 +362,63 @@ def test_cron_materialization_processes_due_reminders(client, auth, monkeypatch)
         assert reminder.status == "sent"
 
 
-def test_notification_process_throttles_materialization(client, monkeypatch):
+def test_process_due_reminders_cancels_stale_backlog(client, auth, monkeypatch):
+    monkeypatch.setattr(settings, "reminder_stale_after_hours", 6)
+    now = datetime(2026, 1, 2, 8, 0, tzinfo=timezone.utc).replace(tzinfo=None)
+    task = client.post(
+        "/api/tasks",
+        json={
+            "text": "Stale reminder",
+            "scheduled_at": _ms((now - timedelta(hours=12)).replace(tzinfo=timezone.utc)),
+            "notification_offset_1_mins": 0,
+        },
+        headers=auth,
+    ).json()
+    sent: list[int] = []
+
+    def fake_send(_sub, payload):
+        sent.append(payload["taskId"])
+
+    monkeypatch.setattr("app.services.reminders.send_web_push", fake_send)
+    with client.testing_session() as db:
+        db.add(PushSubscription(user_id=1, endpoint="https://push.example/stale", p256dh="a", auth="a"))
+        materialize_reminders_for_user(db, 1, now=now - timedelta(hours=12, minutes=1), horizon_days=1)
+        stats = process_due_reminders(db, now=now)
+        reminder = db.query(Reminder).filter(Reminder.task_id == task["id"]).one()
+
+    assert stats["claimed"] == 0
+    assert stats["sent"] == 0
+    assert stats["stale_cancelled"] == 1
+    assert sent == []
+    assert reminder.status == "cancelled"
+
+
+def test_notification_process_does_not_materialize_reminders(client, auth, monkeypatch):
     from app.routers import notifications
 
     monkeypatch.setattr(settings, "reminder_cron_secret", "secret")
-    monkeypatch.setattr(settings, "reminder_process_materialize_interval_minutes", 30)
-    notifications._last_process_materialized_at = None
     notifications._db_outage_until = None
-    calls = {"materialize": 0, "process": 0}
-
-    def fake_materialize(_db):
-        calls["materialize"] += 1
-        return 2
+    calls = {"process": 0}
 
     def fake_process(_db):
         calls["process"] += 1
-        return {"claimed": 0, "sent": 0, "failed": 0, "cancelled": 0, "subscriptions_disabled": 0}
+        return {"claimed": 0, "sent": 0, "failed": 0, "cancelled": 0, "stale_cancelled": 0, "subscriptions_disabled": 0}
 
-    monkeypatch.setattr(notifications, "materialize_reminders_for_enabled_push_users", fake_materialize)
     monkeypatch.setattr(notifications, "process_due_reminders", fake_process)
 
-    first = client.post("/api/notifications/process", headers={"Authorization": "Bearer secret"})
-    second = client.post("/api/notifications/process", headers={"Authorization": "Bearer secret"})
+    response = client.post("/api/notifications/process", headers={"Authorization": "Bearer secret"})
 
-    assert first.status_code == 200
-    assert first.json()["materialized"] == 2
-    assert first.json()["materialization_skipped"] is False
-    assert second.status_code == 200
-    assert second.json()["materialized"] == 0
-    assert second.json()["materialization_skipped"] is True
-    assert calls == {"materialize": 1, "process": 2}
+    assert response.status_code == 200
+    assert "materialized" not in response.json()
+    assert "materialization_skipped" not in response.json()
+    assert calls == {"process": 1}
 
 
 def test_notification_process_skips_claiming_before_next_due(client, monkeypatch):
     from app.routers import notifications
 
     monkeypatch.setattr(settings, "reminder_cron_secret", "secret")
-    monkeypatch.setattr(settings, "reminder_process_materialize_interval_minutes", 30)
     monkeypatch.setattr(settings, "reminder_process_lookahead_seconds", 75)
-    notifications._last_process_materialized_at = datetime.now(timezone.utc).replace(tzinfo=None)
     notifications._db_outage_until = None
     calls = {"process": 0}
 
@@ -371,7 +456,7 @@ def test_cron_auto_completes_due_no_reminder_tasks(client, auth, monkeypatch):
         headers=auth,
     ).json()
 
-    response = client.post("/api/cron/materialize-occurrences", headers={"Authorization": "Bearer secret"})
+    response = client.post("/api/cron/auto-complete-no-reminder-tasks", headers={"Authorization": "Bearer secret"})
 
     assert response.status_code == 200
     body = response.json()

@@ -96,26 +96,28 @@ Authorization: Bearer <CRON_SECRET>
 
 Current low-quota production cadence:
 
-- `POST /api/cron/materialize-occurrences`: once daily. This refreshes the rolling recurrence/materialized-occurrence window.
-- `POST /api/cron/sync-icloud-calendar`: every 30 minutes when `ICLOUD_SYNC_ENABLED=true`. This is frequent enough for the one-way iCloud mirror and also runs reminder generation, due reminder delivery, and no-reminder auto-completion.
-- `POST /api/notifications/process`: every minute by default. This is the lightweight reminder processor; it does not sync iCloud or materialize all recurring occurrences. Reminder-row materialization inside this endpoint is throttled by `REMINDER_PROCESS_MATERIALIZE_INTERVAL_MINUTES` (default 30) on warm function instances, and due-reminder claiming is skipped when the next pending reminder is outside `REMINDER_PROCESS_LOOKAHEAD_SECONDS` (default 75). The response includes `next_due_at` for schedulers that can wake closer to the next useful time.
-- Do not run `materialize-occurrences` every few minutes unless recurrence materialization falls behind. Daily materialization plus 30-minute iCloud sync is lower traffic than running the heavier shared cron frequently.
+- `POST /api/cron/materialize-occurrences`: once daily. This refreshes the rolling recurrence/materialized-occurrence window only.
+- `POST /api/cron/sync-icloud-calendar`: every 30 minutes when `ICLOUD_SYNC_ENABLED=true`. This mirrors Circuit state to iCloud only.
+- `POST /api/cron/materialize-reminders`: daily, or after bulk task/recurrence changes. This creates bounded upcoming reminder rows only.
+- `POST /api/notifications/process` or `POST /api/cron/process-reminders`: at the next due reminder time, or on a sparse fallback poll. This is the lightweight reminder delivery processor; due-reminder claiming is skipped when the next pending reminder is outside `REMINDER_PROCESS_LOOKAHEAD_SECONDS` (default 75). The response includes `next_due_at` for schedulers that can wake closer to the next useful time.
+- `POST /api/cron/auto-complete-no-reminder-tasks`: every 30-60 minutes if no-reminder scheduled blocks should be auto-completed.
+- Do not run `materialize-occurrences` every few minutes unless recurrence materialization falls behind. Reminder delivery, reminder materialization, iCloud sync, and no-reminder auto-completion are separate jobs to keep Neon usage predictable.
 
 ### `POST /api/cron/materialize-occurrences`
 
-Expands recurrence definitions into the rolling materialized window:
+Expands recurrence definitions into the rolling materialized window. It does not generate or send task reminders.
 
 ```text
 materializationEnd = max(endOfCurrentMonth, today + 7 days)
 ```
 
-It also generates reminder rows for the next 7 days and processes due Web Push reminders. Future generated occurrence rows outside the current recurrence state are pruned only when they are pending generated rows. Completed, skipped, edited, and past recurring occurrence history is preserved in `occurrence_overrides`.
+Future generated occurrence rows outside the current recurrence state are pruned only when they are pending generated rows. Completed, skipped, edited, and past recurring occurrence history is preserved in `occurrence_overrides`.
 
 Recurring occurrences use `metadata_json.recurrence_time_ref_ms` as the canonical weekday clock. Weekend `day_time_overrides` are applied while expanding/materializing Saturday and Sunday rows, but they do not replace the weekday time used when the series returns to Monday-Friday. Blackout resumes, recurrence-created next tasks, and smart conflict moves refresh the materialized window so mirrored events use the adjusted slot rather than a stale generated row.
 
 ### `POST /api/cron/sync-icloud-calendar`
 
-Runs materialization, processes due Web Push reminders, validates iCloud setup, discovers the `Circuit` iCloud calendar, reads current events for today through `ICLOUD_SYNC_WINDOW_DAYS`, diffs against Circuit occurrences, then creates, updates, or deletes mirror events. Set `ICLOUD_SYNC_ENABLED=true` to allow calendar writes.
+Validates iCloud setup, discovers the `Circuit` iCloud calendar, reads current events for today through `ICLOUD_SYNC_WINDOW_DAYS`, diffs against Circuit occurrences, then creates, updates, or deletes mirror events. It does not materialize occurrences, generate reminder rows, process Web Push reminders, or auto-complete no-reminder tasks. Set `ICLOUD_SYNC_ENABLED=true` to allow calendar writes.
 
 Each event is a one-off `VEVENT` with no `RRULE`. The UID is deterministic:
 

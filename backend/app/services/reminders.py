@@ -233,7 +233,36 @@ def next_pending_reminder_at(db: Session, *, now: Optional[datetime] = None) -> 
     )
 
 
+def cancel_stale_due_reminders(db: Session, *, now: Optional[datetime] = None) -> int:
+    stale_hours = settings.reminder_stale_after_hours
+    if stale_hours <= 0:
+        return 0
+    now_dt = now or _now_utc()
+    stale_before = now_dt - timedelta(hours=stale_hours)
+    cancelled = (
+        db.query(Reminder)
+        .filter(
+            Reminder.status.in_(["pending", "failed"]),
+            Reminder.attempts < settings.reminder_max_attempts,
+            Reminder.remind_at < stale_before,
+        )
+        .update(
+            {
+                "status": "cancelled",
+                "last_error": f"Reminder stale by more than {stale_hours} hours",
+                "updated_at": now_dt,
+            },
+            synchronize_session=False,
+        )
+    )
+    if cancelled:
+        db.commit()
+    return int(cancelled)
+
+
 def _claim_due_reminders(db: Session, now: datetime, limit: int) -> list[Reminder]:
+    stale_hours = settings.reminder_stale_after_hours
+    stale_cutoff = now - timedelta(hours=stale_hours) if stale_hours > 0 else None
     due = (
         db.query(Reminder.id)
         .filter(
@@ -241,12 +270,12 @@ def _claim_due_reminders(db: Session, now: datetime, limit: int) -> list[Reminde
             Reminder.remind_at <= now,
             Reminder.attempts < settings.reminder_max_attempts,
         )
-        .order_by(Reminder.remind_at.asc(), Reminder.id.asc())
-        .limit(limit)
-        .all()
     )
+    if stale_cutoff is not None:
+        due = due.filter(Reminder.remind_at >= stale_cutoff)
+    due_rows = due.order_by(Reminder.remind_at.asc(), Reminder.id.asc()).limit(limit).all()
     claimed: list[Reminder] = []
-    for (reminder_id,) in due:
+    for (reminder_id,) in due_rows:
         updated = (
             db.query(Reminder)
             .filter(
@@ -278,8 +307,16 @@ def _payload_for(task: CircuitTask, reminder: Reminder) -> dict[str, Any]:
 
 def process_due_reminders(db: Session, *, now: Optional[datetime] = None, limit: Optional[int] = None) -> dict[str, int]:
     now_dt = now or _now_utc()
+    stale_cancelled = cancel_stale_due_reminders(db, now=now_dt)
     claimed = _claim_due_reminders(db, now_dt, limit or settings.reminder_batch_size)
-    stats = {"claimed": len(claimed), "sent": 0, "failed": 0, "cancelled": 0, "subscriptions_disabled": 0}
+    stats = {
+        "claimed": len(claimed),
+        "sent": 0,
+        "failed": 0,
+        "cancelled": stale_cancelled,
+        "stale_cancelled": stale_cancelled,
+        "subscriptions_disabled": 0,
+    }
 
     for reminder in claimed:
         task = db.get(CircuitTask, reminder.task_id)
