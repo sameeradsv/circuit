@@ -337,17 +337,63 @@ def propagate_recurring_series_fields(
     classification_fields: tuple[str, ...],
     from_scheduled_at: Optional[int] = None,
 ) -> int:
+    fields = list(classification_fields)
+    if include_text:
+        fields.extend(["text", "tiny_step"])
+    return propagate_recurring_task_fields(
+        db,
+        user_id,
+        source,
+        fields=fields,
+        from_scheduled_at=from_scheduled_at,
+    )
+
+
+def _metadata_key_for_field(field: str) -> str:
+    return "metadata" if field == "metadata_json" else field
+
+
+def propagate_recurring_task_fields(
+    db: Session,
+    user_id: int,
+    source: CircuitTask,
+    *,
+    fields: list[str] | tuple[str, ...],
+    from_scheduled_at: Optional[int] = None,
+    scheduled_delta_ms: Optional[int] = None,
+) -> int:
     recurring = recurring_definition_for_task(db, user_id, source)
     affected = 0
+    field_set = {field for field in fields if field not in {"id", "user_id", "completed", "created_at", "updated_at"}}
 
     if recurring:
         meta = json.loads(recurring.metadata_json or "{}")
-        if include_classification:
-            for field in classification_fields:
-                meta[field] = getattr(source, field)
-        if include_text:
+        for field in field_set:
+            if field in {"text", "scheduled_at", "recurrence", "rrule", "rrule_dtstart_ms", "recurrence_ends_at", "duration"}:
+                continue
+            if hasattr(source, field):
+                value = getattr(source, field)
+                if field in {"required_resources", "dependencies", "blackout_skip_flags", "day_time_overrides"}:
+                    value = json.loads(value) if value else ([] if field != "day_time_overrides" else {})
+                meta[_metadata_key_for_field(field)] = value
+        if "text" in field_set:
             recurring.title = source.text
             meta["tiny_step"] = source.tiny_step
+        if "tiny_step" in field_set:
+            meta["tiny_step"] = source.tiny_step
+        if "duration" in field_set:
+            recurring.duration = source.duration or recurring.duration
+        if "scheduled_at" in field_set and source.scheduled_at is not None:
+            recurring.start_datetime_ms = source.rrule_dtstart_ms or source.scheduled_at
+            meta["recurrence_time_ref_ms"] = source.scheduled_at
+        if "recurrence" in field_set:
+            recurring.recurrence = source.recurrence
+        if "rrule" in field_set:
+            recurring.rrule = source.rrule
+        if "rrule_dtstart_ms" in field_set:
+            recurring.rrule_dtstart_ms = source.rrule_dtstart_ms
+        if "recurrence_ends_at" in field_set:
+            recurring.recurrence_ends_at = source.recurrence_ends_at
         recurring.metadata_json = json.dumps(meta)
         recurring.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         affected += 1
@@ -357,12 +403,13 @@ def propagate_recurring_series_fields(
             continue
         if from_scheduled_at is not None and (sibling.scheduled_at is None or sibling.scheduled_at < from_scheduled_at):
             continue
-        if include_classification:
-            for field in classification_fields:
+        for field in field_set:
+            if field == "scheduled_at":
+                if scheduled_delta_ms is not None and sibling.scheduled_at is not None:
+                    sibling.scheduled_at += scheduled_delta_ms
+                continue
+            if hasattr(sibling, field) and hasattr(source, field):
                 setattr(sibling, field, getattr(source, field))
-        if include_text:
-            sibling.text = source.text
-            sibling.tiny_step = source.tiny_step
         sibling.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         sync_recurring_definition(db, sibling)
         affected += 1

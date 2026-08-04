@@ -56,6 +56,13 @@ function taskTypeMeta(task: ApiTask): { label: string; color: string; cls: strin
   return                                          { label: "Task",      color: "var(--sage)",    cls: "deep"     };
 }
 
+function isPassiveCalendarBlock(task: ApiTask): boolean {
+  const title = task.text.trim().toLowerCase();
+  if (title !== "work" && title !== "sleep") return false;
+  if (!task.scheduled_at) return false;
+  return Boolean(task.recurrence || task.rrule || task.is_recurring_template || task.is_virtual_occurrence);
+}
+
 const TYPE_FILTERS = [
   { value: "all",      label: "All",      color: null },
   { value: "creative", label: "Creative", color: "var(--terra)"   },
@@ -163,7 +170,7 @@ export default function TasksPage() {
   }
 
   const timeAvail = userState?.time_available_minutes ?? 480;
-  const open = tasks;
+  const open = tasks.filter((task) => !isPassiveCalendarBlock(task));
 
   // Score and rank open tasks — blacked-out and import-review tasks are separated
   const needsImportReview = open.filter((t) => t.import_review_pending);

@@ -4,9 +4,7 @@ import { useState } from "react";
 import type { ApiTask } from "@/lib/api";
 
 export interface SeriesOptions {
-  classification: boolean;
-  name: boolean;
-  forwardOnly: boolean;
+  scope: "selected" | "future" | "all";
 }
 
 interface TaskSeriesPanelProps {
@@ -48,47 +46,47 @@ export function TaskSeriesPanel({
 
   return (
     <div className="panel p-3 space-y-2" style={{ marginBottom: 4 }}>
-      <p className="text-xs font-medium text-circuit-muted uppercase tracking-wider">Apply to all occurrences</p>
+      <p className="text-xs font-medium text-circuit-muted uppercase tracking-wider">Recurring edit scope</p>
 
       <label className="flex items-center gap-2 text-xs text-circuit-text cursor-pointer select-none">
         <input
-          type="checkbox"
-          checked={seriesOpts.classification}
-          onChange={(e) => onSeriesOptsChange({ ...seriesOpts, classification: e.target.checked })}
+          type="radio"
+          name="series-edit-scope"
+          checked={seriesOpts.scope === "selected"}
+          onChange={() => onSeriesOptsChange({ scope: "selected" })}
           className="accent-circuit-accent"
         />
-        Classification — mode, effort, priority, cognitive load
+        Only this occurrence
       </label>
 
       <label className="flex items-center gap-2 text-xs text-circuit-text cursor-pointer select-none">
         <input
-          type="checkbox"
-          checked={seriesOpts.name}
-          onChange={(e) => onSeriesOptsChange({ ...seriesOpts, name: e.target.checked })}
+          type="radio"
+          name="series-edit-scope"
+          checked={seriesOpts.scope === "future"}
+          onChange={() => onSeriesOptsChange({ scope: "future" })}
           className="accent-circuit-accent"
         />
-        Name — rename all occurrences to match this one
+        This and future occurrences
       </label>
 
-      <label
-        className="flex items-center gap-2 text-xs text-circuit-text cursor-pointer select-none"
-        style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid var(--circuit-border)" }}
-      >
+      <label className="flex items-center gap-2 text-xs text-circuit-text cursor-pointer select-none">
         <input
-          type="checkbox"
-          checked={seriesOpts.forwardOnly}
-          onChange={(e) => onSeriesOptsChange({ ...seriesOpts, forwardOnly: e.target.checked })}
+          type="radio"
+          name="series-edit-scope"
+          checked={seriesOpts.scope === "all"}
+          onChange={() => onSeriesOptsChange({ scope: "all" })}
           className="accent-circuit-accent"
         />
-        From this occurrence onward only
+        All occurrences in the series
       </label>
 
       <button
         onClick={onApply}
-        disabled={propagating || (!seriesOpts.classification && !seriesOpts.name)}
+        disabled={propagating}
         className="btn btn-primary w-full text-xs mt-1"
       >
-        {propagating ? "Applying…" : "Apply to series"}
+        {propagating ? "Applying..." : "Save with selected scope"}
       </button>
 
       {onDeleteSeries && (
@@ -102,7 +100,7 @@ export function TaskSeriesPanel({
                   className="flex-1 text-xs font-medium transition-colors"
                   style={{ background: "none", border: "1px solid var(--terra)", borderRadius: 6, padding: "4px 8px", cursor: "pointer", color: "var(--terra)" }}
                 >
-                  {deletingSeries ? "Deleting…" : "From here onward"}
+                  {deletingSeries ? "Deleting..." : "From here onward"}
                 </button>
                 <button
                   onClick={async () => { await handleDelete(); }}
@@ -110,7 +108,7 @@ export function TaskSeriesPanel({
                   className="flex-1 text-xs font-medium transition-colors"
                   style={{ background: "none", border: "1px solid var(--terra)", borderRadius: 6, padding: "4px 8px", cursor: "pointer", color: "var(--terra)" }}
                 >
-                  {deletingSeries ? "Deleting…" : "All occurrences"}
+                  {deletingSeries ? "Deleting..." : "All occurrences"}
                 </button>
               </div>
               <button
@@ -127,7 +125,7 @@ export function TaskSeriesPanel({
               className="w-full text-xs text-circuit-muted hover:text-red-500 transition-colors"
               style={{ background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: "2px 0" }}
             >
-              Delete series…
+              Delete series...
             </button>
           )}
         </div>

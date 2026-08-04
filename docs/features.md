@@ -41,6 +41,12 @@ Auth: `/login` — username/passcode or WebAuthn passkey.
 
 ## Calendar
 
+### Recurring edits and passive blocks
+
+- Recurring edits can be saved for only the selected occurrence, this and future occurrences, or the whole series.
+- Supported recurrence rules update when a whole series is intentionally shifted; for example, `weekly:SA` becomes `weekly:SU` after a Saturday series moves to Sunday.
+- Recurring exact-title `Work` and `Sleep` blocks are hidden from Tasks ranking while remaining visible on Calendar and available to energy, sleep, and analytics logic.
+
 - **Virtual recurring slots** are generated only for the visible range; completed, skipped, and rescheduled instances are stored as overrides so future availability stays accurate without unlimited task rows
 - **Materialized recurring slots** are refreshed after recurrence edits, virtual occurrence reschedules, blackout resumes, and recurrence-created next tasks, keeping Calendar and iCloud mirrors aligned with weekend overrides and conflict moves.
 - **Day / week / month** views with 24-hour grid (day/week)

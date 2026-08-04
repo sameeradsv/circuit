@@ -47,9 +47,7 @@ export function TaskDetailModal({
   const [propagateMsg, setPropagateMsg] = useState<string | null>(null);
   const [showSeriesPanel, setShowSeriesPanel] = useState(false);
   const [seriesOpts, setSeriesOpts] = useState<SeriesOptions>({
-    classification: true,
-    name: false,
-    forwardOnly: false,
+    scope: "selected",
   });
   const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -78,19 +76,24 @@ export function TaskDetailModal({
 
   async function handleApplyToSeries() {
     if (seriesTaskId == null) return;
+    if (Object.keys(patch).length === 0) { onClose(); return; }
     setPropagating(true);
     setSaveError(null);
     setPropagateMsg(null);
     try {
-      if (Object.keys(patch).length > 0) await api.updateTask(seriesTaskId, patch);
-      const { updated } = await api.propagateClassification(seriesTaskId, {
-        include_classification: seriesOpts.classification,
-        include_text: seriesOpts.name,
-        from_scheduled_at: seriesOpts.forwardOnly ? (task.scheduled_at ?? Date.now()) : undefined,
+      if (seriesOpts.scope === "selected") {
+        const updated = await api.updateTask(task.id, patch);
+        onSave(updated);
+        onClose();
+        return;
+      }
+      const { updated } = await api.editSeries(seriesTaskId, {
+        patch,
+        scope: seriesOpts.scope,
+        from_scheduled_at: seriesOpts.scope === "future" ? (task.scheduled_at ?? Date.now()) : null,
       });
-      const what = [seriesOpts.classification && "classification", seriesOpts.name && "name"].filter(Boolean).join(" + ");
-      setPropagateMsg(`${what} applied to ${updated} other occurrence${updated !== 1 ? "s" : ""}`);
-      setShowSeriesPanel(false);
+      setPropagateMsg(`Changes applied to ${updated} series record${updated !== 1 ? "s" : ""}`);
+      setPatch({});
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -226,9 +229,9 @@ export function TaskDetailModal({
                 onClick={() => { setShowSeriesPanel((v) => !v); setPropagateMsg(null); }}
                 disabled={saving || propagating || deleting}
                 className="flex-1 min-h-11 text-sm text-circuit-muted hover:text-circuit-text transition-colors"
-                title="Apply changes to all occurrences in this recurring series"
+                title="Choose how this recurring edit is applied"
               >
-                Edit series {showSeriesPanel ? "▴" : "▾"}
+                Edit scope {showSeriesPanel ? "▲" : "▼"}
               </button>
             )}
             <button onClick={onClose} className="flex-1 min-h-11 text-sm text-circuit-muted hover:text-circuit-text transition-colors">

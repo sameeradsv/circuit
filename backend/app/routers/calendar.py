@@ -15,10 +15,14 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps.auth import require_user
+from app.engines.recurrence import shifted_rrule, shifted_series_pattern
 from app.models import CircuitTask, User
 from app.services.ai import suggest_task_defaults
+from app.services.reminders import materialize_reminders_for_user
 from app.services.virtual_recurrence import (
     delete_recurring_series,
+    materialize_occurrences_for_user,
+    propagate_recurring_task_fields,
     propagate_recurring_series_fields,
     sync_recurring_definition,
 )
@@ -1022,6 +1026,12 @@ class PropagateSeries(_BaseModel):
     from_scheduled_at: Optional[int] = None  # ms timestamp; if set, only affect occurrences >= this
 
 
+class SeriesEdit(_BaseModel):
+    patch: dict
+    scope: str = "future"  # "future" | "all"
+    from_scheduled_at: Optional[int] = None
+
+
 _CLASSIFICATION_FIELDS = (
     "tag", "focus_type", "effort", "importance", "urgency",
     "consequence_of_delay", "momentum_value", "cognitive_load",
@@ -1029,6 +1039,36 @@ _CLASSIFICATION_FIELDS = (
     "energy_to_reward_ratio", "deadline_type", "time_sensitivity",
     "preferred_execution_window",
 )
+
+_SERIES_EDIT_FIELDS = {
+    "text", "tag", "tiny_step", "effort", "duration", "deadline_type", "time_sensitivity",
+    "scheduled_at", "recurrence", "rrule", "rrule_dtstart_ms", "recurrence_ends_at", "post_blackout_behavior",
+    "urgency", "importance", "consequence_of_delay", "momentum_value",
+    "compound_benefit", "identity_alignment", "energy_to_reward_ratio",
+    "task_decomposition_potential", "historical_completion_rate",
+    "cognitive_load", "emotional_resistance", "activation_energy",
+    "recovery_cost", "focus_type", "skipped_count", "last_skipped_at",
+    "preferred_execution_window", "delay_pattern", "location_dependency",
+    "required_resources", "dependencies",
+    "blackout_skip_flags", "group_id", "day_time_overrides",
+    "travel_buffer_before_mins", "travel_buffer_after_mins",
+    "notifications_enabled", "notification_offset_1_mins", "notification_offset_2_mins",
+    "recurrence_anchor_ms", "import_review_pending",
+}
+
+_JSON_SERIES_FIELDS = {"required_resources", "dependencies", "blackout_skip_flags", "day_time_overrides"}
+
+
+def _apply_series_patch(task: CircuitTask, patch: dict) -> set[str]:
+    changed: set[str] = set()
+    for field, value in patch.items():
+        if field not in _SERIES_EDIT_FIELDS or not hasattr(task, field):
+            continue
+        if field in _JSON_SERIES_FIELDS:
+            value = json.dumps(value if value is not None else ([] if field != "day_time_overrides" else {}))
+        setattr(task, field, value)
+        changed.add(field)
+    return changed
 
 
 @router.post("/propagate-classification/{task_id}")
@@ -1058,6 +1098,63 @@ def propagate_classification(
         raise HTTPException(400, "Task is not part of a recurring series")
     db.commit()
     return {"updated": updated}
+
+
+@router.post("/series/{task_id}/edit")
+def edit_series(
+    task_id: int,
+    body: SeriesEdit,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    source = db.query(CircuitTask).filter_by(id=task_id, user_id=user.id).first()
+    if not source:
+        raise HTTPException(404, "Task not found")
+    if body.scope not in {"future", "all"}:
+        raise HTTPException(400, "scope must be 'future' or 'all'")
+
+    old_scheduled_at = source.scheduled_at
+    changed = _apply_series_patch(source, body.patch or {})
+    if not changed:
+        raise HTTPException(400, "No editable series fields supplied")
+
+    if "scheduled_at" in changed and source.scheduled_at is not None:
+        shifted_dt = datetime.fromtimestamp(source.scheduled_at / 1000, tz=_IST)
+        metadata = json.loads(source.metadata_json or "{}")
+        metadata["recurrence_time_ref_ms"] = source.scheduled_at
+        source.metadata_json = json.dumps(metadata)
+        if "recurrence" not in changed:
+            old_recurrence = source.recurrence
+            source.recurrence = shifted_series_pattern(source.recurrence, shifted_dt)
+            if source.recurrence != old_recurrence:
+                changed.add("recurrence")
+        if "rrule" not in changed:
+            old_rrule = source.rrule
+            source.rrule = shifted_rrule(source.rrule, shifted_dt)
+            if source.rrule != old_rrule:
+                changed.add("rrule")
+        if old_scheduled_at is not None and source.rrule_dtstart_ms == old_scheduled_at:
+            source.rrule_dtstart_ms = source.scheduled_at
+            changed.add("rrule_dtstart_ms")
+
+    source.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    sync_recurring_definition(db, source)
+    updated = propagate_recurring_task_fields(
+        db,
+        user.id,
+        source,
+        fields=sorted(changed),
+        from_scheduled_at=body.from_scheduled_at if body.scope == "future" else None,
+        scheduled_delta_ms=(
+            source.scheduled_at - old_scheduled_at
+            if "scheduled_at" in changed and source.scheduled_at is not None and old_scheduled_at is not None
+            else None
+        ),
+    )
+    materialize_occurrences_for_user(db, user.id)
+    materialize_reminders_for_user(db, user.id)
+    db.commit()
+    return {"updated": updated, "fields": sorted(changed)}
 
 
 @router.delete("/series/{task_id}")

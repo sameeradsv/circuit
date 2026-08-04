@@ -28,6 +28,8 @@ Core record: **`CircuitTask`** (~47 columns). Grouped by concern below.
 - Suggested slots come from `services/suggest_slot.py`: preferred execution window, focus type, energy/stress defaults, learned skip window, existing conflicts, after-hours wrapping, and an 8-hour daily workload cap are considered before choosing a time.
 - Calendar drag/drop, task-list manual reschedule, skip/defer, TerminalChat batch reschedules, blackout resumes, and recurrence-created next tasks use the same resolver. Groq is not called for live conflict arbitration; it remains limited to task classification/default fields.
 - Recurring definitions and materialized calendar rows are refreshed after recurrence schedule changes, virtual-occurrence reschedules, blackout resumes, and recurrence-created next tasks so Calendar and iCloud sync read the updated occurrence times instead of stale materialized rows.
+- Series edits support selected occurrence, this-and-future, and all-occurrences scopes from TaskDetail. Selected virtual-occurrence edits are limited to fields the override model can preserve today: status plus modified start/duration. Future/all scopes update the recurring definition and refresh materialized occurrences and reminder rows.
+- Supported recurrence rules update when a series anchor moves. For example, a `weekly:SA` series moved to Sunday becomes `weekly:SU`; monthly date/nth-weekday rules and matching monthly RRULE selectors are also shifted where possible.
 
 ### Post-Blackout Behavior
 

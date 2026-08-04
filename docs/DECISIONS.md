@@ -265,3 +265,11 @@ See **[DEFERRED.md](./DEFERRED.md)** for the full cross-app inventory (pgvector,
 **Reason:** Neon free-tier compute and transfer limits can be exceeded by frequent bundled cron work, and a recovered daily materialization job can otherwise dump stale Web Push notifications after an outage.
 
 **Implication:** Production schedulers can use sparse cadences for materialization and iCloud sync, while a scheduler that supports delayed jobs can wake the reminder processor near `next_due_at`. Fixed cron providers cannot create true ad-hoc wakeups from an API response without an additional scheduler service.
+
+## Recurring edit scopes and passive blocks (2026-08-04)
+
+**Decision:** TaskDetail exposes recurring edit scopes: selected occurrence, this and future occurrences, and all occurrences. Future/all edits update the recurring definition, refresh materialized rows and reminders, and shift supported recurrence rules when the series anchor changes. Recurring exact-title `Work` and `Sleep` blocks are suppressed from Tasks ranking but remain calendar events.
+
+**Reason:** Repeating calendar facts should not require daily complete/skip confirmation, and intentional series moves should keep future recurrence rules aligned with the new day.
+
+**Implication:** Selected virtual occurrences remain constrained by the current override model, which stores status plus modified start/duration. Rich per-occurrence custom fields would require an additive schema extension.

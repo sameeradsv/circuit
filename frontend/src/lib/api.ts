@@ -469,6 +469,14 @@ export const api = {
     include_text: opts.include_text ?? false,
     from_scheduled_at: opts.from_scheduled_at ?? null,
   }),
+  editSeries: (
+    taskId: number,
+    opts: { patch: TaskPatch; scope: "future" | "all"; from_scheduled_at?: number | null },
+  ) => req<{ updated: number; fields: string[] }>("POST", `/api/calendar/series/${taskId}/edit`, {
+    patch: opts.patch,
+    scope: opts.scope,
+    from_scheduled_at: opts.from_scheduled_at ?? null,
+  }),
   getCalendarExpiry: () =>
     req<{ expires_at_ms: number | null; expires_at_iso: string | null; days_until_expiry: number | null }>("GET", "/api/calendar/expiry"),
   exportCalendar: (includeCompleted = false) => {

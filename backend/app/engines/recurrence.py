@@ -25,6 +25,9 @@ _IST = ZoneInfo("Asia/Kolkata")
 _INTERVAL_RE = re.compile(r"^every:(\d+)([dwh])$")
 _MONTHLY_NTH_WEEKDAY_RE = re.compile(r"^monthly:(\d|L)(MO|TU|WE|TH|FR|SA|SU)$", re.IGNORECASE)
 _MONTHLY_DAY_RE = re.compile(r"^monthly:(\d{1,2})$", re.IGNORECASE)
+_WEEKLY_DAYS_RE = re.compile(r"^weekly:((?:MO|TU|WE|TH|FR|SA|SU)(?:,(?:MO|TU|WE|TH|FR|SA|SU))*)$", re.IGNORECASE)
+_DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+_DAY_CODES = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 
 
 def is_hourly_recurrence(pattern: str | None) -> bool:
@@ -129,6 +132,14 @@ def shifted_series_pattern(pattern: str | None, shifted_dt: datetime) -> str | N
 
     raw = pattern.strip()
     normalized = raw.lower()
+    day_code = _DAY_CODES[shifted_dt.weekday()]
+
+    if normalized in _DAY_NAMES:
+        return _DAY_NAMES[shifted_dt.weekday()]
+
+    m = _WEEKLY_DAYS_RE.match(raw)
+    if m:
+        return f"weekly:{day_code}".lower()
 
     m = _MONTHLY_NTH_WEEKDAY_RE.match(raw)
     if m:
@@ -152,7 +163,7 @@ def shifted_series_pattern(pattern: str | None, shifted_dt: datetime) -> str | N
 
 
 def shifted_rrule(rrule: str | None, shifted_dt: datetime) -> str | None:
-    """Adjust monthly RRULE date selectors to a shifted series anchor."""
+    """Adjust RRULE date selectors to a shifted series anchor."""
     if not rrule:
         return rrule
 
@@ -166,10 +177,16 @@ def shifted_rrule(rrule: str | None, shifted_dt: datetime) -> str | None:
         parts[key] = value
         order.append(key)
 
-    if parts.get("FREQ", "").upper() != "MONTHLY":
+    day_codes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+    freq = parts.get("FREQ", "").upper()
+
+    if freq == "WEEKLY" and "BYDAY" in parts:
+        parts["BYDAY"] = day_codes[shifted_dt.weekday()]
+        return ";".join(f"{key}={parts[key]}" for key in order if key in parts)
+
+    if freq != "MONTHLY":
         return rrule
 
-    day_codes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
     if "BYSETPOS" in parts and "BYDAY" in parts and "," not in parts["BYDAY"]:
         first = shifted_dt.replace(day=1)
         count = 0

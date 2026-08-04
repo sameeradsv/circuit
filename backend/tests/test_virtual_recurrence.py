@@ -364,6 +364,32 @@ def test_weekday_reschedule_updates_original_time_reference(client, auth):
         assert (next_dt.weekday(), next_dt.hour, next_dt.minute) == expected
 
 
+def test_series_edit_shift_updates_weekly_rule(client, auth):
+    saturday = datetime(2026, 1, 3, 9, 0, tzinfo=_IST)
+    sunday = saturday + timedelta(days=1)
+    task = _create_recurring(client, auth, "Weekend chores", saturday, "weekly:SA")
+
+    r = client.post(
+        f"/api/calendar/series/{task['id']}/edit",
+        json={
+            "scope": "all",
+            "patch": {"scheduled_at": _ms(sunday)},
+        },
+        headers=auth,
+    )
+
+    assert r.status_code == 200
+    updated = client.get("/api/tasks", headers=auth).json()
+    source = next(row for row in updated if row["id"] == task["id"])
+    assert source["scheduled_at"] == _ms(sunday)
+    assert source["recurrence"] == "weekly:su"
+
+    rows = _range(client, auth, sunday, sunday + timedelta(days=15))
+    starts = [row["scheduled_at"] for row in rows if row["text"] == "Weekend chores"]
+    assert _ms(sunday) in starts
+    assert _ms(sunday + timedelta(days=7)) in starts
+
+
 def test_repeated_virtual_completions_do_not_leave_open_duplicates(client, auth):
     start = datetime(2026, 1, 5, 9, 0, tzinfo=_IST)
     _create_recurring(client, auth, "Daily no dupes", start, "daily")
